@@ -11,7 +11,7 @@ app = FastAPI()
 @app.get("/dashboard")
 def dashboard():
     return FileResponse("index.html")
-    
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -160,8 +160,67 @@ def get_portfolio_weight(results):
 def root():
     return {"status": "MAGU STOCK API 실행 중"}
 
+import concurrent.futures
+
+def fetch_single_stock(ticker, market):
+    try:
+        stock = yf.Ticker(ticker)
+        info = stock.info
+        hist_daily = stock.history(period="1y")
+        hist_weekly = stock.history(period="2y", interval="1wk")
+
+        if hist_daily.empty or len(hist_daily) < 20:
+            return None
+
+        classic = calculate_classic_score(info, hist_weekly, hist_daily)
+        growth = calculate_growth_score(info, hist_daily)
+        modern = calculate_modern_score(info, hist_daily)
+        total = classic + growth + modern
+
+        current_price = hist_daily['Close'].iloc[-1]
+        prev_price = hist_daily['Close'].iloc[-2]
+        change_pct = (current_price / prev_price - 1) * 100
+
+        return {
+            "ticker": ticker,
+            "name": info.get('longName', ticker),
+            "price": round(current_price, 2),
+            "change_pct": round(change_pct, 2),
+            "classic_score": classic,
+            "growth_score": growth,
+            "modern_score": modern,
+            "total_score": total,
+            "recommendation": get_recommendation(total),
+            "weight": 0,
+            "roe": round((info.get('returnOnEquity', 0) or 0) * 100, 1),
+            "peg": info.get('pegRatio', 0) or 0,
+            "rsi": 0,
+        }
+    except:
+        return None
+
 @app.get("/api/screen/{market}")
 def screen_stocks(market: str = "us"):
+    tickers = TICKERS_US if market == "us" else TICKERS_KR
+    results = []
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        futures = {executor.submit(fetch_single_stock, t, market): t for t in tickers}
+        for future in concurrent.futures.as_completed(futures):
+            result = future.result()
+            if result:
+                results.append(result)
+
+    results.sort(key=lambda x: x['total_score'], reverse=True)
+    results = get_portfolio_weight(results)
+
+    return {
+        "market": market,
+        "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "total_screened": len(results),
+        "results": results
+    }
+
     tickers = TICKERS_US if market == "us" else TICKERS_KR
     results = []
 
