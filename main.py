@@ -20,11 +20,24 @@ app.add_middleware(
 )
 
 # 스크리닝할 종목 리스트 (미국 + 한국 대표 종목)
-TICKERS_US = [
-    "AAPL","MSFT","GOOGL","AMZN","NVDA","META","TSLA","JPM","V","JNJ",
-    "UNH","XOM","PG","MA","HD","CVX","MRK","ABBV","PEP","KO",
-    "AVGO","COST","WMT","BAC","CRM","TMO","ACN","MCD","NEE","LIN"
-]
+def get_sp500_tickers():
+    try:
+        table = pd.read_html('https://en.wikipedia.org/wiki/List_of_S%26P_500_companies')
+        return table[0]['Symbol'].str.replace('.','-').tolist()
+    except:
+        return []
+
+def get_nasdaq100_tickers():
+    try:
+        table = pd.read_html('https://en.wikipedia.org/wiki/Nasdaq-100')
+        return table[4]['Ticker'].tolist()
+    except:
+        return []
+
+_sp500 = get_sp500_tickers()[:100]
+_nasdaq100 = get_nasdaq100_tickers()
+TICKERS_US = list(set(_sp500 + _nasdaq100))
+print(f"✅ 종목 로드 완료: 총 {len(TICKERS_US)}개")
 TICKERS_KR = [
     "005930.KS","000660.KS","035420.KS","005380.KS","051910.KS",
     "006400.KS","028260.KS","105560.KS","012330.KS","066570.KS",
