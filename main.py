@@ -155,7 +155,34 @@ def get_portfolio_weight(results):
         else:
             r['weight'] = 0
     return results
-
+@app.get("/api/market")
+def get_market_data():
+    try:
+        tickers = {
+            "gold": "GC=F",
+            "wti": "CL=F", 
+            "usdkrw": "KRW=X",
+            "us10y": "^TNX",
+            "vix": "^VIX"
+        }
+        result = {}
+        for key, symbol in tickers.items():
+            try:
+                t = yf.Ticker(symbol)
+                hist = t.history(period="2d")
+                if len(hist) >= 2:
+                    current = hist['Close'].iloc[-1]
+                    prev = hist['Close'].iloc[-2]
+                    chg = (current / prev - 1) * 100
+                    result[key] = {
+                        "value": round(current, 2),
+                        "change": round(chg, 2)
+                    }
+            except:
+                result[key] = {"value": 0, "change": 0}
+        return result
+    except:
+        return {}
 @app.get("/")
 def root():
     return {"status": "MAGU STOCK API 실행 중"}

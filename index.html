@@ -427,7 +427,40 @@ function updateInvestWeight(data) {
   document.getElementById('fear-sub').textContent =
     `매수 신호 종목 ${buyCount}개 / 전체 ${total}개 기준`;
 }
+async function loadMarketData() {
+    try {
+        const res = await fetch(`${API}/api/market`);
+        const d = await res.json();
+        const fmt = (v, prefix='') => prefix + v.toLocaleString();
+        const chgHtml = (c) => `<span class="${c>=0?'up':'dn'}">${c>=0?'▲':'▼'}${Math.abs(c).toFixed(2)}%</span>`;
 
+        if(d.gold) {
+            document.getElementById('gold-val').textContent = '$' + d.gold.value.toLocaleString();
+            document.getElementById('gold-chg').innerHTML = chgHtml(d.gold.change);
+        }
+        if(d.wti) {
+            document.getElementById('wti-val').textContent = '$' + d.wti.value.toFixed(1);
+            document.getElementById('wti-chg').innerHTML = chgHtml(d.wti.change);
+        }
+        if(d.usdkrw) {
+            document.getElementById('krw-val').textContent = '₩' + Math.round(d.usdkrw.value).toLocaleString();
+            document.getElementById('krw-chg').innerHTML = chgHtml(d.usdkrw.change);
+        }
+        if(d.us10y) {
+            document.getElementById('bond-val').textContent = d.us10y.value.toFixed(2) + '%';
+            document.getElementById('bond-chg').innerHTML = chgHtml(d.us10y.change);
+        }
+        if(d.vix) {
+            document.getElementById('vix-val').textContent = d.vix.value.toFixed(1);
+            document.getElementById('vix-chg').innerHTML = chgHtml(d.vix.change);
+        }
+    } catch(e) {
+        console.log('시장 데이터 로드 실패', e);
+    }
+}
+
+loadMarketData();
+setInterval(loadMarketData, 300000);
 // 시장 상태
 const now = new Date();
 const h = now.getHours();
