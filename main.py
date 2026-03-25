@@ -288,7 +288,6 @@ def get_stock_score(ticker: str):
 
 # ── 백테스트 ────────────────────────────────────────────────────
 def score_at_date(hist_daily, hist_weekly, info, cutoff_idx):
-    """특정 과거 시점의 데이터만 잘라서 점수 계산"""
     d = hist_daily.iloc[:cutoff_idx]
     w = hist_weekly[hist_weekly.index <= hist_daily.index[cutoff_idx - 1]]
     if len(d) < 20:
@@ -310,7 +309,6 @@ def backtest_single(ticker, hold_days, score_threshold):
         sp500 = yf.Ticker("^GSPC").history(period="2y")
         signals = []
 
-        # 2개월 간격으로 과거 시점마다 점수 계산
         step = 40
         for i in range(60, len(hist) - hold_days, step):
             result = score_at_date(hist, histw, info, i)
@@ -350,7 +348,6 @@ def backtest_single(ticker, hold_days, score_threshold):
 
 @app.get("/api/backtest")
 def run_backtest(market: str = "us", hold_days: int = 30, score_threshold: int = 55):
-    # 백테스트는 상위 30개 종목만 (속도)
     tickers = TICKERS_US[:30] if market == "us" else TICKERS_KR
 
     all_signals = []
@@ -384,7 +381,6 @@ def run_backtest(market: str = "us", hold_days: int = 30, score_threshold: int =
     avg_sp   = round(sum(s["sp500_ret"]  for s in all_signals) / total, 2) if total > 0 else 0
     alpha    = round(avg_ret - avg_sp, 2)
 
-    # 점수 구간별 승률
     bands = [
         {"label": "70점 이상", "min": 70, "max": 100},
         {"label": "65~69점",   "min": 65, "max": 69},
@@ -400,7 +396,6 @@ def run_backtest(market: str = "us", hold_days: int = 30, score_threshold: int =
             wr = 0
         band_stats.append({"label": b["label"], "win_rate": wr, "count": len(filtered)})
 
-    # 보유기간별 수익률 (10/20/30/45/60/90일)
     period_rets = []
     sample_tickers = tickers[:10]
     for days in [10, 20, 30, 45, 60, 90]:
@@ -415,7 +410,6 @@ def run_backtest(market: str = "us", hold_days: int = 30, score_threshold: int =
             avg, sp = 0, 0
         period_rets.append({"days": days, "magu": avg, "sp500": sp})
 
-    # 최고 성과 모델 판단
     classic_wins = [s for s in all_signals if s["classic_score"] >= 20 and s["win"]]
     growth_wins  = [s for s in all_signals if s["growth_score"]  >= 30 and s["win"]]
     modern_wins  = [s for s in all_signals if s["total_score"] - s["classic_score"] - s["growth_score"] >= 20 and s["win"]]
