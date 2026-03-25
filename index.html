@@ -14,7 +14,7 @@
     --orange:#f59e0b;--purple:#8b5cf6;
   }
   body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:var(--text);display:flex;min-height:100vh;font-size:13px;}
-  .sidebar{width:180px;background:var(--sidebar);min-height:100vh;display:flex;flex-direction:column;flex-shrink:0;position:fixed;top:0;left:0;height:100%;}
+  .sidebar{width:190px;background:var(--sidebar);min-height:100vh;display:flex;flex-direction:column;flex-shrink:0;position:fixed;top:0;left:0;height:100%;overflow-y:auto;}
   .logo-area{padding:20px 16px 16px;border-bottom:1px solid rgba(255,255,255,.07);}
   .logo-name{font-size:15px;font-weight:800;color:#fff;}
   .logo-badge{font-size:9px;background:var(--blue);color:#fff;padding:2px 6px;border-radius:3px;margin-left:5px;vertical-align:middle;font-weight:700;}
@@ -26,8 +26,12 @@
   .nav-icon{font-size:14px;width:16px;text-align:center;}
   .nav-sub{font-size:9px;color:rgba(255,255,255,.2);margin-top:1px;}
   .sidebar-footer{padding:12px 16px;border-top:1px solid rgba(255,255,255,.07);}
-  .mkt-row{display:flex;justify-content:space-between;font-size:10px;color:rgba(255,255,255,.25);margin-bottom:4px;}
-  .main{flex:1;padding:20px 24px;overflow:auto;margin-left:180px;}
+  .idx-title{font-size:9px;color:rgba(255,255,255,.3);font-weight:600;margin-bottom:6px;letter-spacing:.5px;}
+  .idx-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;}
+  .idx-name{font-size:10px;color:rgba(255,255,255,.4);}
+  .idx-val{font-size:10px;font-weight:600;color:rgba(255,255,255,.6);}
+  .idx-chg{font-size:9px;}
+  .main{flex:1;padding:20px 24px;overflow:auto;margin-left:190px;}
   .topbar{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:18px;}
   .page-title{font-size:22px;font-weight:800;}
   .update-row{font-size:11px;color:var(--sub);margin-top:5px;display:flex;align-items:center;gap:6px;}
@@ -60,7 +64,7 @@
   .model-card:hover{box-shadow:0 4px 12px rgba(0,0,0,.08);}
   .model-head{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;}
   .model-title{font-size:13px;font-weight:700;}
-  .model-sub{font-size:10px;color:var(--sub);margin-top:1px;}
+  .model-sub-text{font-size:10px;color:var(--sub);margin-top:1px;}
   .model-count{font-size:24px;font-weight:800;color:var(--blue);line-height:1;}
   .model-total{font-size:10px;color:var(--sub);}
   .stock-row{display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid var(--border);}
@@ -78,7 +82,7 @@
   .pick-rank{font-size:11px;font-weight:700;color:var(--blue);margin-bottom:3px;}
   .pick-name{font-size:13px;font-weight:700;margin-bottom:1px;}
   .pick-code{font-size:10px;color:var(--sub);margin-bottom:8px;}
-  .pick-circle{width:44px;height:44px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:800;border:3px solid var(--blue);color:#1d4ed8;}
+  .pick-circle{width:44px;height:44px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:800;}
   .table-wrap{overflow-x:auto;}
   .stbl{width:100%;border-collapse:collapse;font-size:12px;}
   .stbl th{padding:9px 12px;text-align:left;font-size:11px;color:var(--sub);font-weight:600;border-bottom:1px solid var(--border);white-space:nowrap;}
@@ -98,11 +102,7 @@
   .section-title{font-size:14px;font-weight:700;margin-bottom:12px;display:flex;align-items:center;gap:6px;}
   .section-right{font-size:10px;color:var(--sub);font-weight:400;margin-left:auto;}
   .empty{text-align:center;padding:30px;color:var(--sub);font-size:12px;}
-
-  /* 모델 상세 페이지 */
-  .model-overlay{display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:var(--bg);z-index:100;overflow-y:auto;}
-  .model-overlay-inner{margin-left:180px;padding:24px;}
-  .back-btn{background:#fff;border:1px solid var(--border);border-radius:8px;padding:8px 16px;cursor:pointer;font-size:13px;font-weight:600;margin-right:12px;}
+  .back-btn{background:#fff;border:1px solid var(--border);border-radius:8px;padding:8px 16px;cursor:pointer;font-size:13px;font-weight:600;}
   .back-btn:hover{background:#f1f5f9;}
   .filter-btn{padding:5px 12px;border-radius:20px;border:1px solid var(--border);background:#fff;color:var(--sub);font-size:11px;font-weight:600;cursor:pointer;transition:all .15s;}
   .filter-btn.active{background:#eff6ff;color:#1d4ed8;border-color:#3b82f6;}
@@ -136,16 +136,42 @@
     </div>
   </nav>
   <div class="sidebar-footer">
-    <div class="mkt-row"><span>S&P 500</span><span id="sp500">—</span></div>
-    <div class="mkt-row"><span>NASDAQ</span><span id="nasdaq">—</span></div>
-    <div class="mkt-row"><span>KOSPI</span><span id="kospi">—</span></div>
+    <div class="idx-title">시장 지수</div>
+    <div class="idx-row">
+      <span class="idx-name">S&P 500</span>
+      <div style="text-align:right;">
+        <div class="idx-val" id="sp500-val">—</div>
+        <div class="idx-chg" id="sp500-chg"></div>
+      </div>
+    </div>
+    <div class="idx-row">
+      <span class="idx-name">NASDAQ</span>
+      <div style="text-align:right;">
+        <div class="idx-val" id="nasdaq-val">—</div>
+        <div class="idx-chg" id="nasdaq-chg"></div>
+      </div>
+    </div>
+    <div class="idx-row">
+      <span class="idx-name">DOW</span>
+      <div style="text-align:right;">
+        <div class="idx-val" id="dow-val">—</div>
+        <div class="idx-chg" id="dow-chg"></div>
+      </div>
+    </div>
+    <div class="idx-row">
+      <span class="idx-name">RUSSELL</span>
+      <div style="text-align:right;">
+        <div class="idx-val" id="russell-val">—</div>
+        <div class="idx-chg" id="russell-chg"></div>
+      </div>
+    </div>
   </div>
 </div>
 
 <!-- MAIN -->
 <div class="main">
 
-  <!-- ===== 대시보드 페이지 ===== -->
+  <!-- 대시보드 -->
   <div id="page-dashboard">
     <div class="topbar">
       <div>
@@ -160,6 +186,7 @@
         <button class="run-btn" id="run-btn" onclick="runScreener()">🔄 전체 스크리닝 실행</button>
       </div>
     </div>
+
     <div class="mkt-grid">
       <div class="mkt-card"><div class="mkt-label">🏅 금 (Gold)</div><div class="mkt-val" id="gold-val">—</div><div class="mkt-chg" id="gold-chg">—</div></div>
       <div class="mkt-card"><div class="mkt-label">🛢 WTI 유가</div><div class="mkt-val" id="wti-val">—</div><div class="mkt-chg" id="wti-chg">—</div></div>
@@ -167,16 +194,17 @@
       <div class="mkt-card"><div class="mkt-label">🏦 US 10Y</div><div class="mkt-val" id="bond-val">—</div><div class="mkt-chg" id="bond-chg">—</div></div>
       <div class="mkt-card"><div class="mkt-label">📉 VIX</div><div class="mkt-val" id="vix-val">—</div><div class="mkt-chg" id="vix-chg">—</div></div>
     </div>
+
     <div class="fi-grid">
       <div class="card">
-        <div class="section-title">📊 공포탐욕 지수 <span class="section-right">VIX 기반 자동 계산</span></div>
+        <div class="section-title">📊 공포탐욕 지수 <span class="section-right">스크리닝 결과 기반</span></div>
         <div class="fear-bar"><div class="fear-needle" id="fear-needle" style="left:50%"></div></div>
         <div class="fear-labels"><span>극단공포</span><span>공포</span><span>중립</span><span>탐욕</span><span>극단탐욕</span></div>
         <div style="display:flex;align-items:baseline;margin-top:8px;">
           <div class="fear-num" id="fear-num">—</div>
           <div style="font-size:13px;font-weight:600;color:var(--orange);margin-left:10px;" id="fear-label">계산중</div>
         </div>
-        <div style="font-size:10px;color:var(--sub);margin-top:4px;" id="fear-sub">VIX 기반 산출</div>
+        <div style="font-size:10px;color:var(--sub);margin-top:4px;" id="fear-sub">스크리닝 실행 후 계산</div>
       </div>
       <div class="card">
         <div class="section-title">📦 AI 투자 비중 추천</div>
@@ -186,10 +214,11 @@
         <div class="inv-note" id="inv-note">💡 스크리닝 실행 후 AI 추천 비중이 표시됩니다.</div>
       </div>
     </div>
+
     <div class="model-grid">
       <div class="model-card" onclick="showPage('classic')">
         <div class="model-head">
-          <div><div style="display:flex;align-items:center;gap:6px;"><span style="font-size:18px;">📊</span><div><div class="model-title">Classic Model</div><div class="model-sub">엘더 3중 스크린 (30점)</div></div></div></div>
+          <div style="display:flex;align-items:center;gap:6px;"><span style="font-size:18px;">📊</span><div><div class="model-title">Classic Model</div><div class="model-sub-text">엘더 3중 스크린 (30점)</div></div></div>
           <div style="text-align:right;"><div class="model-count" id="classic-count">—</div><div class="model-total">/ 30점</div></div>
         </div>
         <div id="classic-stocks"><div class="empty">스크리닝 실행 전</div></div>
@@ -197,7 +226,7 @@
       </div>
       <div class="model-card" onclick="showPage('growth')">
         <div class="model-head">
-          <div><div style="display:flex;align-items:center;gap:6px;"><span style="font-size:18px;">📈</span><div><div class="model-title">Growth Model</div><div class="model-sub">퀀트펀더멘털 (40점)</div></div></div></div>
+          <div style="display:flex;align-items:center;gap:6px;"><span style="font-size:18px;">📈</span><div><div class="model-title">Growth Model</div><div class="model-sub-text">퀀트펀더멘털 (40점)</div></div></div>
           <div style="text-align:right;"><div class="model-count" id="growth-count">—</div><div class="model-total">/ 40점</div></div>
         </div>
         <div id="growth-stocks"><div class="empty">스크리닝 실행 전</div></div>
@@ -205,15 +234,17 @@
       </div>
       <div class="model-card" onclick="showPage('modern')">
         <div class="model-head">
-          <div><div style="display:flex;align-items:center;gap:6px;"><span style="font-size:18px;">🤖</span><div><div class="model-title">Modern Model</div><div class="model-sub">AI & 심리 (30점)</div></div></div></div>
+          <div style="display:flex;align-items:center;gap:6px;"><span style="font-size:18px;">🤖</span><div><div class="model-title">Modern Model</div><div class="model-sub-text">AI & 심리 (30점)</div></div></div>
           <div style="text-align:right;"><div class="model-count" id="modern-count">—</div><div class="model-total">/ 30점</div></div>
         </div>
         <div id="modern-stocks"><div class="empty">스크리닝 실행 전</div></div>
         <button class="model-btn">자세히 보기 →</button>
       </div>
     </div>
+
     <div class="section-title">🏆 오늘의 베스트 픽 <span class="section-right">Magu Score 상위 종목</span></div>
     <div class="picks-grid" id="best-picks"><div class="empty" style="grid-column:1/-1;">🔄 스크리닝 실행 버튼을 눌러주세요</div></div>
+
     <div class="card">
       <div class="section-title">전체 스크리닝 결과 <span class="section-right" id="screened-count"></span></div>
       <div class="table-wrap">
@@ -229,14 +260,11 @@
     </div>
   </div>
 
-  <!-- ===== Classic 모델 페이지 ===== -->
+  <!-- Classic 페이지 -->
   <div id="page-classic" style="display:none;">
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;">
       <button class="back-btn" onclick="showPage('dashboard')">← 대시보드</button>
-      <div>
-        <div class="page-title">📊 Classic Model</div>
-        <div style="font-size:11px;color:var(--sub);margin-top:3px;">알렉산더 엘더 3중 스크린 · 30점 만점</div>
-      </div>
+      <div><div class="page-title">📊 Classic Model</div><div style="font-size:11px;color:var(--sub);margin-top:3px;">알렉산더 엘더 3중 스크린 · 30점 만점</div></div>
     </div>
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px;">
       <div class="cond-step" style="background:#eff6ff;border:1px solid #bfdbfe;">
@@ -255,14 +283,11 @@
     <div id="classic-page-content"><div class="empty" style="background:#fff;border-radius:12px;border:1px solid var(--border);padding:40px;">먼저 대시보드에서 스크리닝을 실행해주세요</div></div>
   </div>
 
-  <!-- ===== Growth 모델 페이지 ===== -->
+  <!-- Growth 페이지 -->
   <div id="page-growth" style="display:none;">
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;">
       <button class="back-btn" onclick="showPage('dashboard')">← 대시보드</button>
-      <div>
-        <div class="page-title">📈 Growth Model</div>
-        <div style="font-size:11px;color:var(--sub);margin-top:3px;">퀀트펀더멘털 성장주 스크린 · 40점 만점</div>
-      </div>
+      <div><div class="page-title">📈 Growth Model</div><div style="font-size:11px;color:var(--sub);margin-top:3px;">퀀트펀더멘털 성장주 스크린 · 40점 만점</div></div>
     </div>
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px;">
       <div class="cond-step" style="background:#f0fdf4;border:1px solid #bbf7d0;">
@@ -281,14 +306,11 @@
     <div id="growth-page-content"><div class="empty" style="background:#fff;border-radius:12px;border:1px solid var(--border);padding:40px;">먼저 대시보드에서 스크리닝을 실행해주세요</div></div>
   </div>
 
-  <!-- ===== Modern 모델 페이지 ===== -->
+  <!-- Modern 페이지 -->
   <div id="page-modern" style="display:none;">
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;">
       <button class="back-btn" onclick="showPage('dashboard')">← 대시보드</button>
-      <div>
-        <div class="page-title">🤖 Modern Model</div>
-        <div style="font-size:11px;color:var(--sub);margin-top:3px;">AI & 심리 스크린 · 30점 만점</div>
-      </div>
+      <div><div class="page-title">🤖 Modern Model</div><div style="font-size:11px;color:var(--sub);margin-top:3px;">AI & 심리 스크린 · 30점 만점</div></div>
     </div>
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px;">
       <div class="cond-step" style="background:#fdf4ff;border:1px solid #e9d5ff;">
@@ -316,7 +338,7 @@ let _lastResults = [];
 
 function showPage(page) {
   ['dashboard','classic','growth','modern'].forEach(p => {
-    document.getElementById('page-'+p).style.display = p===page ? 'block' : 'none';
+    document.getElementById('page-'+p).style.display = p===page?'block':'none';
     const nav = document.getElementById('nav-'+p);
     if(nav) nav.classList.toggle('active', p===page);
   });
@@ -324,9 +346,8 @@ function showPage(page) {
     if(_lastResults.length > 0) {
       renderModelPage(page);
     } else {
-      alert('먼저 대시보드에서 스크리닝을 실행해주세요!');
-      showPage('dashboard');
-      return;
+      document.getElementById(page+'-page-content').innerHTML =
+        '<div class="empty" style="background:#fff;border-radius:12px;border:1px solid var(--border);padding:40px;">먼저 대시보드에서 🔄 스크리닝을 실행해주세요</div>';
     }
   }
   window.scrollTo(0,0);
@@ -352,13 +373,12 @@ function getCircleColor(score) {
 
 function renderModelPage(modelKey) {
   const configs = {
-    classic: {scoreKey:'classic_score', maxScore:30, color:'#3b82f6', label:'Classic'},
-    growth:  {scoreKey:'growth_score',  maxScore:40, color:'#22c55e', label:'Growth'},
-    modern:  {scoreKey:'modern_score',  maxScore:30, color:'#8b5cf6', label:'Modern'}
+    classic:{scoreKey:'classic_score',maxScore:30,color:'#3b82f6',label:'Classic'},
+    growth: {scoreKey:'growth_score', maxScore:40,color:'#22c55e',label:'Growth'},
+    modern: {scoreKey:'modern_score', maxScore:30,color:'#8b5cf6',label:'Modern'}
   };
   const cfg = configs[modelKey];
-  const sorted = [..._lastResults].sort((a,b) => b[cfg.scoreKey] - a[cfg.scoreKey]);
-
+  const sorted = [..._lastResults].sort((a,b)=>b[cfg.scoreKey]-a[cfg.scoreKey]);
   const html = `
     <div style="background:#fff;border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
       <span style="font-size:12px;font-weight:600;color:var(--sub);">필터:</span>
@@ -376,21 +396,20 @@ function renderModelPage(modelKey) {
           <th>${cfg.label} 점수 (${cfg.maxScore}점)</th>
           <th>Magu Score</th><th>추천</th><th>조건</th>
         </tr></thead>
-        <tbody id="tbody-${modelKey}">${buildModelRows(sorted, cfg)}</tbody>
+        <tbody id="tbody-${modelKey}">${buildModelRows(sorted,cfg)}</tbody>
       </table>
     </div>`;
-
   document.getElementById(modelKey+'-page-content').innerHTML = html;
 }
 
 function buildModelRows(data, cfg) {
   if(!data.length) return '<tr><td colspan="8" class="empty">해당 조건의 종목이 없습니다</td></tr>';
-  return data.map((s,i) => {
+  return data.map((s,i)=>{
     const score = s[cfg.scoreKey];
     const pct = Math.round((score/cfg.maxScore)*100);
-    const s1 = score >= Math.round(cfg.maxScore*0.33) ? '✅' : '❌';
-    const s2 = score >= Math.round(cfg.maxScore*0.67) ? '✅' : '❌';
-    const s3 = score >= cfg.maxScore ? '✅' : '❌';
+    const s1 = score >= Math.round(cfg.maxScore*0.33) ? '✅':'❌';
+    const s2 = score >= Math.round(cfg.maxScore*0.67) ? '✅':'❌';
+    const s3 = score >= cfg.maxScore ? '✅':'❌';
     return `<tr style="border-bottom:1px solid #f1f5f9;" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background=''">
       <td style="padding:10px 12px;font-weight:700;color:var(--sub);">${i+1}</td>
       <td style="padding:10px 12px;"><div class="tname">${s.name.length>20?s.ticker:s.name}</div><div class="tcode">${s.ticker}</div></td>
@@ -419,8 +438,8 @@ function buildModelRows(data, cfg) {
 }
 
 function applyFilter(modelKey, type, btn) {
-  if(btn) {
-    document.querySelectorAll(`#${modelKey}-page-content .filter-btn`).forEach(b => b.classList.remove('active'));
+  if(btn){
+    document.querySelectorAll(`#${modelKey}-page-content .filter-btn`).forEach(b=>b.classList.remove('active'));
     btn.classList.add('active');
   }
   const configs = {
@@ -429,14 +448,14 @@ function applyFilter(modelKey, type, btn) {
     modern: {scoreKey:'modern_score', maxScore:30,color:'#8b5cf6',label:'Modern'}
   };
   const cfg = configs[modelKey];
-  let data = [..._lastResults].sort((a,b) => b[cfg.scoreKey] - a[cfg.scoreKey]);
-  const search = document.getElementById('search-'+modelKey)?.value.toLowerCase() || '';
-  if(type==='search' || search) {
-    data = data.filter(s => s.name.toLowerCase().includes(search) || s.ticker.toLowerCase().includes(search));
-  } else if(type !== 'all') {
-    data = data.filter(s => s.recommendation === type);
+  let data = [..._lastResults].sort((a,b)=>b[cfg.scoreKey]-a[cfg.scoreKey]);
+  const search = document.getElementById('search-'+modelKey)?.value.toLowerCase()||'';
+  if(type==='search'||search){
+    data = data.filter(s=>s.name.toLowerCase().includes(search)||s.ticker.toLowerCase().includes(search));
+  } else if(type!=='all'){
+    data = data.filter(s=>s.recommendation===type);
   }
-  document.getElementById('tbody-'+modelKey).innerHTML = buildModelRows(data, cfg);
+  document.getElementById('tbody-'+modelKey).innerHTML = buildModelRows(data,cfg);
 }
 
 async function runScreener() {
@@ -467,21 +486,17 @@ function renderResults(data) {
   const topClassic = [...results].sort((a,b)=>b.classic_score-a.classic_score).slice(0,3);
   const topGrowth  = [...results].sort((a,b)=>b.growth_score-a.growth_score).slice(0,3);
   const topModern  = [...results].sort((a,b)=>b.modern_score-a.modern_score).slice(0,3);
-
   document.getElementById('classic-count').textContent = topClassic[0]?.classic_score||0;
   document.getElementById('growth-count').textContent  = topGrowth[0]?.growth_score||0;
   document.getElementById('modern-count').textContent  = topModern[0]?.modern_score||0;
-
   const renderStocks = (stocks) => stocks.map(s=>`
     <div class="stock-row">
       <span class="sname">${s.name.length>16?s.ticker:s.name}</span>
       ${getBadge(s.recommendation)}
     </div>`).join('');
-
   document.getElementById('classic-stocks').innerHTML = renderStocks(topClassic);
   document.getElementById('growth-stocks').innerHTML  = renderStocks(topGrowth);
   document.getElementById('modern-stocks').innerHTML  = renderStocks(topModern);
-
   const top5 = results.slice(0,5);
   document.getElementById('best-picks').innerHTML = top5.map((s,i)=>`
     <div class="pick-card" ${i===0?'style="border-color:#bfdbfe;"':''}>
@@ -490,15 +505,13 @@ function renderResults(data) {
       <div class="pick-code">${s.ticker}</div>
       <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;">
         <div style="font-size:10px;color:var(--sub);">C:${s.classic_score} G:${s.growth_score} M:${s.modern_score}</div>
-        <div class="pick-circle" style="border-color:${getCircleColor(s.total_score)};color:${getCircleColor(s.total_score)};">${s.total_score}</div>
+        <div class="pick-circle" style="border:3px solid ${getCircleColor(s.total_score)};color:${getCircleColor(s.total_score)};">${s.total_score}</div>
       </div>
       <div style="margin-top:8px;">${getBadge(s.recommendation)}</div>
     </div>`).join('');
-
   updateInvestWeight(data);
   document.getElementById('screened-count').textContent =
     `총 ${results.length}개 종목 · Classic 30 + Growth 40 + Modern 30 = 100점 만점`;
-
   document.getElementById('result-table').innerHTML = results.map(s=>`
     <tr>
       <td><div class="tname">${s.name.length>20?s.ticker:s.name}</div><div class="tcode">${s.ticker}</div></td>
@@ -516,7 +529,7 @@ function renderResults(data) {
 function updateInvestWeight(data) {
   const buyCount = data.results.filter(r=>['Strong Buy','Buy'].includes(r.recommendation)).length;
   const total = data.results.length;
-  const bullRatio = total>0 ? buyCount/total : 0.5;
+  const bullRatio = total>0?buyCount/total:0.5;
   const stockPct = Math.round(40+bullRatio*40);
   const cashPct  = Math.round((100-stockPct)*0.6);
   const bondPct  = 100-stockPct-cashPct;
@@ -526,9 +539,9 @@ function updateInvestWeight(data) {
   document.getElementById('stock-pct').textContent  = stockPct+'%';
   document.getElementById('cash-pct').textContent   = cashPct+'%';
   document.getElementById('bond-pct').textContent   = bondPct+'%';
-  const note = stockPct>=70 ? '🚀 매수 신호 강함 — 주식 비중을 높이세요.'
-    : stockPct>=55 ? '💡 중립 — 기존 포트폴리오를 유지하세요.'
-    : '⚠️ 방어적 시장 — 현금 비중을 늘리세요.';
+  const note = stockPct>=70?'🚀 매수 신호 강함 — 주식 비중을 높이세요.'
+    :stockPct>=55?'💡 중립 — 기존 포트폴리오를 유지하세요.'
+    :'⚠️ 방어적 시장 — 현금 비중을 늘리세요.';
   document.getElementById('inv-note').textContent = note;
   const fearScore = Math.round(bullRatio*100);
   document.getElementById('fear-num').textContent = fearScore;
@@ -543,11 +556,15 @@ async function loadMarketData() {
     const res = await fetch(`${API}/api/market`);
     const d = await res.json();
     const chgHtml = (c) => `<span class="${c>=0?'up':'dn'}">${c>=0?'▲':'▼'}${Math.abs(c).toFixed(2)}%</span>`;
-    if(d.gold)   { document.getElementById('gold-val').textContent='$'+d.gold.value.toLocaleString(); document.getElementById('gold-chg').innerHTML=chgHtml(d.gold.change); }
-    if(d.wti)    { document.getElementById('wti-val').textContent='$'+d.wti.value.toFixed(1); document.getElementById('wti-chg').innerHTML=chgHtml(d.wti.change); }
-    if(d.usdkrw) { document.getElementById('krw-val').textContent='₩'+Math.round(d.usdkrw.value).toLocaleString(); document.getElementById('krw-chg').innerHTML=chgHtml(d.usdkrw.change); }
-    if(d.us10y)  { document.getElementById('bond-val').textContent=d.us10y.value.toFixed(2)+'%'; document.getElementById('bond-chg').innerHTML=chgHtml(d.us10y.change); }
-    if(d.vix)    { document.getElementById('vix-val').textContent=d.vix.value.toFixed(1); document.getElementById('vix-chg').innerHTML=chgHtml(d.vix.change); }
+    if(d.gold)    { document.getElementById('gold-val').textContent='$'+d.gold.value.toLocaleString(); document.getElementById('gold-chg').innerHTML=chgHtml(d.gold.change); }
+    if(d.wti)     { document.getElementById('wti-val').textContent='$'+d.wti.value.toFixed(1); document.getElementById('wti-chg').innerHTML=chgHtml(d.wti.change); }
+    if(d.usdkrw)  { document.getElementById('krw-val').textContent='₩'+Math.round(d.usdkrw.value).toLocaleString(); document.getElementById('krw-chg').innerHTML=chgHtml(d.usdkrw.change); }
+    if(d.us10y)   { document.getElementById('bond-val').textContent=d.us10y.value.toFixed(2)+'%'; document.getElementById('bond-chg').innerHTML=chgHtml(d.us10y.change); }
+    if(d.vix)     { document.getElementById('vix-val').textContent=d.vix.value.toFixed(1); document.getElementById('vix-chg').innerHTML=chgHtml(d.vix.change); }
+    if(d.sp500)   { document.getElementById('sp500-val').textContent=d.sp500.value.toLocaleString(); document.getElementById('sp500-chg').innerHTML=chgHtml(d.sp500.change); }
+    if(d.nasdaq)  { document.getElementById('nasdaq-val').textContent=d.nasdaq.value.toLocaleString(); document.getElementById('nasdaq-chg').innerHTML=chgHtml(d.nasdaq.change); }
+    if(d.dow)     { document.getElementById('dow-val').textContent=d.dow.value.toLocaleString(); document.getElementById('dow-chg').innerHTML=chgHtml(d.dow.change); }
+    if(d.russell) { document.getElementById('russell-val').textContent=d.russell.value.toLocaleString(); document.getElementById('russell-chg').innerHTML=chgHtml(d.russell.change); }
   } catch(e) {}
 }
 
