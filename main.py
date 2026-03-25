@@ -4,22 +4,22 @@ from fastapi.middleware.cors import CORSMiddleware
 import yfinance as yf
 import ta
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 import concurrent.futures
- 
+
 app = FastAPI()
- 
+
 @app.get("/dashboard")
 def dashboard():
     return FileResponse("index.html")
- 
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
- 
+
 TICKERS_US = list(set([
     "AAPL","MSFT","NVDA","AMZN","META","GOOGL","TSLA","AVGO","COST","NFLX",
     "TMUS","AMD","PEP","LIN","CSCO","ADBE","TXN","QCOM","INTU","AMAT",
@@ -41,13 +41,13 @@ TICKERS_US = list(set([
     "STZ","YUM","ROP","KEYS","AWK","FIS","LHX","DG","CTVA","TDG",
     "LOW","INTC","IBM","GE","F","GM","PFE","UBER","LYFT","SQ"
 ]))
- 
+
 TICKERS_KR = [
     "005930.KS","000660.KS","035420.KS","005380.KS","051910.KS",
     "006400.KS","028260.KS","105560.KS","012330.KS","066570.KS",
     "017670.KS","032830.KS","012450.KS","003550.KS","018260.KS"
 ]
- 
+
 def calculate_classic_score(ticker_data, hist_weekly, hist_daily):
     score = 0
     try:
@@ -72,7 +72,7 @@ def calculate_classic_score(ticker_data, hist_weekly, hist_daily):
     except:
         pass
     return score
- 
+
 def calculate_growth_score(info, hist_daily):
     score = 0
     try:
@@ -100,7 +100,7 @@ def calculate_growth_score(info, hist_daily):
     except:
         pass
     return score
- 
+
 def calculate_modern_score(info, hist_daily):
     score = 0
     try:
@@ -125,13 +125,13 @@ def calculate_modern_score(info, hist_daily):
     except:
         pass
     return score
- 
+
 def get_recommendation(total_score):
     if total_score >= 70: return "Strong Buy"
     elif total_score >= 55: return "Buy"
     elif total_score >= 40: return "Hold"
     else: return "Watch"
- 
+
 def get_portfolio_weight(results):
     buy_stocks = [r for r in results if r['recommendation'] in ['Strong Buy', 'Buy']]
     total_score = sum(r['total_score'] for r in buy_stocks)
@@ -141,7 +141,7 @@ def get_portfolio_weight(results):
         else:
             r['weight'] = 0
     return results
- 
+
 def fetch_single_stock(ticker, market):
     try:
         stock = yf.Ticker(ticker)
@@ -174,11 +174,11 @@ def fetch_single_stock(ticker, market):
         }
     except:
         return None
- 
+
 @app.get("/")
 def root():
     return {"status": "MAGU STOCK API 실행 중"}
- 
+
 @app.get("/api/market")
 def get_market_data():
     try:
@@ -202,7 +202,7 @@ def get_market_data():
         return result
     except:
         return {}
- 
+
 @app.get("/api/screen/{market}")
 def screen_stocks(market: str = "us"):
     tickers = TICKERS_US if market == "us" else TICKERS_KR
@@ -221,7 +221,7 @@ def screen_stocks(market: str = "us"):
         "total_screened": len(results),
         "results": results
     }
- 
+
 # ── 종목 단일 조회 (역방향 점수 계산) ──────────────────────────────
 @app.get("/api/stock/{ticker}")
 def get_stock_score(ticker: str):
@@ -229,40 +229,40 @@ def get_stock_score(ticker: str):
     try:
         stock = yf.Ticker(ticker)
         info = stock.info
- 
+
         # 유효 종목 체크
         price_check = info.get('regularMarketPrice') or info.get('currentPrice') or info.get('previousClose')
         if not info or not price_check:
             return {"error": f"종목을 찾을 수 없습니다: {ticker}"}
- 
+
         hist_daily = stock.history(period="1y")
         hist_weekly = stock.history(period="2y", interval="1wk")
- 
+
         if hist_daily.empty or len(hist_daily) < 20:
             return {"error": "데이터가 부족합니다 (상장 기간이 짧거나 거래 정지)"}
- 
+
         classic = calculate_classic_score(info, hist_weekly, hist_daily)
         growth  = calculate_growth_score(info, hist_daily)
         modern  = calculate_modern_score(info, hist_daily)
         total   = classic + growth + modern
- 
+
         current_price = hist_daily['Close'].iloc[-1]
         prev_price    = hist_daily['Close'].iloc[-2]
         change_pct    = (current_price / prev_price - 1) * 100
- 
+
         # RSI
         rsi_val = 0
         if len(hist_daily) >= 14:
             rsi_val = round(ta.momentum.RSIIndicator(hist_daily['Close'], window=14).rsi().iloc[-1], 1)
- 
+
         # 52주 수익률
         year_return = 0
         if len(hist_daily) >= 252:
             year_return = round((hist_daily['Close'].iloc[-1] / hist_daily['Close'].iloc[-252] - 1) * 100, 1)
- 
+
         # 시가총액 포맷
         mcap = info.get('marketCap') or 0
- 
+
         return {
             "ticker": ticker,
             "name": info.get('longName') or info.get('shortName') or ticker,
@@ -288,3 +288,146 @@ def get_stock_score(ticker: str):
         }
     except Exception as e:
         return {"error": f"조회 실패: {str(e)}"}
+
+
+# ── 백테스트 ────────────────────────────────────────────────────
+def score_at_date(hist_daily, hist_weekly, info, cutoff_idx):
+    """특정 과거 시점의 데이터만 잘라서 점수 계산"""
+    d = hist_daily.iloc[:cutoff_idx]
+    w = hist_weekly[hist_weekly.index <= hist_daily.index[cutoff_idx - 1]]
+    if len(d) < 20:
+        return None
+    classic = calculate_classic_score(info, w, d)
+    growth  = calculate_growth_score(info, d)
+    modern  = calculate_modern_score(info, d)
+    return classic, growth, classic + growth + modern
+
+def backtest_single(ticker, hold_days, score_threshold):
+    try:
+        stock = yf.Ticker(ticker)
+        info  = stock.info
+        hist  = stock.history(period="2y")
+        histw = stock.history(period="3y", interval="1wk")
+        if hist.empty or len(hist) < 60:
+            return []
+
+        sp500 = yf.Ticker("^GSPC").history(period="2y")
+        signals = []
+
+        # 2개월 간격으로 과거 시점마다 점수 계산
+        step = 40
+        for i in range(60, len(hist) - hold_days, step):
+            result = score_at_date(hist, histw, info, i)
+            if result is None:
+                continue
+            classic, growth, total = result
+            if total < score_threshold:
+                continue
+
+            entry_price = hist['Close'].iloc[i]
+            exit_price  = hist['Close'].iloc[i + hold_days]
+            ret = round((exit_price / entry_price - 1) * 100, 2)
+
+            # S&P500 같은 기간 수익률
+            entry_date = hist.index[i]
+            exit_date  = hist.index[i + hold_days]
+            sp_slice = sp500[(sp500.index >= entry_date) & (sp500.index <= exit_date)]
+            sp_ret = 0.0
+            if len(sp_slice) >= 2:
+                sp_ret = round((sp_slice['Close'].iloc[-1] / sp_slice['Close'].iloc[0] - 1) * 100, 2)
+
+            signals.append({
+                "ticker": ticker,
+                "signal_date": entry_date.strftime("%Y.%m.%d"),
+                "entry_price": round(entry_price, 2),
+                "exit_price":  round(exit_price, 2),
+                "return_pct":  ret,
+                "sp500_ret":   sp_ret,
+                "classic_score": classic,
+                "growth_score":  growth,
+                "total_score":   total,
+                "recommendation": get_recommendation(total),
+                "win": ret > 0,
+            })
+        return signals
+    except:
+        return []
+
+@app.get("/api/backtest")
+def run_backtest(market: str = "us", hold_days: int = 30, score_threshold: int = 55):
+    # 백테스트는 상위 30개 종목만 (속도)
+    tickers = TICKERS_US[:30] if market == "us" else TICKERS_KR
+
+    all_signals = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+        futures = {executor.submit(backtest_single, t, hold_days, score_threshold): t for t in tickers}
+        for f in concurrent.futures.as_completed(futures):
+            all_signals.extend(f.result())
+
+    if not all_signals:
+        return {"error": "신호 없음"}
+
+    total   = len(all_signals)
+    wins    = sum(1 for s in all_signals if s["win"])
+    win_rate = round(wins / total * 100, 1) if total > 0 else 0
+    avg_ret  = round(sum(s["return_pct"] for s in all_signals) / total, 2) if total > 0 else 0
+    avg_sp   = round(sum(s["sp500_ret"]  for s in all_signals) / total, 2) if total > 0 else 0
+    alpha    = round(avg_ret - avg_sp, 2)
+
+    # 점수 구간별 승률
+    bands = [
+        {"label": "70점 이상", "min": 70, "max": 100},
+        {"label": "65~69점",   "min": 65, "max": 69},
+        {"label": "55~64점",   "min": 55, "max": 64},
+        {"label": "40~54점",   "min": 40, "max": 54},
+    ]
+    band_stats = []
+    for b in bands:
+        filtered = [s for s in all_signals if b["min"] <= s["total_score"] <= b["max"]]
+        if filtered:
+            wr = round(sum(1 for s in filtered if s["win"]) / len(filtered) * 100, 1)
+        else:
+            wr = 0
+        band_stats.append({"label": b["label"], "win_rate": wr, "count": len(filtered)})
+
+    # 보유기간별 수익률 (10/20/30/45/60/90일) — 대표 종목으로 계산
+    period_rets = []
+    sample_tickers = tickers[:10]
+    for days in [10, 20, 30, 45, 60, 90]:
+        day_signals = []
+        for t in sample_tickers:
+            sigs = backtest_single(t, days, score_threshold)
+            day_signals.extend(sigs)
+        if day_signals:
+            avg = round(sum(s["return_pct"] for s in day_signals) / len(day_signals), 2)
+            sp  = round(sum(s["sp500_ret"]  for s in day_signals) / len(day_signals), 2)
+        else:
+            avg, sp = 0, 0
+        period_rets.append({"days": days, "magu": avg, "sp500": sp})
+
+    # 최고 성과 모델 판단
+    classic_wins = [s for s in all_signals if s["classic_score"] >= 20 and s["win"]]
+    growth_wins  = [s for s in all_signals if s["growth_score"]  >= 30 and s["win"]]
+    modern_wins  = [s for s in all_signals if s["total_score"] - s["classic_score"] - s["growth_score"] >= 20 and s["win"]]
+    best_model = max(
+        [("Classic", len(classic_wins)), ("Growth", len(growth_wins)), ("Modern", len(modern_wins))],
+        key=lambda x: x[1]
+    )[0]
+
+    all_signals.sort(key=lambda x: abs(x["return_pct"]), reverse=True)
+
+    return {
+        "summary": {
+            "total_signals": total,
+            "win_rate": win_rate,
+            "avg_return": avg_ret,
+            "avg_sp500": avg_sp,
+            "alpha": alpha,
+            "hold_days": hold_days,
+            "score_threshold": score_threshold,
+            "best_model": best_model,
+        },
+        "band_stats": band_stats,
+        "period_returns": period_rets,
+        "signals": all_signals[:50],
+    }
