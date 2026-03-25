@@ -222,7 +222,7 @@ def screen_stocks(market: str = "us"):
         "results": results
     }
 
-# ── 종목 단일 조회 (역방향 점수 계산) ──────────────────────────────
+# ── 종목 단일 조회 ──────────────────────────────────────────────
 @app.get("/api/stock/{ticker}")
 def get_stock_score(ticker: str):
     ticker = ticker.upper().strip()
@@ -230,7 +230,6 @@ def get_stock_score(ticker: str):
         stock = yf.Ticker(ticker)
         info = stock.info
 
-        # 유효 종목 체크
         price_check = info.get('regularMarketPrice') or info.get('currentPrice') or info.get('previousClose')
         if not info or not price_check:
             return {"error": f"종목을 찾을 수 없습니다: {ticker}"}
@@ -250,17 +249,14 @@ def get_stock_score(ticker: str):
         prev_price    = hist_daily['Close'].iloc[-2]
         change_pct    = (current_price / prev_price - 1) * 100
 
-        # RSI
         rsi_val = 0
         if len(hist_daily) >= 14:
             rsi_val = round(ta.momentum.RSIIndicator(hist_daily['Close'], window=14).rsi().iloc[-1], 1)
 
-        # 52주 수익률
         year_return = 0
         if len(hist_daily) >= 252:
             year_return = round((hist_daily['Close'].iloc[-1] / hist_daily['Close'].iloc[-252] - 1) * 100, 1)
 
-        # 시가총액 포맷
         mcap = info.get('marketCap') or 0
 
         return {
@@ -328,7 +324,6 @@ def backtest_single(ticker, hold_days, score_threshold):
             exit_price  = hist['Close'].iloc[i + hold_days]
             ret = round((exit_price / entry_price - 1) * 100, 2)
 
-            # S&P500 같은 기간 수익률
             entry_date = hist.index[i]
             exit_date  = hist.index[i + hold_days]
             sp_slice = sp500[(sp500.index >= entry_date) & (sp500.index <= exit_date)]
@@ -339,8 +334,8 @@ def backtest_single(ticker, hold_days, score_threshold):
             signals.append({
                 "ticker": ticker,
                 "signal_date": entry_date.strftime("%Y.%m.%d"),
-                "entry_price": round(entry_price, 2),
-                "exit_price":  round(exit_price, 2),
+                "entry_price": round(float(entry_price), 2),
+                "exit_price":  round(float(exit_price), 2),
                 "return_pct":  ret,
                 "sp500_ret":   sp_ret,
                 "classic_score": classic,
@@ -365,10 +360,25 @@ def run_backtest(market: str = "us", hold_days: int = 30, score_threshold: int =
             all_signals.extend(f.result())
 
     if not all_signals:
-        return {"error": "신호 없음"}
+        return {
+            "summary": {
+                "total_signals": 0,
+                "win_rate": 0,
+                "avg_return": 0,
+                "avg_sp500": 0,
+                "alpha": 0,
+                "hold_days": hold_days,
+                "score_threshold": score_threshold,
+                "best_model": "—",
+            },
+            "band_stats": [],
+            "period_returns": [],
+            "signals": [],
+            "error": "신호 없음 — 점수 기준을 낮추거나 보유 기간을 조정해보세요."
+        }
 
-    total   = len(all_signals)
-    wins    = sum(1 for s in all_signals if s["win"])
+    total    = len(all_signals)
+    wins     = sum(1 for s in all_signals if s["win"])
     win_rate = round(wins / total * 100, 1) if total > 0 else 0
     avg_ret  = round(sum(s["return_pct"] for s in all_signals) / total, 2) if total > 0 else 0
     avg_sp   = round(sum(s["sp500_ret"]  for s in all_signals) / total, 2) if total > 0 else 0
@@ -390,7 +400,7 @@ def run_backtest(market: str = "us", hold_days: int = 30, score_threshold: int =
             wr = 0
         band_stats.append({"label": b["label"], "win_rate": wr, "count": len(filtered)})
 
-    # 보유기간별 수익률 (10/20/30/45/60/90일) — 대표 종목으로 계산
+    # 보유기간별 수익률 (10/20/30/45/60/90일)
     period_rets = []
     sample_tickers = tickers[:10]
     for days in [10, 20, 30, 45, 60, 90]:
