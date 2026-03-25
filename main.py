@@ -1,0 +1,208 @@
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+import yfinance as yf
+import ta
+import pandas as pd
+from datetime import datetime
+
+app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# 스크리닝할 종목 리스트 (미국 + 한국 대표 종목)
+TICKERS_US = [
+    "AAPL","MSFT","GOOGL","AMZN","NVDA","META","TSLA","JPM","V","JNJ",
+    "UNH","XOM","PG","MA","HD","CVX","MRK","ABBV","PEP","KO",
+    "AVGO","COST","WMT","BAC","CRM","TMO","ACN","MCD","NEE","LIN"
+]
+TICKERS_KR = [
+    "005930.KS","000660.KS","035420.KS","005380.KS","051910.KS",
+    "006400.KS","028260.KS","105560.KS","012330.KS","066570.KS",
+    "017670.KS","032830.KS","012450.KS","003550.KS","018260.KS"
+]
+
+def calculate_classic_score(ticker_data, hist_weekly, hist_daily):
+    """Classic Model: 엘더 3중 스크린 (30점)"""
+    score = 0
+    try:
+        # 1단계: 26주 EMA 상승 여부 (10점)
+        if len(hist_weekly) >= 26:
+            ema26 = hist_weekly['Close'].ewm(span=26).mean()
+            if ema26.iloc[-1] > ema26.iloc[-2]:
+                score += 10
+
+        # 2단계: Stochastic 과매도 구간 (10점)
+        if len(hist_daily) >= 14:
+            high = hist_daily['High']
+            low = hist_daily['Low']
+            close = hist_daily['Close']
+            lowest_low = low.rolling(14).min()
+            highest_high = high.rolling(14).max()
+            stoch_k = 100 * (close - lowest_low) / (highest_high - lowest_low)
+            if stoch_k.iloc[-1] < 40:  # 과매도 구간
+                score += 10
+
+        # 3단계: 최근 5일 내 전고점 돌파 시도 (10점)
+        if len(hist_daily) >= 5:
+            recent_high = hist_daily['High'].iloc[-6:-1].max()
+            latest_close = hist_daily['Close'].iloc[-1]
+            if latest_close >= recent_high * 0.98:
+                score += 10
+    except:
+        pass
+    return score
+
+def calculate_growth_score(info, hist_daily):
+    """Growth Model: 퀀트펀더멘털 (40점)"""
+    score = 0
+    try:
+        # 1단계: ROE > 15% (10점)
+        roe = info.get('returnOnEquity', 0) or 0
+        if roe > 0.15:
+            score += 10
+
+        # 부채비율 < 100% (5점)
+        debt_equity = info.get('debtToEquity', 999) or 999
+        if debt_equity < 100:
+            score += 5
+
+        # 2단계: EPS 성장률 > 20% (10점)
+        eps_growth = info.get('earningsGrowth', 0) or 0
+        if eps_growth > 0.20:
+            score += 10
+
+        # PEG < 1.2 (5점)
+        peg = info.get('pegRatio', 999) or 999
+        if 0 < peg < 1.2:
+            score += 5
+
+        # 3단계: 200일선 위 (5점)
+        if len(hist_daily) >= 200:
+            ma200 = hist_daily['Close'].rolling(200).mean().iloc[-1]
+            current = hist_daily['Close'].iloc[-1]
+            if current > ma200:
+                score += 5
+
+        # RSI > 50 (5점)
+        if len(hist_daily) >= 14:
+            rsi = ta.momentum.RSIIndicator(hist_daily['Close'], window=14).rsi()
+            if rsi.iloc[-1] > 50:
+                score += 5
+
+    except:
+        pass
+    return score
+
+def calculate_modern_score(info, hist_daily):
+    """Modern Model: AI 심리 스크린 (30점)"""
+    score = 0
+    try:
+        # 1단계: 실적 상향 (애널리스트 추천 기반) (10점)
+        rec = info.get('recommendationKey', '') or ''
+        if rec in ['strong_buy', 'buy']:
+            score += 10
+        elif rec == 'hold':
+            score += 5
+
+        # 2단계: RS - 52주 수익률 상대 강도 (10점)
+        if len(hist_daily) >= 252:
+            year_return = (hist_daily['Close'].iloc[-1] / hist_daily['Close'].iloc[-252] - 1) * 100
+            if year_return > 20:
+                score += 10
+            elif year_return > 0:
+                score += 5
+
+        # 3단계: 거래량 증가 (모멘텀) (10점)
+        if len(hist_daily) >= 20:
+            avg_vol = hist_daily['Volume'].rolling(20).mean().iloc[-1]
+            recent_vol = hist_daily['Volume'].iloc[-1]
+            if recent_vol > avg_vol * 1.2:
+                score += 10
+            elif recent_vol > avg_vol:
+                score += 5
+
+    except:
+        pass
+    return score
+
+def get_recommendation(total_score):
+    if total_score >= 70:
+        return "Strong Buy"
+    elif total_score >= 55:
+        return "Buy"
+    elif total_score >= 40:
+        return "Hold"
+    else:
+        return "Watch"
+
+def get_portfolio_weight(results):
+    """점수 비례 포트폴리오 비중 계산"""
+    buy_stocks = [r for r in results if r['recommendation'] in ['Strong Buy', 'Buy']]
+    total_score = sum(r['total_score'] for r in buy_stocks)
+    for r in results:
+        if r['recommendation'] in ['Strong Buy', 'Buy'] and total_score > 0:
+            r['weight'] = round((r['total_score'] / total_score) * 100, 1)
+        else:
+            r['weight'] = 0
+    return results
+
+@app.get("/")
+def root():
+    return {"status": "MAGU STOCK API 실행 중"}
+
+@app.get("/api/screen/{market}")
+def screen_stocks(market: str = "us"):
+    tickers = TICKERS_US if market == "us" else TICKERS_KR
+    results = []
+
+    for ticker in tickers:
+        try:
+            stock = yf.Ticker(ticker)
+            info = stock.info
+            hist_daily = stock.history(period="1y")
+            hist_weekly = stock.history(period="2y", interval="1wk")
+
+            if hist_daily.empty or len(hist_daily) < 20:
+                continue
+
+            classic = calculate_classic_score(info, hist_weekly, hist_daily)
+            growth = calculate_growth_score(info, hist_daily)
+            modern = calculate_modern_score(info, hist_daily)
+            total = classic + growth + modern
+
+            current_price = hist_daily['Close'].iloc[-1]
+            prev_price = hist_daily['Close'].iloc[-2]
+            change_pct = (current_price / prev_price - 1) * 100
+
+            results.append({
+                "ticker": ticker,
+                "name": info.get('longName', ticker),
+                "price": round(current_price, 2),
+                "change_pct": round(change_pct, 2),
+                "classic_score": classic,
+                "growth_score": growth,
+                "modern_score": modern,
+                "total_score": total,
+                "recommendation": get_recommendation(total),
+                "weight": 0,
+                "roe": round((info.get('returnOnEquity', 0) or 0) * 100, 1),
+                "peg": info.get('pegRatio', 0) or 0,
+                "rsi": 0,
+            })
+        except Exception as e:
+            continue
+
+    results.sort(key=lambda x: x['total_score'], reverse=True)
+    results = get_portfolio_weight(results)
+
+    return {
+        "market": market,
+        "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "total_screened": len(results),
+        "results": results
+    }
