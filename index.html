@@ -8,10 +8,10 @@
 @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@400;500;600;700;800&display=swap');
 *{box-sizing:border-box;margin:0;padding:0;}
 :root{
-  --sidebar:#0f1923;--bg:#f0f2f5;--card:#fff;
-  --border:#e4e8f0;--text:#1a1f2e;--sub:#6b7280;
-  --blue:#3b82f6;--green:#22c55e;--red:#ef4444;
-  --orange:#f59e0b;--purple:#8b5cf6;
+--sidebar:#0f1923;--bg:#f0f2f5;--card:#fff;
+--border:#e4e8f0;--text:#1a1f2e;--sub:#6b7280;
+--blue:#3b82f6;--green:#22c55e;--red:#ef4444;
+--orange:#f59e0b;--purple:#8b5cf6;
 }
 body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:var(--text);display:flex;min-height:100vh;font-size:13px;}
 .sidebar{width:190px;background:var(--sidebar);min-height:100vh;display:flex;flex-direction:column;flex-shrink:0;position:fixed;top:0;left:0;height:100%;overflow-y:auto;}
@@ -36,7 +36,7 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
 .page-title{font-size:22px;font-weight:800;}
 .update-row{font-size:11px;color:var(--sub);margin-top:5px;display:flex;align-items:center;gap:6px;}
 .tag-status{font-size:10px;font-weight:700;padding:2px 8px;border-radius:4px;}
-.topbar-right{display:flex;align-items:center;gap:8px;}
+.topbar-right{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
 .seg-btn{padding:6px 14px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;border:1px solid var(--border);background:#fff;color:var(--sub);transition:all .15s;}
 .seg-btn.active{background:#1e3a5f;color:#fff;border-color:#1e3a5f;}
 .run-btn{padding:7px 16px;background:var(--blue);color:#fff;border:none;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:5px;}
@@ -107,46 +107,12 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
 .filter-btn{padding:5px 12px;border-radius:20px;border:1px solid var(--border);background:#fff;color:var(--sub);font-size:11px;font-weight:600;cursor:pointer;transition:all .15s;}
 .filter-btn.active{background:#eff6ff;color:#1d4ed8;border-color:#3b82f6;}
 .cond-step{border-radius:8px;padding:12px;flex:1;}
-
-/* ── 종목 검색 카드 ── */
-.search-card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:14px;}
-.search-inner{display:flex;align-items:center;gap:8px;}
-.search-inner input{flex:1;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;font-family:inherit;outline:none;color:var(--text);}
-.search-inner input:focus{border-color:var(--blue);}
-.search-inner button{padding:8px 18px;background:var(--blue);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap;}
-.search-inner button:hover{opacity:.85;}
-.search-inner button:disabled{opacity:.5;cursor:not-allowed;}
-.search-chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;}
-.chip{font-size:11px;padding:3px 10px;border:1px solid var(--border);border-radius:20px;cursor:pointer;color:var(--blue);background:#eff6ff;}
-.chip:hover{background:#dbeafe;}
-
-/* 검색 결과 */
-.search-result{margin-top:14px;border-top:1px solid var(--border);padding-top:14px;}
-.sr-top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;}
-.sr-name h4{font-size:16px;font-weight:800;margin-bottom:2px;}
-.sr-name p{font-size:11px;color:var(--sub);}
-.sr-price{text-align:right;}
-.sr-price .price{font-size:18px;font-weight:800;}
-.sr-price .chg{font-size:12px;font-weight:600;}
-.sr-scores{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:10px;}
-.sr-score-box{background:#f8fafc;border-radius:8px;padding:8px;text-align:center;}
-.sr-score-box .lbl{font-size:10px;color:var(--sub);margin-bottom:3px;}
-.sr-score-box .val{font-size:20px;font-weight:800;}
-.sr-score-box .mx{font-size:10px;color:#cbd5e1;}
-.sr-detail{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:10px;}
-.sr-detail-item{background:#f8fafc;border-radius:6px;padding:6px 8px;}
-.sr-detail-item .dl{font-size:10px;color:var(--sub);}
-.sr-detail-item .dv{font-size:12px;font-weight:700;margin-top:2px;}
-.sr-footer{display:flex;justify-content:space-between;align-items:center;padding-top:10px;border-top:1px solid var(--border);}
-.sr-magu{font-size:12px;color:var(--sub);}
-.sr-magu strong{font-size:22px;font-weight:800;color:var(--blue);}
-.sr-rec{font-size:12px;font-weight:700;padding:5px 16px;border-radius:6px;}
-.rec-sb{background:#dcfce7;color:#15803d;}
-.rec-b{background:#dbeafe;color:#1d4ed8;}
-.rec-h{background:#fef9c3;color:#854d0e;}
-.rec-w{background:#f1f5f9;color:#64748b;}
-.sr-error{text-align:center;padding:16px;color:var(--red);font-size:13px;}
-.sr-loading{text-align:center;padding:16px;color:var(--sub);font-size:13px;}
+/* Backtest 전용 */
+.bt-summary-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:14px;}
+.bt-stat-card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px 16px;}
+.bt-stat-label{font-size:10px;color:var(--sub);margin-bottom:6px;font-weight:500;}
+.bt-stat-val{font-size:22px;font-weight:800;}
+.bt-select{padding:6px 10px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;border:1px solid var(--border);background:#fff;color:var(--text);outline:none;}
 </style>
 </head>
 <body>
@@ -174,8 +140,9 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
       <span class="nav-icon">🤖</span>
       <div><div>Modern Model</div><div class="nav-sub">AI & 심리</div></div>
     </div>
+    <!-- ★ Backtest 메뉴 추가 -->
     <div class="nav-item" id="nav-backtest" onclick="showPage('backtest')">
-      <span class="nav-icon">🔬</span>
+      <span class="nav-icon">🧪</span>
       <div><div>Backtest</div><div class="nav-sub">과거 신호 검증</div></div>
     </div>
   </nav>
@@ -203,7 +170,7 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
 <!-- MAIN -->
 <div class="main">
 
-  <!-- 대시보드 -->
+  <!-- ───────── 대시보드 ───────── -->
   <div id="page-dashboard">
     <div class="topbar">
       <div>
@@ -218,8 +185,6 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
         <button class="run-btn" id="run-btn" onclick="runScreener()">🔄 전체 스크리닝 실행</button>
       </div>
     </div>
-
-    <!-- 시장 데이터 -->
     <div class="mkt-grid">
       <div class="mkt-card"><div class="mkt-label">🏅 금 (Gold)</div><div class="mkt-val" id="gold-val">—</div><div class="mkt-chg" id="gold-chg">—</div></div>
       <div class="mkt-card"><div class="mkt-label">🛢 WTI 유가</div><div class="mkt-val" id="wti-val">—</div><div class="mkt-chg" id="wti-chg">—</div></div>
@@ -227,28 +192,6 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
       <div class="mkt-card"><div class="mkt-label">🏦 US 10Y</div><div class="mkt-val" id="bond-val">—</div><div class="mkt-chg" id="bond-chg">—</div></div>
       <div class="mkt-card"><div class="mkt-label">📉 VIX</div><div class="mkt-val" id="vix-val">—</div><div class="mkt-chg" id="vix-chg">—</div></div>
     </div>
-
-    <!-- 종목 검색 카드 (신규) -->
-    <div class="search-card">
-      <div class="section-title" style="margin-bottom:10px;">🔍 종목 점수 조회 <span class="section-right">스크리닝 목록 외 종목도 바로 확인</span></div>
-      <div class="search-inner">
-        <input type="text" id="stockInput" placeholder="티커 입력 후 Enter (예: AAPL, TSLA, 005930.KS)" maxlength="15"
-          onkeydown="if(event.key==='Enter') searchStock()" />
-        <button id="searchBtn" onclick="searchStock()">조회하기</button>
-      </div>
-      <div class="search-chips">
-        <span class="chip" onclick="searchStock('AAPL')">AAPL</span>
-        <span class="chip" onclick="searchStock('NVDA')">NVDA</span>
-        <span class="chip" onclick="searchStock('TSLA')">TSLA</span>
-        <span class="chip" onclick="searchStock('MSFT')">MSFT</span>
-        <span class="chip" onclick="searchStock('AMZN')">AMZN</span>
-        <span class="chip" onclick="searchStock('005930.KS')">삼성전자</span>
-        <span class="chip" onclick="searchStock('000660.KS')">SK하이닉스</span>
-      </div>
-      <div id="searchResult"></div>
-    </div>
-
-    <!-- 공포탐욕 / AI 비중 -->
     <div class="fi-grid">
       <div class="card">
         <div class="section-title">📊 공포탐욕 지수 <span class="section-right">스크리닝 결과 기반</span></div>
@@ -268,8 +211,6 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
         <div class="inv-note" id="inv-note">💡 스크리닝 실행 후 AI 추천 비중이 표시됩니다.</div>
       </div>
     </div>
-
-    <!-- 모델 카드 -->
     <div class="model-grid">
       <div class="model-card" onclick="showPage('classic')">
         <div class="model-head">
@@ -296,12 +237,8 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
         <button class="model-btn">자세히 보기 →</button>
       </div>
     </div>
-
-    <!-- 베스트 픽 -->
     <div class="section-title">🏆 오늘의 베스트 픽 <span class="section-right">Magu Score 상위 종목</span></div>
     <div class="picks-grid" id="best-picks"><div class="empty" style="grid-column:1/-1;">🔄 스크리닝 실행 버튼을 눌러주세요</div></div>
-
-    <!-- 전체 결과 테이블 -->
     <div class="card">
       <div class="section-title">전체 스크리닝 결과 <span class="section-right" id="screened-count"></span></div>
       <div class="table-wrap">
@@ -317,7 +254,7 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
     </div>
   </div>
 
-  <!-- Classic 페이지 -->
+  <!-- ───────── Classic 페이지 ───────── -->
   <div id="page-classic" style="display:none;">
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;">
       <button class="back-btn" onclick="showPage('dashboard')">← 대시보드</button>
@@ -340,7 +277,7 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
     <div id="classic-page-content"><div class="empty" style="background:#fff;border-radius:12px;border:1px solid var(--border);padding:40px;">먼저 대시보드에서 스크리닝을 실행해주세요</div></div>
   </div>
 
-  <!-- Growth 페이지 -->
+  <!-- ───────── Growth 페이지 ───────── -->
   <div id="page-growth" style="display:none;">
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;">
       <button class="back-btn" onclick="showPage('dashboard')">← 대시보드</button>
@@ -363,7 +300,7 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
     <div id="growth-page-content"><div class="empty" style="background:#fff;border-radius:12px;border:1px solid var(--border);padding:40px;">먼저 대시보드에서 스크리닝을 실행해주세요</div></div>
   </div>
 
-  <!-- Modern 페이지 -->
+  <!-- ───────── Modern 페이지 ───────── -->
   <div id="page-modern" style="display:none;">
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;">
       <button class="back-btn" onclick="showPage('dashboard')">← 대시보드</button>
@@ -386,100 +323,101 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
     <div id="modern-page-content"><div class="empty" style="background:#fff;border-radius:12px;border:1px solid var(--border);padding:40px;">먼저 대시보드에서 스크리닝을 실행해주세요</div></div>
   </div>
 
-  <!-- Backtest 페이지 -->
+  <!-- ───────── Backtest 페이지 ★ 신규 ───────── -->
   <div id="page-backtest" style="display:none;">
     <div class="topbar">
       <div>
-        <div class="page-title">🔬 Backtest</div>
+        <div class="page-title">🧪 Backtest</div>
         <div class="update-row">과거 신호 기준으로 실제 수익률을 검증합니다</div>
       </div>
       <div class="topbar-right">
-        <select id="bt-market" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px;background:#fff;">
+        <select id="bt-market" class="bt-select">
           <option value="us">🇺🇸 미국</option>
           <option value="kr">🇰🇷 한국</option>
         </select>
-        <select id="bt-days" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px;background:#fff;">
-          <option value="30">보유: 30일</option>
+        <select id="bt-hold" class="bt-select">
+          <option value="14">보유: 14일</option>
+          <option value="30" selected>보유: 30일</option>
           <option value="60">보유: 60일</option>
           <option value="90">보유: 90일</option>
         </select>
-        <select id="bt-score" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px;background:#fff;">
-          <option value="55">점수 기준: 55점+</option>
-          <option value="65">점수 기준: 65점+</option>
-          <option value="70">점수 기준: 70점+</option>
+        <select id="bt-score" class="bt-select">
+          <option value="60">점수 기준: 60점+</option>
+          <option value="70" selected>점수 기준: 70점+</option>
+          <option value="80">점수 기준: 80점+</option>
         </select>
         <button class="run-btn" id="bt-run-btn" onclick="runBacktest()">▶ 백테스트 실행</button>
       </div>
     </div>
 
-    <div id="bt-empty" style="text-align:center;padding:60px;color:var(--sub);">
-      <div style="font-size:40px;margin-bottom:12px;">🔬</div>
-      <div style="font-size:14px;font-weight:600;margin-bottom:6px;">백테스트를 실행해주세요</div>
-      <div style="font-size:12px;">조건을 설정하고 실행 버튼을 누르면 과거 신호의 실제 수익률을 분석합니다</div>
-      <div style="font-size:11px;color:#94a3b8;margin-top:8px;">※ 상위 30개 종목 기준 · 약 2~3분 소요</div>
+    <!-- 요약 카드 -->
+    <div class="bt-summary-grid" id="bt-summary-grid">
+      <div class="bt-stat-card">
+        <div class="bt-stat-label">📊 분석 종목 수</div>
+        <div class="bt-stat-val" id="bt-total">—</div>
+      </div>
+      <div class="bt-stat-card">
+        <div class="bt-stat-label">🏆 승률</div>
+        <div class="bt-stat-val" id="bt-winrate">—</div>
+      </div>
+      <div class="bt-stat-card">
+        <div class="bt-stat-label">📈 평균 수익률</div>
+        <div class="bt-stat-val" id="bt-avg">—</div>
+      </div>
+      <div class="bt-stat-card">
+        <div class="bt-stat-label">🚀 최고 수익</div>
+        <div class="bt-stat-val up" id="bt-best">—</div>
+      </div>
+      <div class="bt-stat-card">
+        <div class="bt-stat-label">📉 최저 수익</div>
+        <div class="bt-stat-val" id="bt-worst">—</div>
+      </div>
     </div>
 
-    <div id="bt-result" style="display:none;">
-      <!-- 요약 지표 -->
-      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px;" id="bt-metrics"></div>
-
-      <!-- 차트 + 점수 구간 -->
-      <div style="display:grid;grid-template-columns:3fr 2fr;gap:10px;margin-bottom:14px;">
-        <div class="card">
-          <div class="section-title" style="font-size:12px;">보유 기간별 평균 수익률</div>
-          <div style="display:flex;gap:14px;margin-bottom:10px;font-size:11px;color:var(--sub);">
-            <span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;border-radius:2px;background:#3b82f6;display:inline-block;"></span>Magu Buy 신호</span>
-            <span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;border-radius:2px;background:#94a3b8;display:inline-block;"></span>S&P 500</span>
-          </div>
-          <div style="position:relative;height:200px;"><canvas id="bt-chart"></canvas></div>
-        </div>
-        <div class="card">
-          <div class="section-title" style="font-size:12px;">점수 구간별 승률</div>
-          <div id="bt-bands" style="margin-top:4px;"></div>
-          <div id="bt-band-note" style="margin-top:12px;padding:9px 10px;background:#f8fafc;border-radius:8px;font-size:11px;color:var(--sub);line-height:1.6;"></div>
-        </div>
+    <!-- 결과 테이블 -->
+    <div class="card">
+      <div class="section-title">
+        백테스트 결과
+        <span class="section-right" id="bt-updated"></span>
       </div>
-
-      <!-- 인사이트 -->
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px;" id="bt-insights"></div>
-
-      <!-- 개별 신호 테이블 -->
-      <div class="card">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
-          <div class="section-title" style="margin:0;font-size:13px;">개별 신호 성과 기록</div>
-          <div style="display:flex;gap:4px;">
-            <button class="filter-btn active" onclick="btFilter('all',this)">전체</button>
-            <button class="filter-btn" onclick="btFilter('win',this)">✓ 적중</button>
-            <button class="filter-btn" onclick="btFilter('lose',this)">✗ 미적중</button>
-          </div>
-        </div>
-        <div style="overflow-x:auto;">
-          <table class="stbl">
-            <thead><tr>
-              <th>종목</th><th>신호일</th><th>진입가</th><th>청산가</th>
-              <th>수익률</th><th>S&P500</th><th>Magu점수</th><th>추천</th><th>결과</th>
-            </tr></thead>
-            <tbody id="bt-table"></tbody>
-          </table>
-        </div>
+      <div class="table-wrap">
+        <table class="stbl">
+          <thead><tr>
+            <th>종목</th>
+            <th>매수일</th>
+            <th>매도일</th>
+            <th>매수가</th>
+            <th>매도가</th>
+            <th>수익률</th>
+            <th>매수 시 Score</th>
+            <th>Classic</th>
+            <th>Growth</th>
+            <th>Modern</th>
+            <th>결과</th>
+          </tr></thead>
+          <tbody id="bt-table">
+            <tr><td colspan="11" class="empty">▶ 백테스트 실행 버튼을 눌러주세요</td></tr>
+          </tbody>
+        </table>
       </div>
     </div>
   </div>
 
-</div>
+</div><!-- /main -->
 
 <script>
 const API = 'https://magu-stock-production.up.railway.app';
 let currentMarket = 'us';
 let _lastResults = [];
 
+// ── 페이지 전환 ──
 function showPage(page) {
   ['dashboard','classic','growth','modern','backtest'].forEach(p => {
-    document.getElementById('page-'+p).style.display = p===page?'block':'none';
+    document.getElementById('page-'+p).style.display = p===page ? 'block' : 'none';
     const nav = document.getElementById('nav-'+p);
     if(nav) nav.classList.toggle('active', p===page);
   });
-  if(page !== 'dashboard') {
+  if(page !== 'dashboard' && page !== 'backtest') {
     if(_lastResults.length > 0) {
       renderModelPage(page);
     } else {
@@ -508,100 +446,7 @@ function getCircleColor(score) {
   return '#94a3b8';
 }
 
-// ── 종목 검색 ──────────────────────────────────────────────────
-async function searchStock(quickTicker) {
-  const input = document.getElementById('stockInput');
-  const ticker = (quickTicker || input.value).trim().toUpperCase();
-  if (!ticker) return;
-  if (!quickTicker) input.value = ticker;
-
-  const btn = document.getElementById('searchBtn');
-  const result = document.getElementById('searchResult');
-
-  btn.disabled = true;
-  btn.textContent = '조회중...';
-  result.innerHTML = '<div class="sr-loading">⏳ 데이터 수집 중... (5~10초 소요)</div>';
-
-  try {
-    const res = await fetch(`${API}/api/stock/${ticker}`);
-    const d = await res.json();
-
-    if (d.error) {
-      result.innerHTML = `<div class="sr-error">❌ ${d.error}</div>`;
-      return;
-    }
-
-    const upColor = d.change_pct >= 0 ? '#ef4444' : '#3b82f6';
-    const upSign  = d.change_pct >= 0 ? '▲' : '▼';
-    const curr    = d.currency === 'KRW' ? '₩' : '$';
-    const recMap  = {'Strong Buy':'rec-sb','Buy':'rec-b','Hold':'rec-h','Watch':'rec-w'};
-    const recCls  = recMap[d.recommendation] || 'rec-w';
-
-    const mcap = d.detail.market_cap > 1e12
-      ? `$${(d.detail.market_cap/1e12).toFixed(1)}T`
-      : d.detail.market_cap > 1e9
-        ? `$${(d.detail.market_cap/1e9).toFixed(0)}B`
-        : '—';
-
-    const yrColor = d.detail.year_return >= 0 ? '#22c55e' : '#ef4444';
-
-    result.innerHTML = `
-      <div class="search-result">
-        <div class="sr-top">
-          <div class="sr-name">
-            <h4>${d.ticker}</h4>
-            <p>${d.name}</p>
-            <p style="color:#94a3b8;font-size:10px;margin-top:2px;">${d.sector}</p>
-          </div>
-          <div class="sr-price">
-            <div class="price">${curr}${d.price.toLocaleString()}</div>
-            <div class="chg" style="color:${upColor}">${upSign}${Math.abs(d.change_pct).toFixed(2)}%</div>
-          </div>
-        </div>
-
-        <div class="sr-scores">
-          <div class="sr-score-box">
-            <div class="lbl">Classic</div>
-            <div class="val" style="color:#3b82f6">${d.classic_score}</div>
-            <div class="mx">/ 30점</div>
-          </div>
-          <div class="sr-score-box">
-            <div class="lbl">Growth</div>
-            <div class="val" style="color:#22c55e">${d.growth_score}</div>
-            <div class="mx">/ 40점</div>
-          </div>
-          <div class="sr-score-box">
-            <div class="lbl">Modern</div>
-            <div class="val" style="color:#8b5cf6">${d.modern_score}</div>
-            <div class="mx">/ 30점</div>
-          </div>
-        </div>
-
-        <div class="sr-detail">
-          <div class="sr-detail-item"><div class="dl">ROE</div><div class="dv">${d.detail.roe}%</div></div>
-          <div class="sr-detail-item"><div class="dl">부채비율</div><div class="dv">${d.detail.debt_equity}</div></div>
-          <div class="sr-detail-item"><div class="dl">EPS성장</div><div class="dv">${d.detail.eps_growth}%</div></div>
-          <div class="sr-detail-item"><div class="dl">PEG</div><div class="dv">${d.detail.peg || '—'}</div></div>
-          <div class="sr-detail-item"><div class="dl">RSI(14)</div><div class="dv">${d.detail.rsi}</div></div>
-          <div class="sr-detail-item"><div class="dl">52주수익</div><div class="dv" style="color:${yrColor}">${d.detail.year_return}%</div></div>
-          <div class="sr-detail-item"><div class="dl">시가총액</div><div class="dv">${mcap}</div></div>
-          <div class="sr-detail-item"><div class="dl">애널리스트</div><div class="dv">${d.detail.analyst_rec}</div></div>
-        </div>
-
-        <div class="sr-footer">
-          <div class="sr-magu">Magu Score &nbsp;<strong>${d.total_score}</strong><span style="font-size:11px;color:var(--sub);"> / 100</span></div>
-          <span class="sr-rec ${recCls}">${d.recommendation}</span>
-        </div>
-      </div>`;
-  } catch(e) {
-    result.innerHTML = '<div class="sr-error">❌ 서버 연결 실패. 잠시 후 다시 시도해주세요.</div>';
-  } finally {
-    btn.disabled = false;
-    btn.textContent = '조회하기';
-  }
-}
-
-// ── 모델 페이지 렌더 ──────────────────────────────────────────
+// ── 모델 페이지 렌더 ──
 function renderModelPage(modelKey) {
   const configs = {
     classic:{scoreKey:'classic_score',maxScore:30,color:'#3b82f6',label:'Classic'},
@@ -641,7 +486,7 @@ function buildModelRows(data, cfg) {
     const s1 = score >= Math.round(cfg.maxScore*0.33) ? '✅':'❌';
     const s2 = score >= Math.round(cfg.maxScore*0.67) ? '✅':'❌';
     const s3 = score >= cfg.maxScore ? '✅':'❌';
-    return `<tr style="border-bottom:1px solid #f1f5f9;" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background=''">
+    return `<tr onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background=''">
       <td style="padding:10px 12px;font-weight:700;color:var(--sub);">${i+1}</td>
       <td style="padding:10px 12px;"><div class="tname">${s.name.length>20?s.ticker:s.name}</div><div class="tcode">${s.ticker}</div></td>
       <td style="padding:10px 12px;font-weight:600;">$${s.price.toLocaleString()}</td>
@@ -689,7 +534,7 @@ function applyFilter(modelKey, type, btn) {
   document.getElementById('tbody-'+modelKey).innerHTML = buildModelRows(data,cfg);
 }
 
-// ── 전체 스크리닝 ────────────────────────────────────────────
+// ── 스크리너 실행 ──
 async function runScreener() {
   const btn = document.getElementById('run-btn');
   btn.disabled = true;
@@ -718,21 +563,17 @@ function renderResults(data) {
   const topClassic = [...results].sort((a,b)=>b.classic_score-a.classic_score).slice(0,3);
   const topGrowth  = [...results].sort((a,b)=>b.growth_score-a.growth_score).slice(0,3);
   const topModern  = [...results].sort((a,b)=>b.modern_score-a.modern_score).slice(0,3);
-
   document.getElementById('classic-count').textContent = topClassic[0]?.classic_score||0;
   document.getElementById('growth-count').textContent  = topGrowth[0]?.growth_score||0;
   document.getElementById('modern-count').textContent  = topModern[0]?.modern_score||0;
-
   const renderStocks = (stocks) => stocks.map(s=>`
     <div class="stock-row">
       <span class="sname">${s.name.length>16?s.ticker:s.name}</span>
       ${getBadge(s.recommendation)}
     </div>`).join('');
-
   document.getElementById('classic-stocks').innerHTML = renderStocks(topClassic);
   document.getElementById('growth-stocks').innerHTML  = renderStocks(topGrowth);
   document.getElementById('modern-stocks').innerHTML  = renderStocks(topModern);
-
   const top5 = results.slice(0,5);
   document.getElementById('best-picks').innerHTML = top5.map((s,i)=>`
     <div class="pick-card" ${i===0?'style="border-color:#bfdbfe;"':''}>
@@ -745,11 +586,9 @@ function renderResults(data) {
       </div>
       <div style="margin-top:8px;">${getBadge(s.recommendation)}</div>
     </div>`).join('');
-
   updateInvestWeight(data);
   document.getElementById('screened-count').textContent =
     `총 ${results.length}개 종목 · Classic 30 + Growth 40 + Modern 30 = 100점 만점`;
-
   document.getElementById('result-table').innerHTML = results.map(s=>`
     <tr>
       <td><div class="tname">${s.name.length>20?s.ticker:s.name}</div><div class="tcode">${s.ticker}</div></td>
@@ -778,8 +617,8 @@ function updateInvestWeight(data) {
   document.getElementById('cash-pct').textContent   = cashPct+'%';
   document.getElementById('bond-pct').textContent   = bondPct+'%';
   const note = stockPct>=70?'🚀 매수 신호 강함 — 주식 비중을 높이세요.'
-    :stockPct>=55?'💡 중립 — 기존 포트폴리오를 유지하세요.'
-    :'⚠️ 방어적 시장 — 현금 비중을 늘리세요.';
+              :stockPct>=55?'💡 중립 — 기존 포트폴리오를 유지하세요.'
+              :'⚠️ 방어적 시장 — 현금 비중을 늘리세요.';
   document.getElementById('inv-note').textContent = note;
   const fearScore = Math.round(bullRatio*100);
   document.getElementById('fear-num').textContent = fearScore;
@@ -789,6 +628,90 @@ function updateInvestWeight(data) {
   document.getElementById('fear-sub').textContent = `매수 신호 종목 ${buyCount}개 / 전체 ${total}개 기준`;
 }
 
+// ── 백테스트 실행 ★ 신규 ──
+async function runBacktest() {
+  const btn      = document.getElementById('bt-run-btn');
+  const market   = document.getElementById('bt-market').value;
+  const holdDays = document.getElementById('bt-hold').value;
+  const minScore = document.getElementById('bt-score').value;
+
+  btn.disabled = true;
+  btn.textContent = '⏳ 분석 중...';
+
+  document.getElementById('bt-table').innerHTML =
+    `<tr><td colspan="11"><div class="loading"><div class="spinner"></div>과거 데이터 분석 중... (1~3분 소요)</div></td></tr>`;
+
+  // 요약 카드 초기화
+  ['bt-total','bt-winrate','bt-avg','bt-best','bt-worst'].forEach(id=>{
+    document.getElementById(id).textContent = '...';
+  });
+
+  try {
+    const res = await fetch(`${API}/api/backtest?market=${market}&hold_days=${holdDays}&min_score=${minScore}`);
+    if(!res.ok) throw new Error('HTTP '+res.status);
+    const data = await res.json();
+
+    // 요약 업데이트
+    document.getElementById('bt-total').textContent   = data.total_trades + '개';
+    document.getElementById('bt-winrate').textContent = data.win_rate + '%';
+
+    const avgEl = document.getElementById('bt-avg');
+    avgEl.textContent   = (data.avg_return >= 0 ? '+' : '') + data.avg_return + '%';
+    avgEl.className     = 'bt-stat-val ' + (data.avg_return >= 0 ? 'up' : 'dn');
+
+    document.getElementById('bt-best').textContent    = '+' + data.best_return + '%';
+
+    const worstEl = document.getElementById('bt-worst');
+    worstEl.textContent = data.worst_return + '%';
+    worstEl.className   = 'bt-stat-val ' + (data.worst_return >= 0 ? 'up' : 'dn');
+
+    document.getElementById('bt-updated').textContent = '업데이트: ' + data.updated_at;
+
+    if(!data.results || data.results.length === 0) {
+      document.getElementById('bt-table').innerHTML =
+        `<tr><td colspan="11" class="empty">해당 조건의 종목이 없습니다. 점수 기준을 낮추거나 보유 기간을 줄여보세요.</td></tr>`;
+    } else {
+      document.getElementById('bt-table').innerHTML = data.results.map(r => {
+        const retClass = r.return_pct >= 0 ? 'up' : 'dn';
+        const retSign  = r.return_pct >= 0 ? '▲' : '▼';
+        const winBadge = r.win
+          ? '<span class="badge badge-sb">수익</span>'
+          : '<span class="badge badge-w" style="background:#fee2e2;color:#991b1b;">손실</span>';
+        return `<tr onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background=''">
+          <td><div class="tname">${r.name && r.name.length <= 20 ? r.name : r.ticker}</div><div class="tcode">${r.ticker}</div></td>
+          <td style="font-size:11px;color:var(--sub);">${r.buy_date}</td>
+          <td style="font-size:11px;color:var(--sub);">${r.sell_date}</td>
+          <td style="font-weight:600;">$${r.buy_price.toLocaleString()}</td>
+          <td style="font-weight:600;">$${r.sell_price.toLocaleString()}</td>
+          <td style="font-weight:800;" class="${retClass}">${retSign}${Math.abs(r.return_pct)}%</td>
+          <td>
+            <div style="display:flex;align-items:center;gap:6px;">
+              <div style="width:60px;height:5px;background:#f1f5f9;border-radius:3px;overflow:hidden;">
+                <div style="height:100%;background:linear-gradient(to right,#3b82f6,#06b6d4);width:${r.score_at_buy}%;"></div>
+              </div>
+              <span style="font-weight:700;color:#1d4ed8;">${r.score_at_buy}</span>
+            </div>
+          </td>
+          <td style="color:#3b82f6;font-weight:600;">${r.classic}</td>
+          <td style="color:#22c55e;font-weight:600;">${r.growth}</td>
+          <td style="color:#8b5cf6;font-weight:600;">${r.modern}</td>
+          <td>${winBadge}</td>
+        </tr>`;
+      }).join('');
+    }
+  } catch(e) {
+    document.getElementById('bt-table').innerHTML =
+      `<tr><td colspan="11" class="empty">❌ 서버 연결 실패 — Railway 로그를 확인하거나 잠시 후 다시 시도해주세요.</td></tr>`;
+    ['bt-total','bt-winrate','bt-avg','bt-best','bt-worst'].forEach(id=>{
+      document.getElementById(id).textContent = '—';
+    });
+  }
+
+  btn.disabled = false;
+  btn.innerHTML = '▶ 백테스트 실행';
+}
+
+// ── 시장 데이터 ──
 async function loadMarketData() {
   try {
     const res = await fetch(`${API}/api/market`);
@@ -806,188 +729,11 @@ async function loadMarketData() {
   } catch(e) {}
 }
 
-// ── 백테스트 ────────────────────────────────────────────────
-let _btSignals = [];
-let _btChart = null;
-
-async function runBacktest() {
-  const btn    = document.getElementById('bt-run-btn');
-  const market = document.getElementById('bt-market').value;
-  const days   = document.getElementById('bt-days').value;
-  const score  = document.getElementById('bt-score').value;
-
-  btn.disabled = true;
-  btn.textContent = '⏳ 분석 중...';
-  document.getElementById('bt-empty').style.display = 'block';
-  document.getElementById('bt-result').style.display = 'none';
-  document.getElementById('bt-empty').innerHTML = `
-    <div style="font-size:40px;margin-bottom:12px;">⏳</div>
-    <div style="font-size:14px;font-weight:600;margin-bottom:6px;">백테스트 실행 중...</div>
-    <div style="font-size:12px;color:var(--sub);">과거 데이터를 수집하고 신호를 계산합니다 (2~3분 소요)</div>
-    <div class="spinner" style="margin:20px auto 0;"></div>`;
-
-  try {
-    const res  = await fetch(`${API}/api/backtest?market=${market}&hold_days=${days}&score_threshold=${score}`);
-    const data = await res.json();
-
-    if (data.error) {
-      document.getElementById('bt-empty').innerHTML = `<div style="color:var(--red);padding:40px;">❌ ${data.error}</div>`;
-      return;
-    }
-
-    _btSignals = data.signals;
-    renderBacktest(data);
-    document.getElementById('bt-empty').style.display  = 'none';
-    document.getElementById('bt-result').style.display = 'block';
-  } catch(e) {
-    document.getElementById('bt-empty').innerHTML = `<div style="color:var(--red);padding:40px;">❌ 서버 연결 실패</div>`;
-  } finally {
-    btn.disabled = false;
-    btn.innerHTML = '▶ 백테스트 실행';
-  }
-}
-
-function renderBacktest(data) {
-  const s = data.summary;
-  const alphaColor = s.alpha >= 0 ? '#22c55e' : '#ef4444';
-  const alphaSign  = s.alpha >= 0 ? '+' : '';
-
-  // 요약 지표
-  document.getElementById('bt-metrics').innerHTML = `
-    <div class="mkt-card">
-      <div class="mkt-label">평균 수익률</div>
-      <div class="mkt-val" style="color:${s.avg_return>=0?'#22c55e':'#ef4444'}">${s.avg_return>=0?'+':''}${s.avg_return}%</div>
-      <div style="font-size:10px;color:var(--sub);margin-top:3px;">보유 ${s.hold_days}일 기준</div>
-    </div>
-    <div class="mkt-card">
-      <div class="mkt-label">S&P 500 대비 (알파)</div>
-      <div class="mkt-val" style="color:${alphaColor}">${alphaSign}${s.alpha}%p</div>
-      <div style="font-size:10px;color:var(--sub);margin-top:3px;">시장 초과 성과</div>
-    </div>
-    <div class="mkt-card">
-      <div class="mkt-label">승률</div>
-      <div class="mkt-val" style="color:#3b82f6;">${s.win_rate}%</div>
-      <div style="font-size:10px;color:var(--sub);margin-top:3px;">총 ${s.total_signals}개 신호</div>
-    </div>
-    <div class="mkt-card">
-      <div class="mkt-label">최고 성과 모델</div>
-      <div class="mkt-val" style="font-size:16px;">${s.best_model}</div>
-      <div style="font-size:10px;color:var(--sub);margin-top:3px;">수익 신호 최다</div>
-    </div>`;
-
-  // 보유 기간별 차트
-  const pr = data.period_returns;
-  if (_btChart) _btChart.destroy();
-  _btChart = new Chart(document.getElementById('bt-chart'), {
-    type: 'line',
-    data: {
-      labels: pr.map(p => p.days+'일'),
-      datasets: [
-        {
-          label: 'Magu',
-          data: pr.map(p => p.magu),
-          borderColor: '#3b82f6',
-          backgroundColor: 'rgba(59,130,246,0.07)',
-          borderWidth: 2, pointRadius: 3, fill: true, tension: 0.3
-        },
-        {
-          label: 'S&P500',
-          data: pr.map(p => p.sp500),
-          borderColor: '#94a3b8',
-          borderWidth: 1.5, pointRadius: 2,
-          borderDash: [4,3], fill: false, tension: 0.3
-        }
-      ]
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { display: false } },
-      scales: {
-        x: { grid: { color: 'rgba(0,0,0,0.04)' }, ticks: { font: { size: 11 } } },
-        y: { grid: { color: 'rgba(0,0,0,0.04)' }, ticks: { font: { size: 11 }, callback: v => v+'%' } }
-      }
-    }
-  });
-
-  // 점수 구간별 승률
-  const bandColors = ['#22c55e','#3b82f6','#f59e0b','#ef4444'];
-  document.getElementById('bt-bands').innerHTML = data.band_stats.map((b,i) => `
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:12px;">
-      <div style="width:68px;font-size:11px;color:var(--sub);">${b.label}</div>
-      <div style="flex:1;height:8px;background:#f1f5f9;border-radius:4px;overflow:hidden;">
-        <div style="height:100%;width:${b.win_rate}%;background:${bandColors[i]};border-radius:4px;"></div>
-      </div>
-      <div style="width:36px;text-align:right;font-weight:700;color:${bandColors[i]};">${b.win_rate}%</div>
-      <div style="width:28px;font-size:11px;color:var(--sub);">${b.count}개</div>
-    </div>`).join('');
-
-  const best = data.band_stats.reduce((a,b) => a.win_rate > b.win_rate ? a : b, {win_rate:0,label:''});
-  document.getElementById('bt-band-note').innerHTML =
-    `<b>${best.label}</b> 종목 승률 <b style="color:#22c55e;">${best.win_rate}%</b> — 현재 기준(${s.score_threshold}점)보다 높은 기준 적용 권장`;
-
-  // 인사이트
-  const optPeriod = data.period_returns.reduce((a,b) => a.magu > b.magu ? a : b, {days:0,magu:-99});
-  document.getElementById('bt-insights').innerHTML = `
-    <div class="card" style="padding:12px 14px;">
-      <div style="font-size:11px;color:var(--sub);margin-bottom:5px;">최고 성과 모델</div>
-      <div style="font-size:15px;font-weight:700;color:#3b82f6;">${s.best_model} 모델</div>
-      <div style="font-size:11px;color:var(--sub);margin-top:3px;">수익 신호 가장 많이 발생</div>
-    </div>
-    <div class="card" style="padding:12px 14px;">
-      <div style="font-size:11px;color:var(--sub);margin-bottom:5px;">최적 보유 기간</div>
-      <div style="font-size:15px;font-weight:700;color:#22c55e;">${optPeriod.days}일</div>
-      <div style="font-size:11px;color:var(--sub);margin-top:3px;">평균 수익률 ${optPeriod.magu}% 최고</div>
-    </div>
-    <div class="card" style="padding:12px 14px;">
-      <div style="font-size:11px;color:var(--sub);margin-bottom:5px;">권장 점수 기준</div>
-      <div style="font-size:15px;font-weight:700;">${best.win_rate >= 65 ? best.label.replace('점 이상','점+') : s.score_threshold+'점+'}</div>
-      <div style="font-size:11px;color:var(--sub);margin-top:3px;">현재 ${s.score_threshold}점 기준 검토</div>
-    </div>`;
-
-  renderBtTable(_btSignals);
-}
-
-function renderBtTable(signals) {
-  document.getElementById('bt-table').innerHTML = signals.map(s => {
-    const retColor = s.return_pct >= 0 ? '#22c55e' : '#ef4444';
-    const spColor  = s.sp500_ret  >= 0 ? '#22c55e' : '#ef4444';
-    const recMap   = {'Strong Buy':'badge-sb','Buy':'badge-b','Hold':'badge-h','Watch':'badge-w'};
-    return `<tr>
-      <td><span style="font-weight:700;color:#1d4ed8;">${s.ticker}</span></td>
-      <td style="color:var(--sub);">${s.signal_date}</td>
-      <td>$${s.entry_price.toLocaleString()}</td>
-      <td>$${s.exit_price.toLocaleString()}</td>
-      <td style="font-weight:700;color:${retColor};">${s.return_pct>=0?'+':''}${s.return_pct}%</td>
-      <td style="color:${spColor};">${s.sp500_ret>=0?'+':''}${s.sp500_ret}%</td>
-      <td>
-        <div style="display:flex;align-items:center;gap:6px;">
-          <div style="width:55px;height:5px;background:#f1f5f9;border-radius:3px;overflow:hidden;">
-            <div style="height:100%;background:#3b82f6;width:${s.total_score}%;border-radius:3px;"></div>
-          </div>
-          <span style="font-size:12px;font-weight:700;color:#1d4ed8;">${s.total_score}</span>
-        </div>
-      </td>
-      <td><span class="badge ${recMap[s.recommendation]||'badge-w'}">${s.recommendation}</span></td>
-      <td style="font-weight:600;color:${s.win?'#22c55e':'#ef4444'};">${s.win?'✓ 적중':'✗ 미적중'}</td>
-    </tr>`;
-  }).join('');
-}
-
-function btFilter(type, btn) {
-  document.querySelectorAll('#page-backtest .filter-btn').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
-  let filtered = _btSignals;
-  if (type === 'win')  filtered = _btSignals.filter(s => s.win);
-  if (type === 'lose') filtered = _btSignals.filter(s => !s.win);
-  renderBtTable(filtered);
-}
-
 const now = new Date();
 const h = now.getHours();
 document.getElementById('market-status').textContent = (h>=9&&h<16)?'장중':'장마감';
 loadMarketData();
 setInterval(loadMarketData, 300000);
 </script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 </body>
 </html>
