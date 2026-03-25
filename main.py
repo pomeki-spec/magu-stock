@@ -1,4 +1,6 @@
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 import yfinance as yf
 import ta
@@ -6,7 +8,10 @@ import pandas as pd
 from datetime import datetime
 
 app = FastAPI()
-
+@app.get("/dashboard")
+def dashboard():
+    return FileResponse("index.html")
+    
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
