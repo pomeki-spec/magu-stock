@@ -6,20 +6,20 @@ import ta
 import pandas as pd
 from datetime import datetime
 import concurrent.futures
-
+ 
 app = FastAPI()
-
+ 
 @app.get("/dashboard")
 def dashboard():
     return FileResponse("index.html")
-
+ 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
+ 
 TICKERS_US = list(set([
     "AAPL","MSFT","NVDA","AMZN","META","GOOGL","TSLA","AVGO","COST","NFLX",
     "TMUS","AMD","PEP","LIN","CSCO","ADBE","TXN","QCOM","INTU","AMAT",
@@ -41,13 +41,13 @@ TICKERS_US = list(set([
     "STZ","YUM","ROP","KEYS","AWK","FIS","LHX","DG","CTVA","TDG",
     "LOW","INTC","IBM","GE","F","GM","PFE","UBER","LYFT","SQ"
 ]))
-
+ 
 TICKERS_KR = [
     "005930.KS","000660.KS","035420.KS","005380.KS","051910.KS",
     "006400.KS","028260.KS","105560.KS","012330.KS","066570.KS",
     "017670.KS","032830.KS","012450.KS","003550.KS","018260.KS"
 ]
-
+ 
 def calculate_classic_score(ticker_data, hist_weekly, hist_daily):
     score = 0
     try:
@@ -72,7 +72,7 @@ def calculate_classic_score(ticker_data, hist_weekly, hist_daily):
     except:
         pass
     return score
-
+ 
 def calculate_growth_score(info, hist_daily):
     score = 0
     try:
@@ -100,7 +100,7 @@ def calculate_growth_score(info, hist_daily):
     except:
         pass
     return score
-
+ 
 def calculate_modern_score(info, hist_daily):
     score = 0
     try:
@@ -125,13 +125,13 @@ def calculate_modern_score(info, hist_daily):
     except:
         pass
     return score
-
+ 
 def get_recommendation(total_score):
     if total_score >= 70: return "Strong Buy"
     elif total_score >= 55: return "Buy"
     elif total_score >= 40: return "Hold"
     else: return "Watch"
-
+ 
 def get_portfolio_weight(results):
     buy_stocks = [r for r in results if r['recommendation'] in ['Strong Buy', 'Buy']]
     total_score = sum(r['total_score'] for r in buy_stocks)
@@ -141,7 +141,7 @@ def get_portfolio_weight(results):
         else:
             r['weight'] = 0
     return results
-
+ 
 def fetch_single_stock(ticker, market):
     try:
         stock = yf.Ticker(ticker)
@@ -174,24 +174,18 @@ def fetch_single_stock(ticker, market):
         }
     except:
         return None
-
+ 
 @app.get("/")
 def root():
     return {"status": "MAGU STOCK API 실행 중"}
-
+ 
 @app.get("/api/market")
 def get_market_data():
     try:
         tickers = {
-            "gold": "GC=F",
-            "wti": "CL=F",
-            "usdkrw": "KRW=X",
-            "us10y": "^TNX",
-            "vix": "^VIX",
-            "sp500": "^GSPC",
-            "nasdaq": "^IXIC",
-            "dow": "^DJI",
-            "russell": "^RUT"
+            "gold": "GC=F", "wti": "CL=F", "usdkrw": "KRW=X",
+            "us10y": "^TNX", "vix": "^VIX", "sp500": "^GSPC",
+            "nasdaq": "^IXIC", "dow": "^DJI", "russell": "^RUT"
         }
         result = {}
         for key, symbol in tickers.items():
@@ -208,7 +202,7 @@ def get_market_data():
         return result
     except:
         return {}
-
+ 
 @app.get("/api/screen/{market}")
 def screen_stocks(market: str = "us"):
     tickers = TICKERS_US if market == "us" else TICKERS_KR
@@ -227,3 +221,70 @@ def screen_stocks(market: str = "us"):
         "total_screened": len(results),
         "results": results
     }
+ 
+# ── 종목 단일 조회 (역방향 점수 계산) ──────────────────────────────
+@app.get("/api/stock/{ticker}")
+def get_stock_score(ticker: str):
+    ticker = ticker.upper().strip()
+    try:
+        stock = yf.Ticker(ticker)
+        info = stock.info
+ 
+        # 유효 종목 체크
+        price_check = info.get('regularMarketPrice') or info.get('currentPrice') or info.get('previousClose')
+        if not info or not price_check:
+            return {"error": f"종목을 찾을 수 없습니다: {ticker}"}
+ 
+        hist_daily = stock.history(period="1y")
+        hist_weekly = stock.history(period="2y", interval="1wk")
+ 
+        if hist_daily.empty or len(hist_daily) < 20:
+            return {"error": "데이터가 부족합니다 (상장 기간이 짧거나 거래 정지)"}
+ 
+        classic = calculate_classic_score(info, hist_weekly, hist_daily)
+        growth  = calculate_growth_score(info, hist_daily)
+        modern  = calculate_modern_score(info, hist_daily)
+        total   = classic + growth + modern
+ 
+        current_price = hist_daily['Close'].iloc[-1]
+        prev_price    = hist_daily['Close'].iloc[-2]
+        change_pct    = (current_price / prev_price - 1) * 100
+ 
+        # RSI
+        rsi_val = 0
+        if len(hist_daily) >= 14:
+            rsi_val = round(ta.momentum.RSIIndicator(hist_daily['Close'], window=14).rsi().iloc[-1], 1)
+ 
+        # 52주 수익률
+        year_return = 0
+        if len(hist_daily) >= 252:
+            year_return = round((hist_daily['Close'].iloc[-1] / hist_daily['Close'].iloc[-252] - 1) * 100, 1)
+ 
+        # 시가총액 포맷
+        mcap = info.get('marketCap') or 0
+ 
+        return {
+            "ticker": ticker,
+            "name": info.get('longName') or info.get('shortName') or ticker,
+            "sector": info.get('sector') or info.get('industry') or '—',
+            "currency": info.get('currency', 'USD'),
+            "price": round(current_price, 2),
+            "change_pct": round(change_pct, 2),
+            "classic_score": classic,
+            "growth_score": growth,
+            "modern_score": modern,
+            "total_score": total,
+            "recommendation": get_recommendation(total),
+            "detail": {
+                "roe": round((info.get('returnOnEquity') or 0) * 100, 1),
+                "debt_equity": round(info.get('debtToEquity') or 0, 1),
+                "eps_growth": round((info.get('earningsGrowth') or 0) * 100, 1),
+                "peg": round(info.get('pegRatio') or 0, 2),
+                "rsi": rsi_val,
+                "year_return": year_return,
+                "analyst_rec": info.get('recommendationKey') or '—',
+                "market_cap": mcap,
+            }
+        }
+    except Exception as e:
+        return {"error": f"조회 실패: {str(e)}"}
