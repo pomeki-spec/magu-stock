@@ -320,7 +320,15 @@ function showPage(page) {
     const nav = document.getElementById('nav-'+p);
     if(nav) nav.classList.toggle('active', p===page);
   });
-  if(page !== 'dashboard' && _lastResults.length > 0) renderModelPage(page);
+  if(page !== 'dashboard') {
+    if(_lastResults.length > 0) {
+      renderModelPage(page);
+    } else {
+      alert('먼저 대시보드에서 스크리닝을 실행해주세요!');
+      showPage('dashboard');
+      return;
+    }
+  }
   window.scrollTo(0,0);
 }
 
