@@ -20,23 +20,32 @@ app.add_middleware(
 )
 
 # 스크리닝할 종목 리스트 (미국 + 한국 대표 종목)
-def get_sp500_tickers():
-    try:
-        table = pd.read_html('https://en.wikipedia.org/wiki/List_of_S%26P_500_companies')
-        return table[0]['Symbol'].str.replace('.','-').tolist()
-    except:
-        return []
+# 나스닥 100 + S&P 500 상위 100개
+TICKERS_US = list(set([
+    # 나스닥 100
+    "AAPL","MSFT","NVDA","AMZN","META","GOOGL","TSLA","AVGO","COST","NFLX",
+    "TMUS","AMD","PEP","LIN","CSCO","ADBE","TXN","QCOM","INTU","AMAT",
+    "AMGN","ISRG","MU","LRCX","KLAC","MRVL","MDLZ","ADP","REGN","PANW",
+    "SNPS","CDNS","ORLY","CRWD","ADI","FTNT","MELI","MAR","PYPL","WDAY",
+    "ABNB","DXCM","ROST","IDXX","ODFL","FAST","VRSK","BIIB","PCAR","TEAM",
+    "ZS","CPRT","PAYX","NXPI","CHTR","DLTR","FANG","ANSS","CTAS","CTSH",
+    "MCHP","MRNA","DDOG","EBAY","ENPH","TTWO","XEL","GEHC","ON","GILD",
+    "SBUX","BKNG","VRTX","LULU","NTAP","FSLR","CDW","SMCI","CCEP","CEG",
+    "MNST","KDP","ILMN","OKTA","ALGN","DOCU","ZM","SGEN","MTCH","RIVN",
+    "WBD","LCID","GFS","BMRN","CINF","CSGP","SIRI","GEHC","ACGL","ARM",
+    # S&P 500 상위 100개
+    "BRK-B","JPM","V","UNH","XOM","JNJ","WMT","MA","PG","HD",
+    "CVX","MRK","ABBV","BAC","KO","LLY","TMO","MCD","CRM","ACN",
+    "ABT","DHR","NKE","NEE","WFC","PM","T","UPS","MS","RTX",
+    "SPGI","BMY","CAT","GS","BLK","SYK","AXP","C","CB","MO",
+    "ZTS","CVS","SO","DUK","PLD","TGT","MMM","CI","ITW","HUM",
+    "USB","EMR","NSC","AON","EL","HCA","PSA","MCK","WM","ADM",
+    "SHW","FCX","ECL","TRV","APD","COF","EW","CARR","IQV","BDX",
+    "SPG","GD","NOC","AIG","WELL","CME","MPC","VLO","CCI","CBRE",
+    "STZ","YUM","ROP","KEYS","AWK","FIS","LHX","DG","CTVA","TDG",
+    "LOW","INTC","IBM","GE","F","GM","PFE","UBER","LYFT","SQ"
+]))
 
-def get_nasdaq100_tickers():
-    try:
-        table = pd.read_html('https://en.wikipedia.org/wiki/Nasdaq-100')
-        return table[4]['Ticker'].tolist()
-    except:
-        return []
-
-_sp500 = get_sp500_tickers()[:100]
-_nasdaq100 = get_nasdaq100_tickers()
-TICKERS_US = list(set(_sp500 + _nasdaq100))
 print(f"✅ 종목 로드 완료: 총 {len(TICKERS_US)}개")
 TICKERS_KR = [
     "005930.KS","000660.KS","035420.KS","005380.KS","051910.KS",
