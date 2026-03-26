@@ -647,7 +647,7 @@ async function runBacktest() {
   });
 
   try {
-    const res = await fetch(`${API}/api/backtest?market=${market}&hold_days=${holdDays}&min_score=${minScore}`);
+    const res = await fetch(`${API}/api/backtest?market=${market}&hold_days=${holdDays}&score_threshold=${minScore}`);
     if(!res.ok) throw new Error('HTTP '+res.status);
     const data = await res.json();
 
