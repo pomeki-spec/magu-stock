@@ -628,7 +628,7 @@ function updateInvestWeight(data) {
   document.getElementById('fear-sub').textContent = `매수 신호 종목 ${buyCount}개 / 전체 ${total}개 기준`;
 }
 
-// ── 백테스트 실행 ★ 신규 ──
+// ── 백테스트 실행 ──
 async function runBacktest() {
   const btn      = document.getElementById('bt-run-btn');
   const market   = document.getElementById('bt-market').value;
@@ -639,69 +639,74 @@ async function runBacktest() {
   btn.textContent = '⏳ 분석 중...';
 
   document.getElementById('bt-table').innerHTML =
-    `<tr><td colspan="11"><div class="loading"><div class="spinner"></div>과거 데이터 분석 중... (1~3분 소요)</div></td></tr>`;
+    `<tr><td colspan="11"><div class="loading"><div class="spinner"></div>과거 데이터 분석 중... (30초~1분 소요)</div></td></tr>`;
 
-  // 요약 카드 초기화
   ['bt-total','bt-winrate','bt-avg','bt-best','bt-worst'].forEach(id=>{
     document.getElementById(id).textContent = '...';
   });
 
   try {
+    // ★ 파라미터명 score_threshold (백엔드와 일치)
     const res = await fetch(`${API}/api/backtest?market=${market}&hold_days=${holdDays}&score_threshold=${minScore}`);
     if(!res.ok) throw new Error('HTTP '+res.status);
     const data = await res.json();
 
-    // 요약 업데이트
-    document.getElementById('bt-total').textContent   = data.total_trades + '개';
-    document.getElementById('bt-winrate').textContent = data.win_rate + '%';
+    // ★ 백엔드 응답: data.summary.xxx 구조
+    const s = data.summary;
+
+    document.getElementById('bt-total').textContent   = s.total_signals + '개';
+    document.getElementById('bt-winrate').textContent = s.win_rate + '%';
 
     const avgEl = document.getElementById('bt-avg');
-    avgEl.textContent   = (data.avg_return >= 0 ? '+' : '') + data.avg_return + '%';
-    avgEl.className     = 'bt-stat-val ' + (data.avg_return >= 0 ? 'up' : 'dn');
+    avgEl.textContent = (s.avg_return >= 0 ? '+' : '') + s.avg_return + '%';
+    avgEl.className   = 'bt-stat-val ' + (s.avg_return >= 0 ? 'up' : 'dn');
 
-    document.getElementById('bt-best').textContent    = '+' + data.best_return + '%';
+    // best/worst는 signals 배열에서 직접 계산
+    const signals = data.signals || [];
+    const rets = signals.map(r => r.return_pct);
+    const best  = rets.length ? Math.max(...rets) : 0;
+    const worst = rets.length ? Math.min(...rets) : 0;
 
-    const worstEl = document.getElementById('bt-worst');
-    worstEl.textContent = data.worst_return + '%';
-    worstEl.className   = 'bt-stat-val ' + (data.worst_return >= 0 ? 'up' : 'dn');
+    document.getElementById('bt-best').textContent  = (best >= 0 ? '+' : '') + best + '%';
+    document.getElementById('bt-worst').textContent = worst + '%';
+    document.getElementById('bt-worst').className   = 'bt-stat-val ' + (worst >= 0 ? 'up' : 'dn');
+    document.getElementById('bt-updated').textContent = '알파: ' + s.alpha + '% / 최고모델: ' + s.best_model;
 
-    document.getElementById('bt-updated').textContent = '업데이트: ' + data.updated_at;
-
-    if(!data.results || data.results.length === 0) {
+    if(!signals.length) {
       document.getElementById('bt-table').innerHTML =
-        `<tr><td colspan="11" class="empty">해당 조건의 종목이 없습니다. 점수 기준을 낮추거나 보유 기간을 줄여보세요.</td></tr>`;
+        `<tr><td colspan="11" class="empty">해당 조건의 신호가 없습니다. 점수 기준을 낮추거나 보유 기간을 줄여보세요.</td></tr>`;
     } else {
-      document.getElementById('bt-table').innerHTML = data.results.map(r => {
+      document.getElementById('bt-table').innerHTML = signals.map(r => {
         const retClass = r.return_pct >= 0 ? 'up' : 'dn';
         const retSign  = r.return_pct >= 0 ? '▲' : '▼';
         const winBadge = r.win
           ? '<span class="badge badge-sb">수익</span>'
           : '<span class="badge badge-w" style="background:#fee2e2;color:#991b1b;">손실</span>';
         return `<tr onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background=''">
-          <td><div class="tname">${r.name && r.name.length <= 20 ? r.name : r.ticker}</div><div class="tcode">${r.ticker}</div></td>
-          <td style="font-size:11px;color:var(--sub);">${r.buy_date}</td>
-          <td style="font-size:11px;color:var(--sub);">${r.sell_date}</td>
-          <td style="font-weight:600;">$${r.buy_price.toLocaleString()}</td>
-          <td style="font-weight:600;">$${r.sell_price.toLocaleString()}</td>
+          <td><div class="tname">${r.ticker}</div></td>
+          <td style="font-size:11px;color:var(--sub);">${r.signal_date}</td>
+          <td style="font-size:11px;color:var(--sub);">—</td>
+          <td style="font-weight:600;">$${r.entry_price.toLocaleString()}</td>
+          <td style="font-weight:600;">$${r.exit_price.toLocaleString()}</td>
           <td style="font-weight:800;" class="${retClass}">${retSign}${Math.abs(r.return_pct)}%</td>
           <td>
             <div style="display:flex;align-items:center;gap:6px;">
               <div style="width:60px;height:5px;background:#f1f5f9;border-radius:3px;overflow:hidden;">
-                <div style="height:100%;background:linear-gradient(to right,#3b82f6,#06b6d4);width:${r.score_at_buy}%;"></div>
+                <div style="height:100%;background:linear-gradient(to right,#3b82f6,#06b6d4);width:${r.total_score}%;"></div>
               </div>
-              <span style="font-weight:700;color:#1d4ed8;">${r.score_at_buy}</span>
+              <span style="font-weight:700;color:#1d4ed8;">${r.total_score}</span>
             </div>
           </td>
-          <td style="color:#3b82f6;font-weight:600;">${r.classic}</td>
-          <td style="color:#22c55e;font-weight:600;">${r.growth}</td>
-          <td style="color:#8b5cf6;font-weight:600;">${r.modern}</td>
+          <td style="color:#3b82f6;font-weight:600;">${r.classic_score}</td>
+          <td style="color:#22c55e;font-weight:600;">${r.growth_score}</td>
+          <td style="color:#8b5cf6;font-weight:600;">${r.total_score - r.classic_score - r.growth_score}</td>
           <td>${winBadge}</td>
         </tr>`;
       }).join('');
     }
   } catch(e) {
     document.getElementById('bt-table').innerHTML =
-      `<tr><td colspan="11" class="empty">❌ 서버 연결 실패 — Railway 로그를 확인하거나 잠시 후 다시 시도해주세요.</td></tr>`;
+      `<tr><td colspan="11" class="empty">❌ 서버 연결 실패 — 잠시 후 다시 시도해주세요.</td></tr>`;
     ['bt-total','bt-winrate','bt-avg','bt-best','bt-worst'].forEach(id=>{
       document.getElementById(id).textContent = '—';
     });
