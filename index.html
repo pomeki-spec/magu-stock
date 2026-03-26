@@ -500,19 +500,19 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
       <div class="table-wrap">
         <table class="stbl" id="sm-etf-table">
           <thead><tr>
-            <th>섹터 ETF</th>
-            <th>현재가</th>
-            <th>1일</th>
-            <th>1주</th>
-            <th>1개월</th>
-            <th>3개월</th>
-            <th>6개월</th>
-            <th>1년</th>
-            <th>거래량비율</th>
-            <th>RSI</th>
-            <th>52주高대비</th>
-            <th>트렌드</th>
-            <th>가산점</th>
+            <th style="min-width:180px;text-align:left;">섹터 ETF</th>
+            <th style="text-align:right;">현재가</th>
+            <th style="text-align:right;">1일</th>
+            <th style="text-align:right;">1주</th>
+            <th style="text-align:right;">1개월</th>
+            <th style="text-align:right;">3개월</th>
+            <th style="text-align:right;">6개월</th>
+            <th style="text-align:right;">1년</th>
+            <th style="text-align:center;">거래량비율</th>
+            <th style="text-align:center;">RSI</th>
+            <th style="text-align:center;">52주高대비</th>
+            <th style="text-align:center;">트렌드</th>
+            <th style="text-align:center;">가산점</th>
           </tr></thead>
           <tbody id="sm-etf-tbody">
             <tr><td colspan="13" class="empty">🔄 섹터 트렌드 분석 버튼을 눌러주세요</td></tr>
@@ -1036,31 +1036,46 @@ async function loadSmartMoney() {
 
     // ETF 테이블
     document.getElementById('sm-etf-tbody').innerHTML = _smSectorData.map(s => {
-      const retCell = (v) => `<td class="${v>=0?'up':'dn'}" style="font-weight:600;">${v>=0?'+':''}${v}%</td>`;
-      const volColor = s.vol_ratio > 1.2 ? '#22c55e' : s.vol_ratio < 0.8 ? '#ef4444' : 'var(--sub)';
+      const retCell = (v) => {
+        const cls = v >= 0 ? 'up' : 'dn';
+        const sign = v >= 0 ? '+' : '';
+        return `<td style="font-weight:600;text-align:right;" class="${cls}">${sign}${v}%</td>`;
+      };
+      const volColor   = s.vol_ratio > 1.2 ? '#22c55e' : s.vol_ratio < 0.8 ? '#ef4444' : 'var(--sub)';
       const bonusColor = s.trend_score > 0 ? '#22c55e' : s.trend_score < 0 ? '#ef4444' : '#94a3b8';
+      const rsiColor   = s.rsi > 65 ? '#ef4444' : s.rsi < 35 ? '#3b82f6' : 'var(--text)';
       return `<tr onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background=''">
-        <td>
-          <div style="display:flex;align-items:center;gap:8px;">
-            <span style="font-size:18px;">${s.emoji}</span>
+        <!-- 섹터명: 이모지 + 한글명 + 티커 + 영문명 -->
+        <td style="min-width:180px;padding:12px 16px;">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <div style="font-size:22px;width:28px;text-align:center;flex-shrink:0;">${s.emoji}</div>
             <div>
-              <div style="font-weight:700;font-size:12px;">${s.name} <span style="color:var(--blue);font-size:11px;">${s.ticker}</span></div>
-              <div style="font-size:10px;color:var(--sub);">${s.name_en}</div>
+              <div style="font-size:13px;font-weight:800;color:var(--text);">${s.name}</div>
+              <div style="display:flex;align-items:center;gap:5px;margin-top:2px;">
+                <span style="font-size:11px;font-weight:700;color:#fff;background:#1d4ed8;padding:1px 6px;border-radius:4px;">${s.ticker}</span>
+                <span style="font-size:10px;color:var(--sub);">${s.name_en}</span>
+              </div>
             </div>
           </div>
         </td>
-        <td style="font-weight:600;">$${s.price.toLocaleString()}</td>
+        <td style="font-weight:700;text-align:right;">$${s.price.toLocaleString()}</td>
         ${retCell(s.ret_1d)}
         ${retCell(s.ret_1w)}
         ${retCell(s.ret_1m)}
         ${retCell(s.ret_3m)}
         ${retCell(s.ret_6m)}
         ${retCell(s.ret_1y)}
-        <td style="font-weight:700;color:${volColor};">${s.vol_ratio}x</td>
-        <td style="font-weight:600;color:${s.rsi>60?'#ef4444':s.rsi<40?'#3b82f6':'var(--sub)'};">${s.rsi}</td>
-        <td class="${s.from_52w_high>-5?'up':'dn'}">${s.from_52w_high}%</td>
-        <td><span style="padding:3px 9px;border-radius:5px;font-size:11px;font-weight:700;${trendStyle[s.trend]||''}">${trendIcon[s.trend]||''} ${s.trend}</span></td>
-        <td style="font-weight:800;color:${bonusColor};font-size:13px;">${s.trend_score>0?'+':''}${s.trend_score}점</td>
+        <td style="font-weight:700;color:${volColor};text-align:center;">${s.vol_ratio}x</td>
+        <td style="font-weight:700;color:${rsiColor};text-align:center;">${s.rsi}</td>
+        <td style="text-align:center;" class="${s.from_52w_high>-5?'up':'dn'}">${s.from_52w_high}%</td>
+        <td style="text-align:center;">
+          <span style="padding:4px 10px;border-radius:6px;font-size:11px;font-weight:700;white-space:nowrap;${trendStyle[s.trend]||''}">
+            ${trendIcon[s.trend]||''} ${s.trend}
+          </span>
+        </td>
+        <td style="font-weight:800;color:${bonusColor};font-size:14px;text-align:center;">
+          ${s.trend_score > 0 ? '+' : ''}${s.trend_score}점
+        </td>
       </tr>`;
     }).join('');
 
