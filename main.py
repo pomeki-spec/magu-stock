@@ -42,94 +42,114 @@ TICKERS_US = [
     "LOW","INTC","IBM","GE","F","GM","PFE","UBER","LYFT","SQ"
 ]
 
-# ★ 코스피 50개 + 코스닥 30개 = 80개
+# 코스피 50개 + 코스닥 30개
 TICKERS_KR = [
-    # 코스피 대형주 50개
-    "005930.KS",  # 삼성전자
-    "000660.KS",  # SK하이닉스
-    "005380.KS",  # 현대차
-    "000270.KS",  # 기아
-    "051910.KS",  # LG화학
-    "006400.KS",  # 삼성SDI
-    "035420.KS",  # NAVER
-    "035720.KS",  # 카카오
-    "028260.KS",  # 삼성물산
-    "105560.KS",  # KB금융
-    "055550.KS",  # 신한지주
-    "086790.KS",  # 하나금융지주
-    "032830.KS",  # 삼성생명
-    "003550.KS",  # LG
-    "066570.KS",  # LG전자
-    "012330.KS",  # 현대모비스
-    "017670.KS",  # SK텔레콤
-    "018260.KS",  # 삼성에스디에스
-    "012450.KS",  # 한화에어로스페이스
-    "096770.KS",  # SK이노베이션
-    "010950.KS",  # S-Oil
-    "003670.KS",  # 포스코퓨처엠
-    "005490.KS",  # POSCO홀딩스
-    "000810.KS",  # 삼성화재
-    "030200.KS",  # KT
-    "015760.KS",  # 한국전력
-    "011200.KS",  # HMM
-    "034730.KS",  # SK
-    "009150.KS",  # 삼성전기
-    "010130.KS",  # 고려아연
-    "002380.KS",  # KCC
-    "011170.KS",  # 롯데케미칼
-    "004020.KS",  # 현대제철
-    "000100.KS",  # 유한양행
-    "006800.KS",  # 미래에셋증권
-    "016360.KS",  # 삼성증권
-    "139480.KS",  # 이마트
-    "004170.KS",  # 신세계
-    "021240.KS",  # 코웨이
-    "097950.KS",  # CJ제일제당
-    "000080.KS",  # 하이트진로
-    "033780.KS",  # KT&G
-    "271560.KS",  # 오리온
-    "282330.KS",  # BGF리테일
-    "326030.KS",  # SK바이오팜
-    "207940.KS",  # 삼성바이오로직스
-    "068270.KS",  # 셀트리온
-    "128940.KS",  # 한미약품
-    "002270.KS",  # 롯데제과
-    "001040.KS",  # CJ
-    # 코스닥 성장주 30개
-    "247540.KQ",  # 에코프로비엠
-    "086520.KQ",  # 에코프로
-    "196170.KQ",  # 알테오젠
-    "091990.KQ",  # 셀트리온헬스케어
-    "035900.KQ",  # JYP엔터
-    "041510.KQ",  # SM엔터테인먼트
-    "122870.KQ",  # 와이지엔터테인먼트
-    "263750.KQ",  # 펄어비스
-    "293490.KQ",  # 카카오게임즈
-    "112040.KQ",  # 위메이드
-    "067160.KQ",  # 아프리카TV
-    "039030.KQ",  # 이오테크닉스
-    "357780.KQ",  # 솔브레인
-    "096530.KQ",  # 씨젠
-    "145020.KQ",  # 휴젤
-    "214150.KQ",  # 클래시스
-    "179900.KQ",  # 유티아이
-    "151910.KQ",  # 한국콜마
-    "084370.KQ",  # 유진테크
-    "036570.KQ",  # 엔씨소프트 (코스피 이전 전)
-    "095340.KQ",  # ISC
-    "039200.KQ",  # 오스코텍
-    "031370.KQ",  # 아이센스
-    "048410.KQ",  # 현대바이오
-    "058970.KQ",  # 엠씨넥스
-    "241560.KQ",  # 두산밥캣
-    "950130.KQ",  # 엑스페릭스
-    "064760.KQ",  # 티씨케이
-    "237690.KQ",  # 에스티팜
-    "022100.KQ",  # 포스코DX
+    "005930.KS","000660.KS","005380.KS","000270.KS","051910.KS",
+    "006400.KS","035420.KS","035720.KS","028260.KS","105560.KS",
+    "055550.KS","086790.KS","032830.KS","003550.KS","066570.KS",
+    "012330.KS","017670.KS","018260.KS","012450.KS","096770.KS",
+    "010950.KS","003670.KS","005490.KS","000810.KS","030200.KS",
+    "015760.KS","011200.KS","034730.KS","009150.KS","010130.KS",
+    "002380.KS","011170.KS","004020.KS","000100.KS","006800.KS",
+    "016360.KS","139480.KS","004170.KS","021240.KS","097950.KS",
+    "000080.KS","033780.KS","271560.KS","282330.KS","326030.KS",
+    "207940.KS","068270.KS","128940.KS","002270.KS","001040.KS",
+    "247540.KQ","086520.KQ","196170.KQ","091990.KQ","035900.KQ",
+    "041510.KQ","122870.KQ","263750.KQ","293490.KQ","112040.KQ",
+    "067160.KQ","039030.KQ","357780.KQ","096530.KQ","145020.KQ",
+    "214150.KQ","151910.KQ","084370.KQ","095340.KQ","039200.KQ",
+    "031370.KQ","048410.KQ","058970.KQ","064760.KQ","237690.KQ",
+    "022100.KQ","179900.KQ","036570.KQ","241560.KQ","950130.KQ",
 ]
 
-# 백테스트용 국장 대표 50개 (코스피 35 + 코스닥 15)
+# ★ 한국어 종목명 매핑 테이블
+KR_NAMES = {
+    "005930.KS": "삼성전자",
+    "000660.KS": "SK하이닉스",
+    "005380.KS": "현대차",
+    "000270.KS": "기아",
+    "051910.KS": "LG화학",
+    "006400.KS": "삼성SDI",
+    "035420.KS": "NAVER",
+    "035720.KS": "카카오",
+    "028260.KS": "삼성물산",
+    "105560.KS": "KB금융",
+    "055550.KS": "신한지주",
+    "086790.KS": "하나금융지주",
+    "032830.KS": "삼성생명",
+    "003550.KS": "LG",
+    "066570.KS": "LG전자",
+    "012330.KS": "현대모비스",
+    "017670.KS": "SK텔레콤",
+    "018260.KS": "삼성SDS",
+    "012450.KS": "한화에어로스페이스",
+    "096770.KS": "SK이노베이션",
+    "010950.KS": "S-Oil",
+    "003670.KS": "포스코퓨처엠",
+    "005490.KS": "POSCO홀딩스",
+    "000810.KS": "삼성화재",
+    "030200.KS": "KT",
+    "015760.KS": "한국전력",
+    "011200.KS": "HMM",
+    "034730.KS": "SK",
+    "009150.KS": "삼성전기",
+    "010130.KS": "고려아연",
+    "002380.KS": "KCC",
+    "011170.KS": "롯데케미칼",
+    "004020.KS": "현대제철",
+    "000100.KS": "유한양행",
+    "006800.KS": "미래에셋증권",
+    "016360.KS": "삼성증권",
+    "139480.KS": "이마트",
+    "004170.KS": "신세계",
+    "021240.KS": "코웨이",
+    "097950.KS": "CJ제일제당",
+    "000080.KS": "하이트진로",
+    "033780.KS": "KT&G",
+    "271560.KS": "오리온",
+    "282330.KS": "BGF리테일",
+    "326030.KS": "SK바이오팜",
+    "207940.KS": "삼성바이오로직스",
+    "068270.KS": "셀트리온",
+    "128940.KS": "한미약품",
+    "002270.KS": "롯데제과",
+    "001040.KS": "CJ",
+    "247540.KQ": "에코프로비엠",
+    "086520.KQ": "에코프로",
+    "196170.KQ": "알테오젠",
+    "091990.KQ": "셀트리온헬스케어",
+    "035900.KQ": "JYP엔터",
+    "041510.KQ": "SM엔터테인먼트",
+    "122870.KQ": "와이지엔터테인먼트",
+    "263750.KQ": "펄어비스",
+    "293490.KQ": "카카오게임즈",
+    "112040.KQ": "위메이드",
+    "067160.KQ": "아프리카TV",
+    "039030.KQ": "이오테크닉스",
+    "357780.KQ": "솔브레인",
+    "096530.KQ": "씨젠",
+    "145020.KQ": "휴젤",
+    "214150.KQ": "클래시스",
+    "151910.KQ": "한국콜마",
+    "084370.KQ": "유진테크",
+    "095340.KQ": "ISC",
+    "039200.KQ": "오스코텍",
+    "031370.KQ": "아이센스",
+    "048410.KQ": "현대바이오",
+    "058970.KQ": "엠씨넥스",
+    "064760.KQ": "티씨케이",
+    "237690.KQ": "에스티팜",
+    "022100.KQ": "포스코DX",
+    "179900.KQ": "유티아이",
+    "036570.KQ": "엔씨소프트",
+    "241560.KQ": "두산밥캣",
+    "950130.KQ": "엑스페릭스",
+}
+
 TICKERS_KR_BT = TICKERS_KR[:50]
+
+def get_kr_name(ticker):
+    return KR_NAMES.get(ticker, ticker)
 
 def calculate_classic_score(ticker_data, hist_weekly, hist_daily):
     score = 0
@@ -240,9 +260,11 @@ def fetch_single_stock(ticker, market):
         current_price = hist_daily['Close'].iloc[-1]
         prev_price = hist_daily['Close'].iloc[-2]
         change_pct = (current_price / prev_price - 1) * 100
+        # ★ 한국 종목이면 한국어 이름 사용
+        name = KR_NAMES.get(ticker) or info.get('longName', ticker)
         return {
             "ticker": ticker,
-            "name": info.get('longName', ticker),
+            "name": name,
             "price": round(current_price, 2),
             "change_pct": round(change_pct, 2),
             "classic_score": classic,
@@ -288,7 +310,6 @@ def get_market_data():
 
 @app.get("/api/screen/{market}")
 def screen_stocks(market: str = "us"):
-    # ★ 국장은 80개 전체 스크리닝
     tickers = TICKERS_US if market == "us" else TICKERS_KR
     results = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
@@ -334,9 +355,10 @@ def get_stock_score(ticker: str):
         if len(hist_daily) >= 252:
             year_return = round((hist_daily['Close'].iloc[-1] / hist_daily['Close'].iloc[-252] - 1) * 100, 1)
         mcap = info.get('marketCap') or 0
+        name = KR_NAMES.get(ticker) or info.get('longName') or info.get('shortName') or ticker
         return {
             "ticker": ticker,
-            "name": info.get('longName') or info.get('shortName') or ticker,
+            "name": name,
             "sector": info.get('sector') or info.get('industry') or '—',
             "currency": info.get('currency', 'USD'),
             "price": round(current_price, 2),
@@ -399,8 +421,10 @@ def backtest_single(ticker, hold_days, score_threshold):
             sp_ret = 0.0
             if len(sp_slice) >= 2:
                 sp_ret = round(float((sp_slice['Close'].iloc[-1] / sp_slice['Close'].iloc[0] - 1) * 100), 2)
+            # ★ 한국 종목명 한국어로
+            name = KR_NAMES.get(ticker, ticker)
             signals.append({
-                "ticker": str(ticker),
+                "ticker": name,
                 "signal_date": entry_date.strftime("%Y.%m.%d"),
                 "sell_date": exit_date.strftime("%Y.%m.%d"),
                 "entry_price": round(entry_price, 2),
@@ -420,11 +444,10 @@ def backtest_single(ticker, hold_days, score_threshold):
 
 @app.get("/api/backtest")
 def run_backtest(market: str = "us", hold_days: int = 30, score_threshold: int = 55):
-    # 미국: 50개 / 국장: 50개 (타임아웃 방지)
     if market == "us":
         tickers = TICKERS_US[:50]
     else:
-        tickers = TICKERS_KR_BT  # 코스피35 + 코스닥15 = 50개
+        tickers = TICKERS_KR_BT
 
     all_signals = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
