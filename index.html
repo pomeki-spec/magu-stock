@@ -685,7 +685,7 @@ async function runBacktest() {
         return `<tr onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background=''">
           <td><div class="tname">${r.ticker}</div></td>
           <td style="font-size:11px;color:var(--sub);">${r.signal_date}</td>
-          <td style="font-size:11px;color:var(--sub);">—</td>
+          <td style="font-size:11px;color:var(--sub);">${r.sell_date || '—'}</td>
           <td style="font-weight:600;">$${r.entry_price.toLocaleString()}</td>
           <td style="font-weight:600;">$${r.exit_price.toLocaleString()}</td>
           <td style="font-weight:800;" class="${retClass}">${retSign}${Math.abs(r.return_pct)}%</td>
