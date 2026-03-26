@@ -286,7 +286,7 @@ def score_at_date(hist_daily, hist_weekly, info, cutoff_idx):
     classic = calculate_classic_score(info, w, d)
     growth  = calculate_growth_score(info, d)
     modern  = calculate_modern_score(info, d)
-    return classic, growth, classic + growth + modern
+    return int(classic), int(growth), int(classic + growth + modern)
 
 def backtest_single(ticker, hold_days, score_threshold):
     try:
@@ -306,27 +306,27 @@ def backtest_single(ticker, hold_days, score_threshold):
             classic, growth, total = result
             if total < score_threshold:
                 continue
-            entry_price = hist['Close'].iloc[i]
-            exit_price  = hist['Close'].iloc[i + hold_days]
+            entry_price = float(hist['Close'].iloc[i])
+            exit_price  = float(hist['Close'].iloc[i + hold_days])
             ret = round((exit_price / entry_price - 1) * 100, 2)
             entry_date = hist.index[i]
             exit_date  = hist.index[i + hold_days]
             sp_slice = sp500[(sp500.index >= entry_date) & (sp500.index <= exit_date)]
             sp_ret = 0.0
             if len(sp_slice) >= 2:
-                sp_ret = round((sp_slice['Close'].iloc[-1] / sp_slice['Close'].iloc[0] - 1) * 100, 2)
+                sp_ret = round(float((sp_slice['Close'].iloc[-1] / sp_slice['Close'].iloc[0] - 1) * 100), 2)
             signals.append({
-                "ticker": ticker,
+                "ticker": str(ticker),
                 "signal_date": entry_date.strftime("%Y.%m.%d"),
-                "entry_price": round(float(entry_price), 2),
-                "exit_price":  round(float(exit_price), 2),
-                "return_pct":  ret,
-                "sp500_ret":   sp_ret,
-                "classic_score": classic,
-                "growth_score":  growth,
-                "total_score":   total,
+                "entry_price": round(entry_price, 2),
+                "exit_price":  round(exit_price, 2),
+                "return_pct":  float(ret),
+                "sp500_ret":   float(sp_ret),
+                "classic_score": int(classic),
+                "growth_score":  int(growth),
+                "total_score":   int(total),
                 "recommendation": get_recommendation(total),
-                "win": ret > 0,
+                "win": bool(ret > 0),  # ★ numpy.bool_ → Python bool 변환
             })
         return signals
     except:
@@ -334,7 +334,6 @@ def backtest_single(ticker, hold_days, score_threshold):
 
 @app.get("/api/backtest")
 def run_backtest(market: str = "us", hold_days: int = 30, score_threshold: int = 55):
-    # ★ 종목 수 15개로 제한 — 타임아웃 방지
     tickers = TICKERS_US[:15] if market == "us" else TICKERS_KR
 
     all_signals = []
@@ -347,10 +346,10 @@ def run_backtest(market: str = "us", hold_days: int = 30, score_threshold: int =
         return {
             "summary": {
                 "total_signals": 0,
-                "win_rate": 0,
-                "avg_return": 0,
-                "avg_sp500": 0,
-                "alpha": 0,
+                "win_rate": 0.0,
+                "avg_return": 0.0,
+                "avg_sp500": 0.0,
+                "alpha": 0.0,
                 "hold_days": hold_days,
                 "score_threshold": score_threshold,
                 "best_model": "—",
@@ -363,12 +362,11 @@ def run_backtest(market: str = "us", hold_days: int = 30, score_threshold: int =
 
     total    = len(all_signals)
     wins     = sum(1 for s in all_signals if s["win"])
-    win_rate = round(wins / total * 100, 1) if total > 0 else 0
-    avg_ret  = round(sum(s["return_pct"] for s in all_signals) / total, 2) if total > 0 else 0
-    avg_sp   = round(sum(s["sp500_ret"]  for s in all_signals) / total, 2) if total > 0 else 0
+    win_rate = round(wins / total * 100, 1)
+    avg_ret  = round(sum(s["return_pct"] for s in all_signals) / total, 2)
+    avg_sp   = round(sum(s["sp500_ret"]  for s in all_signals) / total, 2)
     alpha    = round(avg_ret - avg_sp, 2)
 
-    # 점수 구간별 승률
     bands = [
         {"label": "70점 이상", "min": 70, "max": 100},
         {"label": "65~69점",   "min": 65, "max": 69},
@@ -378,18 +376,12 @@ def run_backtest(market: str = "us", hold_days: int = 30, score_threshold: int =
     band_stats = []
     for b in bands:
         filtered = [s for s in all_signals if b["min"] <= s["total_score"] <= b["max"]]
-        if filtered:
-            wr = round(sum(1 for s in filtered if s["win"]) / len(filtered) * 100, 1)
-        else:
-            wr = 0
+        wr = round(sum(1 for s in filtered if s["win"]) / len(filtered) * 100, 1) if filtered else 0.0
         band_stats.append({"label": b["label"], "win_rate": wr, "count": len(filtered)})
 
-    # ★ period_returns: 추가 API 호출 없이 기존 신호에서 계산 — 타임아웃 방지
-    period_rets = []
-    for days_label in [10, 20, 30, 45, 60, 90]:
-        period_rets.append({"days": days_label, "magu": avg_ret, "sp500": avg_sp})
+    # 추가 API 호출 없이 기존 데이터로 period_returns 구성
+    period_rets = [{"days": d, "magu": avg_ret, "sp500": avg_sp} for d in [10, 20, 30, 45, 60, 90]]
 
-    # 최고 성과 모델 판단
     classic_wins = [s for s in all_signals if s["classic_score"] >= 20 and s["win"]]
     growth_wins  = [s for s in all_signals if s["growth_score"]  >= 30 and s["win"]]
     modern_wins  = [s for s in all_signals if s["total_score"] - s["classic_score"] - s["growth_score"] >= 20 and s["win"]]
