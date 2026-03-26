@@ -185,6 +185,20 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
         <button class="run-btn" id="run-btn" onclick="runScreener()">🔄 전체 스크리닝 실행</button>
       </div>
     </div>
+    <!-- ★ 종목 검색창 -->
+    <div class="card" style="margin-bottom:14px;">
+      <div class="section-title">🔍 종목 점수 조회 <span class="section-right">티커 입력 후 Enter (미국: AAPL / 한국: 005930.KS)</span></div>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <input id="stock-search-input" type="text" placeholder="티커 입력 (예: AAPL, TSLA, 005930.KS, 000660.KS)"
+          style="flex:1;padding:10px 14px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;outline:none;font-family:inherit;transition:border-color .15s;"
+          onkeydown="if(event.key==='Enter') searchStock()"
+          onfocus="this.style.borderColor='#3b82f6'"
+          onblur="this.style.borderColor='var(--border)'">
+        <button class="run-btn" onclick="searchStock()" id="search-btn">🔍 조회</button>
+      </div>
+      <div id="stock-search-result" style="margin-top:12px;display:none;"></div>
+    </div>
+
     <div class="mkt-grid">
       <div class="mkt-card"><div class="mkt-label">🏅 금 (Gold)</div><div class="mkt-val" id="gold-val">—</div><div class="mkt-chg" id="gold-chg">—</div></div>
       <div class="mkt-card"><div class="mkt-label">🛢 WTI 유가</div><div class="mkt-val" id="wti-val">—</div><div class="mkt-chg" id="wti-chg">—</div></div>
@@ -714,6 +728,94 @@ async function runBacktest() {
 
   btn.disabled = false;
   btn.innerHTML = '▶ 백테스트 실행';
+}
+
+// ── 종목 검색 ──
+async function searchStock() {
+  const input = document.getElementById('stock-search-input');
+  const ticker = input.value.trim().toUpperCase();
+  if(!ticker) return;
+
+  const btn = document.getElementById('search-btn');
+  const resultBox = document.getElementById('stock-search-result');
+  btn.disabled = true;
+  btn.textContent = '⏳';
+  resultBox.style.display = 'block';
+  resultBox.innerHTML = `<div style="text-align:center;padding:16px;color:var(--sub);"><div class="spinner" style="margin:0 auto 8px;"></div>${ticker} 조회 중...</div>`;
+
+  try {
+    const res = await fetch(`${API}/api/stock/${ticker}`);
+    const d = await res.json();
+
+    if(d.error) {
+      resultBox.innerHTML = `<div style="padding:12px;color:var(--red);font-weight:600;">❌ ${d.error}</div>`;
+    } else {
+      const recMap = {'Strong Buy':'badge-sb','Buy':'badge-b','Hold':'badge-h','Watch':'badge-w'};
+      const chgClass = d.change_pct >= 0 ? 'up' : 'dn';
+      const chgSign  = d.change_pct >= 0 ? '▲' : '▼';
+      const currency = d.currency === 'KRW' ? '₩' : '$';
+      const scoreColor = d.total_score >= 70 ? '#22c55e' : d.total_score >= 55 ? '#3b82f6' : d.total_score >= 40 ? '#f59e0b' : '#94a3b8';
+
+      resultBox.innerHTML = `
+        <div style="background:#f8fafc;border:1px solid var(--border);border-radius:10px;padding:14px;display:flex;gap:16px;flex-wrap:wrap;align-items:center;">
+          <!-- 종목 기본 정보 -->
+          <div style="min-width:140px;">
+            <div style="font-size:16px;font-weight:800;color:#1d4ed8;">${d.name}</div>
+            <div style="font-size:11px;color:var(--sub);margin-top:2px;">${d.ticker} · ${d.sector}</div>
+            <div style="font-size:18px;font-weight:700;margin-top:6px;">${currency}${d.price.toLocaleString()}</div>
+            <div style="font-size:12px;font-weight:600;margin-top:2px;" class="${chgClass}">${chgSign}${Math.abs(d.change_pct)}%</div>
+          </div>
+          <!-- Magu Score 원형 -->
+          <div style="text-align:center;">
+            <div style="width:64px;height:64px;border-radius:50%;border:4px solid ${scoreColor};display:flex;align-items:center;justify-content:center;flex-direction:column;">
+              <div style="font-size:20px;font-weight:800;color:${scoreColor};line-height:1;">${d.total_score}</div>
+              <div style="font-size:8px;color:var(--sub);">/ 100</div>
+            </div>
+            <div style="margin-top:5px;"><span class="badge ${recMap[d.recommendation]||'badge-w'}">${d.recommendation}</span></div>
+          </div>
+          <!-- 3개 모델 점수 -->
+          <div style="flex:1;min-width:200px;">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:7px;">
+              <div style="font-size:11px;color:#3b82f6;font-weight:600;width:70px;">📊 Classic</div>
+              <div style="flex:1;height:6px;background:#e2e8f0;border-radius:3px;overflow:hidden;">
+                <div style="height:100%;background:#3b82f6;border-radius:3px;width:${Math.round(d.classic_score/30*100)}%;"></div>
+              </div>
+              <div style="font-size:12px;font-weight:700;color:#3b82f6;width:32px;text-align:right;">${d.classic_score}/30</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:7px;">
+              <div style="font-size:11px;color:#22c55e;font-weight:600;width:70px;">📈 Growth</div>
+              <div style="flex:1;height:6px;background:#e2e8f0;border-radius:3px;overflow:hidden;">
+                <div style="height:100%;background:#22c55e;border-radius:3px;width:${Math.round(d.growth_score/40*100)}%;"></div>
+              </div>
+              <div style="font-size:12px;font-weight:700;color:#22c55e;width:32px;text-align:right;">${d.growth_score}/40</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;">
+              <div style="font-size:11px;color:#8b5cf6;font-weight:600;width:70px;">🤖 Modern</div>
+              <div style="flex:1;height:6px;background:#e2e8f0;border-radius:3px;overflow:hidden;">
+                <div style="height:100%;background:#8b5cf6;border-radius:3px;width:${Math.round(d.modern_score/30*100)}%;"></div>
+              </div>
+              <div style="font-size:12px;font-weight:700;color:#8b5cf6;width:32px;text-align:right;">${d.modern_score}/30</div>
+            </div>
+          </div>
+          <!-- 상세 지표 -->
+          <div style="min-width:160px;font-size:11px;">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:5px;">
+              <div style="color:var(--sub);">ROE</div><div style="font-weight:600;">${d.detail.roe}%</div>
+              <div style="color:var(--sub);">부채비율</div><div style="font-weight:600;">${d.detail.debt_equity}%</div>
+              <div style="color:var(--sub);">EPS성장</div><div style="font-weight:600;">${d.detail.eps_growth}%</div>
+              <div style="color:var(--sub);">PEG</div><div style="font-weight:600;">${d.detail.peg}</div>
+              <div style="color:var(--sub);">RSI(14)</div><div style="font-weight:600;">${d.detail.rsi}</div>
+              <div style="color:var(--sub);">52주수익</div><div style="font-weight:600;" class="${d.detail.year_return>=0?'up':'dn'}">${d.detail.year_return>0?'+':''}${d.detail.year_return}%</div>
+            </div>
+          </div>
+        </div>`;
+    }
+  } catch(e) {
+    resultBox.innerHTML = `<div style="padding:12px;color:var(--red);font-weight:600;">❌ 서버 오류 — 잠시 후 다시 시도해주세요.</div>`;
+  }
+
+  btn.disabled = false;
+  btn.innerHTML = '🔍 조회';
 }
 
 // ── 시장 데이터 ──
