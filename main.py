@@ -20,7 +20,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ★ 순서 고정을 위해 set() 제거
 TICKERS_US = [
     "AAPL","MSFT","NVDA","AMZN","META","GOOGL","TSLA","AVGO","COST","NFLX",
     "TMUS","AMD","PEP","LIN","CSCO","ADBE","TXN","QCOM","INTU","AMAT",
@@ -43,11 +42,94 @@ TICKERS_US = [
     "LOW","INTC","IBM","GE","F","GM","PFE","UBER","LYFT","SQ"
 ]
 
+# ★ 코스피 50개 + 코스닥 30개 = 80개
 TICKERS_KR = [
-    "005930.KS","000660.KS","035420.KS","005380.KS","051910.KS",
-    "006400.KS","028260.KS","105560.KS","012330.KS","066570.KS",
-    "017670.KS","032830.KS","012450.KS","003550.KS","018260.KS"
+    # 코스피 대형주 50개
+    "005930.KS",  # 삼성전자
+    "000660.KS",  # SK하이닉스
+    "005380.KS",  # 현대차
+    "000270.KS",  # 기아
+    "051910.KS",  # LG화학
+    "006400.KS",  # 삼성SDI
+    "035420.KS",  # NAVER
+    "035720.KS",  # 카카오
+    "028260.KS",  # 삼성물산
+    "105560.KS",  # KB금융
+    "055550.KS",  # 신한지주
+    "086790.KS",  # 하나금융지주
+    "032830.KS",  # 삼성생명
+    "003550.KS",  # LG
+    "066570.KS",  # LG전자
+    "012330.KS",  # 현대모비스
+    "017670.KS",  # SK텔레콤
+    "018260.KS",  # 삼성에스디에스
+    "012450.KS",  # 한화에어로스페이스
+    "096770.KS",  # SK이노베이션
+    "010950.KS",  # S-Oil
+    "003670.KS",  # 포스코퓨처엠
+    "005490.KS",  # POSCO홀딩스
+    "000810.KS",  # 삼성화재
+    "030200.KS",  # KT
+    "015760.KS",  # 한국전력
+    "011200.KS",  # HMM
+    "034730.KS",  # SK
+    "009150.KS",  # 삼성전기
+    "010130.KS",  # 고려아연
+    "002380.KS",  # KCC
+    "011170.KS",  # 롯데케미칼
+    "004020.KS",  # 현대제철
+    "000100.KS",  # 유한양행
+    "006800.KS",  # 미래에셋증권
+    "016360.KS",  # 삼성증권
+    "139480.KS",  # 이마트
+    "004170.KS",  # 신세계
+    "021240.KS",  # 코웨이
+    "097950.KS",  # CJ제일제당
+    "000080.KS",  # 하이트진로
+    "033780.KS",  # KT&G
+    "271560.KS",  # 오리온
+    "282330.KS",  # BGF리테일
+    "326030.KS",  # SK바이오팜
+    "207940.KS",  # 삼성바이오로직스
+    "068270.KS",  # 셀트리온
+    "128940.KS",  # 한미약품
+    "002270.KS",  # 롯데제과
+    "001040.KS",  # CJ
+    # 코스닥 성장주 30개
+    "247540.KQ",  # 에코프로비엠
+    "086520.KQ",  # 에코프로
+    "196170.KQ",  # 알테오젠
+    "091990.KQ",  # 셀트리온헬스케어
+    "035900.KQ",  # JYP엔터
+    "041510.KQ",  # SM엔터테인먼트
+    "122870.KQ",  # 와이지엔터테인먼트
+    "263750.KQ",  # 펄어비스
+    "293490.KQ",  # 카카오게임즈
+    "112040.KQ",  # 위메이드
+    "067160.KQ",  # 아프리카TV
+    "039030.KQ",  # 이오테크닉스
+    "357780.KQ",  # 솔브레인
+    "096530.KQ",  # 씨젠
+    "145020.KQ",  # 휴젤
+    "214150.KQ",  # 클래시스
+    "179900.KQ",  # 유티아이
+    "151910.KQ",  # 한국콜마
+    "084370.KQ",  # 유진테크
+    "036570.KQ",  # 엔씨소프트 (코스피 이전 전)
+    "095340.KQ",  # ISC
+    "039200.KQ",  # 오스코텍
+    "031370.KQ",  # 아이센스
+    "048410.KQ",  # 현대바이오
+    "058970.KQ",  # 엠씨넥스
+    "241560.KQ",  # 두산밥캣
+    "950130.KQ",  # 엑스페릭스
+    "064760.KQ",  # 티씨케이
+    "237690.KQ",  # 에스티팜
+    "022100.KQ",  # 포스코DX
 ]
+
+# 백테스트용 국장 대표 50개 (코스피 35 + 코스닥 15)
+TICKERS_KR_BT = TICKERS_KR[:50]
 
 def calculate_classic_score(ticker_data, hist_weekly, hist_daily):
     score = 0
@@ -206,6 +288,7 @@ def get_market_data():
 
 @app.get("/api/screen/{market}")
 def screen_stocks(market: str = "us"):
+    # ★ 국장은 80개 전체 스크리닝
     tickers = TICKERS_US if market == "us" else TICKERS_KR
     results = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
@@ -299,7 +382,6 @@ def backtest_single(ticker, hold_days, score_threshold):
             return []
         sp500 = yf.Ticker("^GSPC").history(period="2y")
         signals = []
-        # ★ 간격 20일로 단축 → 더 많은 신호
         step = 20
         for i in range(60, len(hist) - hold_days, step):
             result = score_at_date(hist, histw, info, i)
@@ -313,8 +395,6 @@ def backtest_single(ticker, hold_days, score_threshold):
             ret = round((exit_price / entry_price - 1) * 100, 2)
             entry_date = hist.index[i]
             exit_date  = hist.index[i + hold_days]
-            # ★ 매도일 정상 표시
-            sell_date_str = exit_date.strftime("%Y.%m.%d")
             sp_slice = sp500[(sp500.index >= entry_date) & (sp500.index <= exit_date)]
             sp_ret = 0.0
             if len(sp_slice) >= 2:
@@ -322,7 +402,7 @@ def backtest_single(ticker, hold_days, score_threshold):
             signals.append({
                 "ticker": str(ticker),
                 "signal_date": entry_date.strftime("%Y.%m.%d"),
-                "sell_date": sell_date_str,
+                "sell_date": exit_date.strftime("%Y.%m.%d"),
                 "entry_price": round(entry_price, 2),
                 "exit_price":  round(exit_price, 2),
                 "return_pct":  float(ret),
@@ -340,8 +420,11 @@ def backtest_single(ticker, hold_days, score_threshold):
 
 @app.get("/api/backtest")
 def run_backtest(market: str = "us", hold_days: int = 30, score_threshold: int = 55):
-    # ★ 종목 수 50개로 확대
-    tickers = TICKERS_US[:50] if market == "us" else TICKERS_KR
+    # 미국: 50개 / 국장: 50개 (타임아웃 방지)
+    if market == "us":
+        tickers = TICKERS_US[:50]
+    else:
+        tickers = TICKERS_KR_BT  # 코스피35 + 코스닥15 = 50개
 
     all_signals = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
@@ -374,7 +457,6 @@ def run_backtest(market: str = "us", hold_days: int = 30, score_threshold: int =
     avg_sp   = round(sum(s["sp500_ret"]  for s in all_signals) / total, 2)
     alpha    = round(avg_ret - avg_sp, 2)
 
-    # 점수 구간별 승률
     bands = [
         {"label": "70점 이상", "min": 70, "max": 100},
         {"label": "65~69점",   "min": 65, "max": 69},
@@ -397,7 +479,6 @@ def run_backtest(market: str = "us", hold_days: int = 30, score_threshold: int =
         key=lambda x: x[1]
     )[0]
 
-    # 수익률 절대값 기준 정렬 → 상위 100개
     all_signals.sort(key=lambda x: x["return_pct"], reverse=True)
 
     return {
