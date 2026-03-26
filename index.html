@@ -113,6 +113,22 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
 .bt-stat-label{font-size:10px;color:var(--sub);margin-bottom:6px;font-weight:500;}
 .bt-stat-val{font-size:22px;font-weight:800;}
 .bt-select{padding:6px 10px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;border:1px solid var(--border);background:#fff;color:var(--text);outline:none;}
+/* Smart Money 전용 */
+.sm-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:14px;}
+.sm-sector-row{display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--card);border:1px solid var(--border);border-radius:10px;margin-bottom:8px;transition:box-shadow .15s;}
+.sm-sector-row:hover{box-shadow:0 3px 10px rgba(0,0,0,.07);}
+.sm-trend-확대{color:#22c55e;font-weight:800;font-size:12px;}
+.sm-trend-소폭확대{color:#86efac;font-weight:700;font-size:12px;}
+.sm-trend-유지{color:var(--sub);font-weight:500;font-size:12px;}
+.sm-trend-소폭축소{color:#fca5a5;font-weight:700;font-size:12px;}
+.sm-trend-축소{color:#ef4444;font-weight:800;font-size:12px;}
+.sm-badge{font-size:10px;font-weight:700;padding:2px 8px;border-radius:4px;}
+.sm-badge-확대{background:#dcfce7;color:#15803d;}
+.sm-badge-소폭확대{background:#d1fae5;color:#065f46;}
+.sm-badge-유지{background:#f1f5f9;color:#64748b;}
+.sm-badge-소폭축소{background:#fee2e2;color:#991b1b;}
+.sm-badge-축소{background:#fecaca;color:#7f1d1d;}
+.sm-toggle-box{display:flex;align-items:center;gap:10px;padding:12px 16px;background:linear-gradient(135deg,#f0fdf4,#dcfce7);border:1px solid #86efac;border-radius:12px;margin-bottom:14px;}
 </style>
 </head>
 <body>
@@ -144,6 +160,10 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
     <div class="nav-item" id="nav-backtest" onclick="showPage('backtest')">
       <span class="nav-icon">🧪</span>
       <div><div>Backtest</div><div class="nav-sub">과거 신호 검증</div></div>
+    </div>
+    <div class="nav-item" id="nav-smartmoney" onclick="showPage('smartmoney')">
+      <span class="nav-icon">🏦</span>
+      <div><div>Smart Money</div><div class="nav-sub">13F 섹터 트렌드</div></div>
     </div>
   </nav>
   <div class="sidebar-footer">
@@ -417,6 +437,91 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
     </div>
   </div>
 
+
+  <!-- ───────── Smart Money 페이지 ───────── -->
+  <div id="page-smartmoney" style="display:none;">
+    <div class="topbar">
+      <div>
+        <div class="page-title">🏦 Smart Money</div>
+        <div class="update-row">SPDR 섹터 ETF 기반 기관자금 흐름 실시간 분석</div>
+      </div>
+      <div class="topbar-right">
+        <button class="run-btn" id="sm-run-btn" onclick="loadSmartMoney()">🔄 섹터 트렌드 분석</button>
+      </div>
+    </div>
+
+    <!-- Smart Money 점수 합산 토글 -->
+    <div class="sm-toggle-box">
+      <label style="display:flex;align-items:center;gap:10px;cursor:pointer;width:100%;">
+        <input type="checkbox" id="sm-score-toggle" onchange="toggleSmartMoneyScore(this.checked)"
+          style="width:18px;height:18px;cursor:pointer;accent-color:#22c55e;">
+        <div>
+          <div style="font-size:13px;font-weight:700;color:#15803d;">🏦 Smart Money 점수 합산 모드</div>
+          <div style="font-size:11px;color:#166534;margin-top:2px;">
+            ON 시: 기관 자금 유입 섹터 종목에 가산점 반영 — 대시보드 스크리닝 결과에 즉시 적용
+          </div>
+        </div>
+        <div style="margin-left:auto;" id="sm-toggle-status">
+          <span style="background:#f1f5f9;color:#64748b;padding:4px 12px;border-radius:6px;font-size:12px;font-weight:700;">OFF</span>
+        </div>
+      </label>
+    </div>
+
+    <!-- S&P500 대비 요약 -->
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px;" id="sm-summary">
+      <div class="mkt-card">
+        <div class="mkt-label">📈 강한유입 섹터</div>
+        <div class="mkt-val" id="sm-strong-in" style="color:#15803d;">—</div>
+        <div style="font-size:10px;color:var(--sub);margin-top:4px;" id="sm-strong-in-names">분석 후 표시</div>
+      </div>
+      <div class="mkt-card">
+        <div class="mkt-label">↗ 유입 섹터</div>
+        <div class="mkt-val" id="sm-in" style="color:#22c55e;">—</div>
+        <div style="font-size:10px;color:var(--sub);margin-top:4px;" id="sm-in-names">분석 후 표시</div>
+      </div>
+      <div class="mkt-card">
+        <div class="mkt-label">↘ 유출 섹터</div>
+        <div class="mkt-val" id="sm-out" style="color:#ef4444;">—</div>
+        <div style="font-size:10px;color:var(--sub);margin-top:4px;" id="sm-out-names">분석 후 표시</div>
+      </div>
+      <div class="mkt-card">
+        <div class="mkt-label">📊 S&P500 1개월</div>
+        <div class="mkt-val" id="sm-spy-ret">—</div>
+        <div style="font-size:10px;color:var(--sub);margin-top:4px;" id="sm-updated">분석 후 표시</div>
+      </div>
+    </div>
+
+    <!-- 섹터 ETF 트렌드 테이블 -->
+    <div class="card">
+      <div class="section-title">
+        📊 섹터 ETF 자금 흐름 트렌드
+        <span class="section-right">가산점: 강한유입+10 / 유입+5 / 소폭유입+3 / 중립0 / 소폭유출-3 / 유출-5 / 강한유출-10</span>
+      </div>
+      <div class="table-wrap">
+        <table class="stbl" id="sm-etf-table">
+          <thead><tr>
+            <th>섹터 ETF</th>
+            <th>현재가</th>
+            <th>1일</th>
+            <th>1주</th>
+            <th>1개월</th>
+            <th>3개월</th>
+            <th>6개월</th>
+            <th>1년</th>
+            <th>거래량비율</th>
+            <th>RSI</th>
+            <th>52주高대비</th>
+            <th>트렌드</th>
+            <th>가산점</th>
+          </tr></thead>
+          <tbody id="sm-etf-tbody">
+            <tr><td colspan="13" class="empty">🔄 섹터 트렌드 분석 버튼을 눌러주세요</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
 </div><!-- /main -->
 
 <script>
@@ -426,7 +531,7 @@ let _lastResults = [];
 
 // ── 페이지 전환 ──
 function showPage(page) {
-  ['dashboard','classic','growth','modern','backtest'].forEach(p => {
+  ['dashboard','classic','growth','modern','backtest','smartmoney'].forEach(p => {
     document.getElementById('page-'+p).style.display = p===page ? 'block' : 'none';
     const nav = document.getElementById('nav-'+p);
     if(nav) nav.classList.toggle('active', p===page);
@@ -876,6 +981,148 @@ async function searchStock() {
 
   btn.disabled = false;
   btn.innerHTML = '🔍 조회';
+}
+
+// ── Smart Money ──
+let _smSectorData = [];
+let _smScoreOn = false;
+
+async function loadSmartMoney() {
+  const btn = document.getElementById('sm-run-btn');
+  btn.disabled = true;
+  btn.textContent = '⏳ 분석 중...';
+  document.getElementById('sm-etf-tbody').innerHTML =
+    '<tr><td colspan="13"><div class="loading"><div class="spinner"></div>20개 섹터 ETF 데이터 수집 중... (30초~1분)</div></td></tr>';
+
+  try {
+    const res = await fetch(`${API}/api/smartmoney`);
+    const data = await res.json();
+    if(data.error) throw new Error(data.error);
+
+    _smSectorData = data.sectors || [];
+    const spy1m = data.spy_ret_1m || 0;
+    const spyEl = document.getElementById('sm-spy-ret');
+    spyEl.textContent = (spy1m >= 0 ? '+' : '') + spy1m + '%';
+    spyEl.className   = 'mkt-val ' + (spy1m >= 0 ? 'up' : 'dn');
+    document.getElementById('sm-updated').textContent = '업데이트: ' + data.updated_at;
+
+    // 요약 카드
+    const strongIn = _smSectorData.filter(s => s.trend === '강한유입');
+    const inflow   = _smSectorData.filter(s => s.trend === '유입' || s.trend === '소폭유입');
+    const outflow  = _smSectorData.filter(s => s.trend === '유출' || s.trend === '강한유출' || s.trend === '소폭유출');
+
+    document.getElementById('sm-strong-in').textContent      = strongIn.length + '개';
+    document.getElementById('sm-in').textContent             = inflow.length + '개';
+    document.getElementById('sm-out').textContent            = outflow.length + '개';
+    document.getElementById('sm-strong-in-names').textContent = strongIn.map(s=>s.emoji+s.name).join(' ') || '없음';
+    document.getElementById('sm-in-names').textContent        = inflow.map(s=>s.emoji+s.name).join(' ') || '없음';
+    document.getElementById('sm-out-names').textContent       = outflow.map(s=>s.emoji+s.name).join(' ') || '없음';
+
+    // 트렌드 배지 스타일
+    const trendStyle = {
+      '강한유입': 'background:#14532d;color:#86efac;',
+      '유입':     'background:#dcfce7;color:#15803d;',
+      '소폭유입': 'background:#f0fdf4;color:#16a34a;',
+      '중립':     'background:#f1f5f9;color:#64748b;',
+      '소폭유출': 'background:#fff1f2;color:#9f1239;',
+      '유출':     'background:#fee2e2;color:#991b1b;',
+      '강한유출': 'background:#7f1d1d;color:#fca5a5;',
+    };
+    const trendIcon = {
+      '강한유입':'▲▲▲','유입':'▲▲','소폭유입':'▲',
+      '중립':'➡',
+      '소폭유출':'▼','유출':'▼▼','강한유출':'▼▼▼'
+    };
+
+    // ETF 테이블
+    document.getElementById('sm-etf-tbody').innerHTML = _smSectorData.map(s => {
+      const retCell = (v) => `<td class="${v>=0?'up':'dn'}" style="font-weight:600;">${v>=0?'+':''}${v}%</td>`;
+      const volColor = s.vol_ratio > 1.2 ? '#22c55e' : s.vol_ratio < 0.8 ? '#ef4444' : 'var(--sub)';
+      const bonusColor = s.trend_score > 0 ? '#22c55e' : s.trend_score < 0 ? '#ef4444' : '#94a3b8';
+      return `<tr onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background=''">
+        <td>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span style="font-size:18px;">${s.emoji}</span>
+            <div>
+              <div style="font-weight:700;font-size:12px;">${s.name} <span style="color:var(--blue);font-size:11px;">${s.ticker}</span></div>
+              <div style="font-size:10px;color:var(--sub);">${s.name_en}</div>
+            </div>
+          </div>
+        </td>
+        <td style="font-weight:600;">$${s.price.toLocaleString()}</td>
+        ${retCell(s.ret_1d)}
+        ${retCell(s.ret_1w)}
+        ${retCell(s.ret_1m)}
+        ${retCell(s.ret_3m)}
+        ${retCell(s.ret_6m)}
+        ${retCell(s.ret_1y)}
+        <td style="font-weight:700;color:${volColor};">${s.vol_ratio}x</td>
+        <td style="font-weight:600;color:${s.rsi>60?'#ef4444':s.rsi<40?'#3b82f6':'var(--sub)'};">${s.rsi}</td>
+        <td class="${s.from_52w_high>-5?'up':'dn'}">${s.from_52w_high}%</td>
+        <td><span style="padding:3px 9px;border-radius:5px;font-size:11px;font-weight:700;${trendStyle[s.trend]||''}">${trendIcon[s.trend]||''} ${s.trend}</span></td>
+        <td style="font-weight:800;color:${bonusColor};font-size:13px;">${s.trend_score>0?'+':''}${s.trend_score}점</td>
+      </tr>`;
+    }).join('');
+
+  } catch(e) {
+    document.getElementById('sm-etf-tbody').innerHTML =
+      `<tr><td colspan="13" class="empty">❌ 오류: ${e.message}</td></tr>`;
+  }
+  btn.disabled = false;
+  btn.innerHTML = '🔄 섹터 트렌드 분석';
+}
+
+function toggleSmartMoneyScore(isOn) {
+  _smScoreOn = isOn;
+  const el = document.getElementById('sm-toggle-status');
+  el.innerHTML = isOn
+    ? '<span style="background:#dcfce7;color:#15803d;padding:4px 12px;border-radius:6px;font-size:12px;font-weight:700;">ON ✅</span>'
+    : '<span style="background:#f1f5f9;color:#64748b;padding:4px 12px;border-radius:6px;font-size:12px;font-weight:700;">OFF</span>';
+  if(_lastResults.length > 0) applySmartMoneyBonus(_lastResults);
+}
+
+function applySmartMoneyBonus(results) {
+  if(!_smScoreOn || !_smSectorData.length) return;
+
+  // ETF 티커 → 가산점 맵
+  const etfBonus = {};
+  _smSectorData.forEach(s => { etfBonus[s.ticker] = s.trend_score || 0; });
+
+  const adjusted = results.map(r => {
+    const etfTicker = r.etf || '';
+    const bonus = etfBonus[etfTicker] || 0;
+    return { ...r, total_score: r.total_score + bonus, sm_bonus: bonus,
+             recommendation: getRecommendationJS(r.total_score + bonus) };
+  });
+  adjusted.sort((a,b) => b.total_score - a.total_score);
+
+  document.getElementById('result-table').innerHTML = adjusted.map(s => `
+    <tr>
+      <td>
+        <div class="tname">${s.name.length>20?s.ticker:s.name}</div>
+        <div class="tcode">${s.ticker}${s.sm_bonus ? ` <span style="color:${s.sm_bonus>0?'#22c55e':'#ef4444'};font-weight:700;font-size:9px;">${s.sm_bonus>0?'+':''}${s.sm_bonus}pts</span>` : ''}</div>
+      </td>
+      <td><strong>${currentMarket==='kr'?'₩':'$'}${s.price.toLocaleString()}</strong></td>
+      <td class="${s.change_pct>=0?'up':'dn'}">${s.change_pct>=0?'▲':'▼'}${Math.abs(s.change_pct)}%</td>
+      <td><strong>${s.classic_score}</strong></td>
+      <td><strong>${s.growth_score}</strong></td>
+      <td><strong>${s.modern_score}</strong></td>
+      <td><div class="score-bar-wrap">
+        <span class="score-bar-num" style="${s.sm_bonus?`color:${s.sm_bonus>0?'#22c55e':'#ef4444'}`:''}">${s.total_score}</span>
+        <div class="score-bar-bg"><div class="score-bar-fill" style="width:${Math.min(s.total_score,100)}%;"></div></div>
+      </div></td>
+      <td>${getBadge(s.recommendation)}</td>
+      <td>${s.weight>0?`<span class="weight-badge">${s.weight}%</span>`:'—'}</td>
+    </tr>`).join('');
+  document.getElementById('screened-count').textContent =
+    `총 ${adjusted.length}개 종목 · 🏦 Smart Money 보정 적용 중`;
+}
+
+function getRecommendationJS(score) {
+  if(score >= 70) return 'Strong Buy';
+  if(score >= 55) return 'Buy';
+  if(score >= 40) return 'Hold';
+  return 'Watch';
 }
 
 // ── 시장 데이터 ──
