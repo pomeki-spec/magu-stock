@@ -93,28 +93,19 @@ KR_NAMES = {
 
 TICKERS_KR_BT = TICKERS_KR[:50]
 
-# ── SPDR 섹터 ETF 정의 ─────────────────────────────────────────
+# ── SPDR 섹터 ETF 정의 (XL 계열 11개) ────────────────────────
 SECTOR_ETFS = [
-    {"ticker": "XLK",  "name": "기술",        "name_en": "Technology",             "emoji": "💻"},
-    {"ticker": "XLV",  "name": "헬스케어",    "name_en": "Health Care",            "emoji": "🏥"},
-    {"ticker": "XLF",  "name": "금융",        "name_en": "Financials",             "emoji": "🏦"},
-    {"ticker": "XLE",  "name": "에너지",      "name_en": "Energy",                 "emoji": "⚡"},
-    {"ticker": "XLY",  "name": "경기소비재",  "name_en": "Consumer Discretionary", "emoji": "🛍"},
-    {"ticker": "XLP",  "name": "필수소비재",  "name_en": "Consumer Staples",       "emoji": "🛒"},
-    {"ticker": "XLB",  "name": "소재",        "name_en": "Materials",              "emoji": "⚙️"},
-    {"ticker": "XLC",  "name": "통신서비스",  "name_en": "Communication",          "emoji": "📡"},
-    {"ticker": "XLI",  "name": "산업재",      "name_en": "Industrials",            "emoji": "🏭"},
-    {"ticker": "XLU",  "name": "유틸리티",    "name_en": "Utilities",              "emoji": "💡"},
-    {"ticker": "XLRE", "name": "부동산",      "name_en": "Real Estate",            "emoji": "🏢"},
-    {"ticker": "SMH",  "name": "반도체",      "name_en": "Semiconductors",         "emoji": "🔬"},
-    {"ticker": "XBI",  "name": "바이오텍",    "name_en": "Biotech",                "emoji": "🧬"},
-    {"ticker": "ITB",  "name": "주택건설",    "name_en": "Home Construction",      "emoji": "🏠"},
-    {"ticker": "XRT",  "name": "소매유통",    "name_en": "Retail",                 "emoji": "🏪"},
-    {"ticker": "XHB",  "name": "주택",        "name_en": "Housing",                "emoji": "🏡"},
-    {"ticker": "KRE",  "name": "지역은행",    "name_en": "Regional Banks",         "emoji": "🏧"},
-    {"ticker": "XME",  "name": "금속광물",    "name_en": "Metals & Mining",        "emoji": "⛏"},
-    {"ticker": "XOP",  "name": "석유가스",    "name_en": "Oil & Gas",              "emoji": "🛢"},
-    {"ticker": "XAR",  "name": "방산항공",    "name_en": "Aerospace & Defense",    "emoji": "✈️"},
+    {"ticker": "XLK",  "name": "기술",       "name_en": "Technology",             "emoji": "💻"},
+    {"ticker": "XLV",  "name": "헬스케어",   "name_en": "Health Care",            "emoji": "🏥"},
+    {"ticker": "XLF",  "name": "금융",       "name_en": "Financials",             "emoji": "🏦"},
+    {"ticker": "XLE",  "name": "에너지",     "name_en": "Energy",                 "emoji": "⚡"},
+    {"ticker": "XLY",  "name": "경기소비재", "name_en": "Consumer Discretionary", "emoji": "🛍"},
+    {"ticker": "XLP",  "name": "필수소비재", "name_en": "Consumer Staples",       "emoji": "🛒"},
+    {"ticker": "XLB",  "name": "소재",       "name_en": "Materials",              "emoji": "⚙️"},
+    {"ticker": "XLC",  "name": "통신서비스", "name_en": "Communication Services", "emoji": "📡"},
+    {"ticker": "XLI",  "name": "산업재",     "name_en": "Industrials",            "emoji": "🏭"},
+    {"ticker": "XLU",  "name": "유틸리티",   "name_en": "Utilities",              "emoji": "💡"},
+    {"ticker": "XLRE", "name": "부동산",     "name_en": "Real Estate",            "emoji": "🏢"},
 ]
 
 # yfinance 섹터명 → ETF 티커 매핑
