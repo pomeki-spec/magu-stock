@@ -229,227 +229,356 @@ SECTOR_TO_ETF = {
 }
 
 # ══════════════════════════════════════════════════════════════
-# ★ 개편: 연속 점수 함수들
+# 점수 계산 함수 — 실전 투자 기준
 # ══════════════════════════════════════════════════════════════
 
+# ──────────────────────────────────────────────────────
+# CLASSIC 모델 (30점) — 알렉산더 엘더 3중 스크린
+# 원칙: 주봉 추세(조류) → 일봉 눌림목(파도) → 진입 시점
+# ──────────────────────────────────────────────────────
+
 def score_ema_slope(hist_weekly):
-    """EMA26 기울기 강도 → 0~10점 (단순 상승/하락이 아닌 기울기 크기 반영)"""
+    """
+    1단계 조류: 주봉 EMA26 기울기 강도 (0~10점)
+    상승 기울기가 클수록 강한 조류 = 높은 점수
+    """
     try:
-        if len(hist_weekly) < 26:
+        if len(hist_weekly) < 30:
             return 0
         ema = hist_weekly['Close'].ewm(span=26).mean()
-        # 최근 4주 기울기 평균 (% 변화)
         slopes = []
         for i in range(1, 5):
             if len(ema) > i:
-                slope = (ema.iloc[-i] - ema.iloc[-i-1]) / ema.iloc[-i-1] * 100
-                slopes.append(slope)
+                s = (ema.iloc[-i] - ema.iloc[-i-1]) / ema.iloc[-i-1] * 100
+                slopes.append(s)
         if not slopes:
             return 0
-        avg_slope = sum(slopes) / len(slopes)
-        if avg_slope >= 1.5:   return 10
-        elif avg_slope >= 1.0: return 8
-        elif avg_slope >= 0.5: return 6
-        elif avg_slope >= 0.2: return 4
-        elif avg_slope >= 0.0: return 2
-        else:                  return 0
+        avg = sum(slopes) / len(slopes)
+        if avg >= 1.0:    return 10
+        elif avg >= 0.5:  return 8
+        elif avg >= 0.2:  return 6
+        elif avg >= 0.05: return 4
+        elif avg >= 0.0:  return 2
+        else:             return 0   # 하락 추세 → 매수 불가
     except:
         return 0
 
 def score_stochastic(hist_daily):
-    """스토캐스틱 과매도 강도 → 0~10점"""
+    """
+    2단계 파도: 일봉 스토캐스틱 (0~10점)
+    엘더 원칙: 상승 추세 속 과매도(20~40) = 최적 눌림목 매수 타이밍
+    ※ 단, 1단계(EMA)가 상승일 때만 의미 있음 — calculate_classic_score에서 연동
+    """
     try:
         if len(hist_daily) < 14:
             return 0
-        high  = hist_daily['High']
-        low   = hist_daily['Low']
-        close = hist_daily['Close']
-        ll = low.rolling(14).min()
-        hh = high.rolling(14).max()
-        stoch_k = 100 * (close - ll) / (hh - ll)
-        k = stoch_k.iloc[-1]
-        if k <= 10:   return 10  # 극단 과매도 → 최강 매수
-        elif k <= 20: return 8
-        elif k <= 30: return 6
-        elif k <= 40: return 4
-        elif k <= 50: return 2
-        else:         return 0
+        ll = hist_daily['Low'].rolling(14).min()
+        hh = hist_daily['High'].rolling(14).max()
+        denom = hh - ll
+        if denom.iloc[-1] == 0:
+            return 0
+        k = float(100 * (hist_daily['Close'].iloc[-1] - ll.iloc[-1]) / denom.iloc[-1])
+        if 20 <= k <= 40:    return 10  # 이상적 눌림목
+        elif 40 < k <= 50:   return 8   # 눌림목 직후 회복
+        elif 15 <= k < 20:   return 7   # 과매도 진입
+        elif 50 < k <= 65:   return 5   # 추세 상승 중
+        elif 10 <= k < 15:   return 4   # 극단 과매도 (하락 위험)
+        elif 65 < k <= 80:   return 3   # 과매수 주의
+        elif k > 80:         return 1   # 과매수 경고
+        else:                return 2   # k < 10, 극단 과매도
     except:
         return 0
 
 def score_breakout(hist_daily):
-    """전일 고가 돌파 강도 → 0~10점"""
+    """
+    3단계 진입: 전일 고가 돌파 (0~10점)
+    엘더 원칙: 전일 고가 + 1틱에 매수 주문 = 추세 재개 확인
+    """
     try:
-        if len(hist_daily) < 10:
+        if len(hist_daily) < 3:
             return 0
-        recent_high = hist_daily['High'].iloc[-10:-1].max()
-        latest_close = hist_daily['Close'].iloc[-1]
-        ratio = latest_close / recent_high
-        if ratio >= 1.03:   return 10  # 3% 이상 강한 돌파
-        elif ratio >= 1.01: return 8   # 1~3% 돌파
-        elif ratio >= 0.99: return 5   # 고가 근접
-        elif ratio >= 0.97: return 2
-        else:               return 0
+        prev_high  = float(hist_daily['High'].iloc[-2])   # 전일 고가
+        latest     = float(hist_daily['Close'].iloc[-1])
+        ratio = latest / prev_high
+        if ratio >= 1.01:    return 10  # 전일 고가 1% 이상 돌파
+        elif ratio >= 1.002: return 8   # 전일 고가 소폭 돌파
+        elif ratio >= 0.998: return 6   # 전일 고가 근접
+        elif ratio >= 0.99:  return 4   # 전일 고가 약간 아래
+        elif ratio >= 0.97:  return 2   # 눌림목
+        else:                return 0   # 하락
     except:
         return 0
 
 def calculate_classic_score(info, hist_weekly, hist_daily):
-    """엘더 3중 스크린 — 연속 점수 (30점 만점)"""
-    s1 = score_ema_slope(hist_weekly)      # 0~10
-    s2 = score_stochastic(hist_daily)      # 0~10
-    s3 = score_breakout(hist_daily)        # 0~10
+    """
+    엘더 3중 스크린 핵심 원칙 반영:
+    - EMA(조류)가 하락이면 2단계/3단계 점수 절반으로 감점
+      (하락 추세에서 눌림목 매수는 엘더가 금지)
+    """
+    s1 = score_ema_slope(hist_weekly)
+    s2 = score_stochastic(hist_daily)
+    s3 = score_breakout(hist_daily)
+
+    # ★ 엘더 원칙: 조류(EMA)가 하락이면 파도/진입 점수 50% 감점
+    if s1 == 0:
+        s2 = s2 // 2
+        s3 = s3 // 2
+
     return s1 + s2 + s3
 
+
+# ──────────────────────────────────────────────────────
+# GROWTH 모델 (40점) — 퀀트 펀더멘털
+# ──────────────────────────────────────────────────────
+
 def score_roe(roe):
-    """ROE 연속 점수 → 0~10점"""
-    if roe >= 0.40:   return 10
-    elif roe >= 0.30: return 8
-    elif roe >= 0.20: return 6
-    elif roe >= 0.15: return 4
-    elif roe >= 0.10: return 2
-    else:             return 0
+    """ROE (자기자본이익률) — 0~10점. S&P500 평균 15~20% 기준"""
+    if roe >= 0.30:    return 10
+    elif roe >= 0.20:  return 8
+    elif roe >= 0.15:  return 6
+    elif roe >= 0.10:  return 3
+    elif roe >= 0.05:  return 1
+    else:              return 0
 
 def score_debt(debt_equity):
-    """부채비율 연속 점수 → 0~5점"""
-    if debt_equity <= 0:    return 5   # 무부채
-    elif debt_equity <= 20: return 5
-    elif debt_equity <= 50: return 4
-    elif debt_equity <= 80: return 3
-    elif debt_equity <= 100:return 2
-    elif debt_equity <= 150:return 1
-    else:                   return 0
-
-def score_eps_growth(eps_growth):
-    """EPS 성장률 연속 점수 → 0~10점"""
-    if eps_growth >= 0.50:   return 10
-    elif eps_growth >= 0.35: return 8
-    elif eps_growth >= 0.25: return 6
-    elif eps_growth >= 0.20: return 4
-    elif eps_growth >= 0.10: return 2
+    """부채비율 — 0~5점. 낮을수록 재무 안정"""
+    if debt_equity <= 0:     return 5
+    elif debt_equity <= 30:  return 5
+    elif debt_equity <= 60:  return 4
+    elif debt_equity <= 100: return 3
+    elif debt_equity <= 150: return 2
+    elif debt_equity <= 200: return 1
     else:                    return 0
 
+def score_eps_growth(info):
+    """
+    EPS 성장 가속화 — 0~10점
+    ★ 수정: 연간 earningsGrowth 단독 사용 → 분기 가속화 반영
+    - earningsQuarterlyGrowth: 최근 분기 YoY 성장률 (더 선행적)
+    - earningsGrowth: TTM 연간 성장률 (후행)
+    - 분기가 연간보다 높으면 "가속화" = 추가 점수
+    """
+    quarterly = info.get('earningsQuarterlyGrowth', None)
+    annual    = info.get('earningsGrowth', None)
+
+    # 둘 다 없으면 0점
+    if quarterly is None and annual is None:
+        return 0
+
+    # 분기 데이터 우선 사용
+    primary = quarterly if quarterly is not None else annual
+    primary = primary if primary is not None else 0
+
+    # 기본 점수
+    if primary >= 0.40:    base = 10
+    elif primary >= 0.25:  base = 8
+    elif primary >= 0.15:  base = 6
+    elif primary >= 0.10:  base = 4
+    elif primary >= 0.05:  base = 2
+    elif primary > 0:      base = 1
+    else:                  base = 0
+
+    # ★ 가속화 보너스: 분기 > 연간이면 +1점 (추세 개선)
+    if quarterly is not None and annual is not None:
+        if quarterly > annual + 0.05:
+            base = min(base + 1, 10)
+
+    return base
+
 def score_peg(peg):
-    """PEG 연속 점수 → 0~5점 (낮을수록 저평가 성장주)"""
-    if peg <= 0:    return 0   # 음수 PEG는 신뢰 불가
-    elif peg <= 0.5: return 5
-    elif peg <= 0.8: return 4
-    elif peg <= 1.0: return 3
-    elif peg <= 1.2: return 2
-    elif peg <= 1.5: return 1
-    else:            return 0
+    """
+    PEG 비율 — 0~5점
+    없거나 음수/비정상이면 중립 2점 (페널티 없음)
+    """
+    if peg is None or peg <= 0 or peg >= 50:
+        return 2   # 데이터 불신뢰 → 중립
+    elif peg <= 0.8:  return 5
+    elif peg <= 1.0:  return 4
+    elif peg <= 1.5:  return 3
+    elif peg <= 2.0:  return 2
+    elif peg <= 3.0:  return 1
+    else:             return 0
 
 def score_ma200(hist_daily):
-    """200일 이동평균 대비 위치 → 0~5점"""
+    """200일 이동평균 대비 위치 — 0~5점"""
     try:
         if len(hist_daily) < 200:
             return 0
-        ma200   = hist_daily['Close'].rolling(200).mean().iloc[-1]
-        current = hist_daily['Close'].iloc[-1]
+        ma200   = float(hist_daily['Close'].rolling(200).mean().iloc[-1])
+        current = float(hist_daily['Close'].iloc[-1])
         ratio   = current / ma200
-        if ratio >= 1.20:   return 5   # MA200 대비 20%+ 위
-        elif ratio >= 1.10: return 4
-        elif ratio >= 1.02: return 3
-        elif ratio >= 1.00: return 2
-        else:               return 0
+        if ratio >= 1.20:    return 5
+        elif ratio >= 1.10:  return 4
+        elif ratio >= 1.03:  return 3
+        elif ratio >= 1.00:  return 2
+        elif ratio >= 0.95:  return 1
+        else:                return 0
     except:
         return 0
 
 def score_rsi(hist_daily):
-    """RSI 연속 점수 → 0~5점 (50 이상 추세 확인, 과열 감점)"""
+    """RSI(14) — 0~5점. 50~65 이상적 구간"""
     try:
         if len(hist_daily) < 14:
             return 0
-        rsi = ta.momentum.RSIIndicator(hist_daily['Close'], window=14).rsi().iloc[-1]
-        if 55 <= rsi <= 70:   return 5   # 이상적 구간
-        elif 50 <= rsi < 55:  return 3
-        elif 70 < rsi <= 75:  return 3   # 약간 과열
-        elif 75 < rsi <= 80:  return 1   # 과열 주의
-        elif rsi > 80:        return 0   # 과열 위험
-        else:                 return 0   # 50 미만 하락 추세
+        rsi = float(ta.momentum.RSIIndicator(hist_daily['Close'], window=14).rsi().iloc[-1])
+        if 50 <= rsi <= 65:    return 5
+        elif 40 <= rsi < 50:   return 4
+        elif 65 < rsi <= 75:   return 3
+        elif 30 <= rsi < 40:   return 2
+        elif 75 < rsi <= 80:   return 1
+        else:                  return 0
     except:
         return 0
 
 def calculate_growth_score(info, hist_daily):
-    """퀀트 펀더멘털 — 연속 점수 (40점 만점)"""
-    roe        = info.get('returnOnEquity', 0) or 0
-    debt_eq    = info.get('debtToEquity', 999) or 999
-    eps_growth = info.get('earningsGrowth', 0) or 0
-    peg        = info.get('pegRatio', 999) or 999
-
-    s1 = score_roe(roe)             # 0~10
-    s2 = score_debt(debt_eq)        # 0~5
-    s3 = score_eps_growth(eps_growth) # 0~10
-    s4 = score_peg(peg)             # 0~5
-    s5 = score_ma200(hist_daily)    # 0~5
-    s6 = score_rsi(hist_daily)      # 0~5
+    s1 = score_roe(info.get('returnOnEquity', 0) or 0)
+    s2 = score_debt(info.get('debtToEquity', 999) or 999)
+    s3 = score_eps_growth(info)
+    s4 = score_peg(info.get('pegRatio', None))
+    s5 = score_ma200(hist_daily)
+    s6 = score_rsi(hist_daily)
     return s1 + s2 + s3 + s4 + s5 + s6
 
+
+# ──────────────────────────────────────────────────────
+# MODERN 모델 (30점) — AI & 심리
+# ──────────────────────────────────────────────────────
+
 def score_analyst(rec):
-    """애널리스트 추천 연속 점수 → 0~10점"""
-    mapping = {
-        'strong_buy': 10,
-        'buy':        7,
-        'hold':       3,
-        'underperform': 1,
-        'sell':       0,
-    }
-    return mapping.get(rec.lower() if rec else '', 3)
-
-def score_year_return(hist_daily):
-    """52주 수익률 연속 점수 → 0~10점"""
-    try:
-        if len(hist_daily) < 252:
-            return 0
-        ret = (hist_daily['Close'].iloc[-1] / hist_daily['Close'].iloc[-252] - 1) * 100
-        if ret >= 100:   return 10
-        elif ret >= 60:  return 8
-        elif ret >= 30:  return 6
-        elif ret >= 20:  return 4
-        elif ret >= 0:   return 2
-        else:            return 0
-    except:
+    """애널리스트 추천 — 0~10점. 데이터 없으면 0점"""
+    if not rec:
         return 0
+    mapping = {
+        'strong_buy':   10,
+        'buy':          7,
+        'hold':         4,
+        'underperform': 1,
+        'sell':         0,
+    }
+    return mapping.get(rec.lower(), 0)
 
-def score_volume_momentum(hist_daily):
-    """거래량 모멘텀 연속 점수 → 0~10점"""
+def score_relative_strength(hist_daily):
+    """
+    상대 강도 — 0~10점
+    S&P500 연평균(10%) 대비 초과수익률로 측정
+    """
     try:
-        if len(hist_daily) < 20:
+        n = min(len(hist_daily) - 1, 252)
+        if n < 60:
             return 0
-        avg_vol    = hist_daily['Volume'].rolling(20).mean().iloc[-1]
-        recent_vol = hist_daily['Volume'].iloc[-5:].mean()  # 최근 5일 평균
-        ratio = recent_vol / avg_vol if avg_vol > 0 else 1.0
-        if ratio >= 2.0:    return 10  # 거래량 2배 이상
-        elif ratio >= 1.5:  return 8
-        elif ratio >= 1.3:  return 6
-        elif ratio >= 1.2:  return 4
-        elif ratio >= 1.0:  return 2
+        stock_ret = float((hist_daily['Close'].iloc[-1] / hist_daily['Close'].iloc[-n] - 1) * 100)
+        # 기간 비율로 연환산 기준 조정
+        spy_adj = 10.0 * (n / 252)
+        excess  = stock_ret - spy_adj
+
+        if excess >= 30:    return 10
+        elif excess >= 20:  return 8
+        elif excess >= 10:  return 6
+        elif excess >= 0:   return 4
+        elif excess >= -10: return 2
         else:               return 0
     except:
         return 0
 
+def score_obv_momentum(hist_daily):
+    """
+    OBV(On-Balance Volume) 모멘텀 — 0~10점
+    ★ 수정: 단순 거래량 비율 → OBV 방향성으로 변경
+    OBV: 가격 상승일 거래량 +, 하락일 거래량 -
+    → 진짜 매수세인지 매도세인지 구분 가능
+    """
+    try:
+        if len(hist_daily) < 20:
+            return 0
+
+        close  = hist_daily['Close']
+        volume = hist_daily['Volume']
+
+        # OBV 계산
+        obv = [0]
+        for i in range(1, len(close)):
+            if close.iloc[i] > close.iloc[i-1]:
+                obv.append(obv[-1] + volume.iloc[i])
+            elif close.iloc[i] < close.iloc[i-1]:
+                obv.append(obv[-1] - volume.iloc[i])
+            else:
+                obv.append(obv[-1])
+
+        obv_series = pd.Series(obv, index=close.index)
+
+        # 최근 20일 OBV 추세 (기울기)
+        obv_20  = obv_series.iloc[-20:]
+        obv_ma5 = obv_series.iloc[-5:].mean()
+        obv_ma20 = obv_series.iloc[-20:].mean()
+
+        # OBV가 20일 평균 위 = 매수세 우위
+        # OBV 기울기 = 최근 5일 평균 vs 20일 평균
+        if obv_ma20 == 0:
+            return 0
+
+        ratio = obv_ma5 / obv_ma20
+        # OBV 방향성 추가: 최근 5일 vs 이전 5~10일
+        obv_prev5 = obv_series.iloc[-10:-5].mean()
+        obv_curr5 = obv_series.iloc[-5:].mean()
+        rising = obv_curr5 > obv_prev5  # OBV 상승 중
+
+        if ratio >= 1.3 and rising:    return 10  # 강한 매수세 유입
+        elif ratio >= 1.1 and rising:  return 8
+        elif ratio >= 1.0 and rising:  return 6   # OBV 평균 위 + 상승
+        elif ratio >= 1.0:             return 4   # OBV 평균 위지만 정체
+        elif ratio >= 0.9:             return 2   # 약한 매도세
+        else:                          return 0   # 매도세 우위
+    except:
+        return 0
+
 def calculate_modern_score(info, hist_daily):
-    """AI & 심리 — 연속 점수 (30점 만점)"""
     rec = info.get('recommendationKey', '') or ''
-    s1 = score_analyst(rec)                # 0~10
-    s2 = score_year_return(hist_daily)     # 0~10
-    s3 = score_volume_momentum(hist_daily) # 0~10
+    s1 = score_analyst(rec)
+    s2 = score_relative_strength(hist_daily)
+    s3 = score_obv_momentum(hist_daily)
     return s1 + s2 + s3
 
-def get_recommendation(total_score):
-    if total_score >= 70:   return "Strong Buy"
-    elif total_score >= 55: return "Buy"
-    elif total_score >= 40: return "Hold"
-    else:                   return "Watch"
+
+# ──────────────────────────────────────────────────────
+# 추천 등급 — 모델별 최소 통과 기준 적용
+# ──────────────────────────────────────────────────────
+
+def get_recommendation(total_score, classic=None, growth=None, modern=None):
+    """
+    ★ 핵심 수정: 단순 합산 점수 → 모델별 최소 기준 통과 여부 병행 적용
+    원래 기획 의도: 3가지 모두 일정 수준 이상일 때 매수
+
+    최소 통과 기준:
+      Classic ≥ 10/30 (33%) — 최소한 추세가 붕괴되지 않아야
+      Growth  ≥ 15/40 (37%) — 최소한 펀더멘털이 있어야
+      Modern  ≥  8/30 (27%) — 최소한 시장 관심이 있어야
+    """
+    # 최소 기준 미달 시 강제 Watch
+    if classic is not None and growth is not None and modern is not None:
+        if classic < 10 or growth < 15 or modern < 8:
+            if total_score >= 70:
+                return "Hold"     # 합산은 높아도 한 모델 미달 → Hold로 강등
+            elif total_score >= 55:
+                return "Watch"    # Buy도 Watch로 강등
+            else:
+                return "Watch"
+
+    if total_score >= 70:    return "Strong Buy"
+    elif total_score >= 55:  return "Buy"
+    elif total_score >= 40:  return "Hold"
+    else:                    return "Watch"
 
 def get_portfolio_weight(results):
-    buy_stocks  = [r for r in results if r['recommendation'] in ['Strong Buy','Buy']]
+    buy_stocks  = [r for r in results if r['recommendation'] in ['Strong Buy', 'Buy']]
     total_score = sum(r['total_score'] for r in buy_stocks)
     for r in results:
-        if r['recommendation'] in ['Strong Buy','Buy'] and total_score > 0:
+        if r['recommendation'] in ['Strong Buy', 'Buy'] and total_score > 0:
             r['weight'] = round((r['total_score'] / total_score) * 100, 1)
         else:
             r['weight'] = 0
     return results
+
 
 def fetch_single_stock(ticker, market):
     try:
@@ -487,7 +616,7 @@ def fetch_single_stock(ticker, market):
             "growth_score":   growth,
             "modern_score":   modern,
             "total_score":    total,
-            "recommendation": get_recommendation(total),
+            "recommendation": get_recommendation(total, classic, growth, modern),
             "weight":         0,
             "rsi":            rsi_val,
             "roe":            round((info.get('returnOnEquity', 0) or 0) * 100, 1),
@@ -959,7 +1088,7 @@ def get_stock_score(ticker: str):
             "growth_score":   growth,
             "modern_score":   modern,
             "total_score":    total,
-            "recommendation": get_recommendation(total),
+            "recommendation": get_recommendation(total, classic, growth, modern),
             "detail": {
                 "roe":         round((info.get('returnOnEquity') or 0) * 100, 1),
                 "debt_equity": round(info.get('debtToEquity') or 0, 1),
@@ -1133,7 +1262,7 @@ def backtest_single(ticker, hold_days, score_threshold):
                 "growth_score":   int(growth),
                 "modern_score":   int(total - classic - growth),
                 "total_score":    int(total),
-                "recommendation": get_recommendation(total),
+                "recommendation": get_recommendation(total, classic, growth, modern),
                 "win":            bool(ret > 0),
             })
         return signals
