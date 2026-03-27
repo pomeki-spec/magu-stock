@@ -3,167 +3,166 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>MAGU STOCK — Multi-Model Screener</title>
+<title>MAGU STOCK — 멀티모델 주식 스크리너</title>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@400;500;600;700;800&display=swap');
 *{box-sizing:border-box;margin:0;padding:0;}
 :root{
---sidebar:#0f1923;--bg:#f0f2f5;--card:#fff;
---border:#e4e8f0;--text:#1a1f2e;--sub:#6b7280;
---blue:#3b82f6;--green:#22c55e;--red:#ef4444;
---orange:#f59e0b;--purple:#8b5cf6;
+  --sidebar:#0f1923;--bg:#f0f2f5;--card:#fff;
+  --border:#e4e8f0;--text:#1a1f2e;--sub:#6b7280;
+  --blue:#3b82f6;--green:#22c55e;--red:#ef4444;
+  --orange:#f59e0b;--purple:#8b5cf6;
 }
-body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:var(--text);display:flex;min-height:100vh;font-size:13px;}
-.sidebar{width:190px;background:var(--sidebar);min-height:100vh;display:flex;flex-direction:column;flex-shrink:0;position:fixed;top:0;left:0;height:100%;overflow-y:auto;}
-.logo-area{padding:20px 16px 16px;border-bottom:1px solid rgba(255,255,255,.07);}
-.logo-name{font-size:15px;font-weight:800;color:#fff;}
-.logo-badge{font-size:9px;background:var(--blue);color:#fff;padding:2px 6px;border-radius:3px;margin-left:5px;vertical-align:middle;font-weight:700;}
-.logo-sub{font-size:10px;color:rgba(255,255,255,.3);margin-top:4px;}
+body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:var(--text);display:flex;min-height:100vh;font-size:14px;}
+
+/* ── 사이드바 ── */
+.sidebar{width:200px;background:var(--sidebar);min-height:100vh;display:flex;flex-direction:column;flex-shrink:0;position:fixed;top:0;left:0;height:100%;overflow-y:auto;}
+.logo-area{padding:22px 18px 18px;border-bottom:1px solid rgba(255,255,255,.07);}
+.logo-name{font-size:16px;font-weight:800;color:#fff;letter-spacing:-.3px;}
+.logo-badge{font-size:9px;background:var(--blue);color:#fff;padding:2px 7px;border-radius:3px;margin-left:5px;vertical-align:middle;font-weight:700;}
+.logo-sub{font-size:11px;color:rgba(255,255,255,.3);margin-top:5px;}
 .nav{padding:10px 0;flex:1;}
-.nav-item{display:flex;align-items:center;gap:9px;padding:10px 16px;cursor:pointer;color:rgba(255,255,255,.4);font-size:12px;font-weight:500;border-left:2.5px solid transparent;transition:all .15s;}
-.nav-item:hover{background:rgba(255,255,255,.05);color:rgba(255,255,255,.7);}
+.nav-item{display:flex;align-items:center;gap:10px;padding:11px 18px;cursor:pointer;color:rgba(255,255,255,.45);font-size:13px;font-weight:500;border-left:3px solid transparent;transition:all .15s;}
+.nav-item:hover{background:rgba(255,255,255,.05);color:rgba(255,255,255,.8);}
 .nav-item.active{background:rgba(59,130,246,.15);color:#fff;border-left-color:var(--blue);}
-.nav-icon{font-size:14px;width:16px;text-align:center;}
-.nav-sub{font-size:9px;color:rgba(255,255,255,.2);margin-top:1px;}
-.sidebar-footer{padding:12px 16px;border-top:1px solid rgba(255,255,255,.07);}
-.idx-title{font-size:9px;color:rgba(255,255,255,.3);font-weight:600;margin-bottom:6px;letter-spacing:.5px;}
-.idx-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;}
-.idx-name{font-size:10px;color:rgba(255,255,255,.4);}
-.idx-val{font-size:10px;font-weight:600;color:rgba(255,255,255,.6);}
-.idx-chg{font-size:9px;}
-.main{flex:1;padding:20px 24px;overflow:auto;margin-left:190px;}
-.topbar{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:18px;}
-.page-title{font-size:22px;font-weight:800;}
-.update-row{font-size:11px;color:var(--sub);margin-top:5px;display:flex;align-items:center;gap:6px;}
-.tag-status{font-size:10px;font-weight:700;padding:2px 8px;border-radius:4px;}
+.nav-icon{font-size:15px;width:18px;text-align:center;}
+.nav-label{font-size:13px;font-weight:600;}
+.nav-sub{font-size:10px;color:rgba(255,255,255,.25);margin-top:2px;}
+.sidebar-footer{padding:14px 18px;border-top:1px solid rgba(255,255,255,.07);}
+.idx-title{font-size:10px;color:rgba(255,255,255,.35);font-weight:700;margin-bottom:8px;letter-spacing:.8px;}
+.idx-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;}
+.idx-name{font-size:11px;color:rgba(255,255,255,.4);}
+.idx-val{font-size:11px;font-weight:700;color:rgba(255,255,255,.65);}
+.idx-chg{font-size:10px;}
+
+/* ── 메인 ── */
+.main{flex:1;padding:22px 26px;overflow:auto;margin-left:200px;}
+.topbar{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:20px;}
+.page-title{font-size:24px;font-weight:800;letter-spacing:-.5px;}
+.update-row{font-size:12px;color:var(--sub);margin-top:6px;display:flex;align-items:center;gap:7px;}
+.tag-status{font-size:11px;font-weight:700;padding:2px 9px;border-radius:4px;}
 .topbar-right{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
-.seg-btn{padding:6px 14px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;border:1px solid var(--border);background:#fff;color:var(--sub);transition:all .15s;}
+.seg-btn{padding:7px 16px;border-radius:7px;font-size:13px;font-weight:600;cursor:pointer;border:1px solid var(--border);background:#fff;color:var(--sub);transition:all .15s;}
 .seg-btn.active{background:#1e3a5f;color:#fff;border-color:#1e3a5f;}
-.run-btn{padding:7px 16px;background:var(--blue);color:#fff;border:none;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:5px;}
+.run-btn{padding:8px 18px;background:var(--blue);color:#fff;border:none;border-radius:7px;font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px;white-space:nowrap;}
 .run-btn:hover{opacity:.85;}
 .run-btn:disabled{opacity:.5;cursor:not-allowed;}
-.card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px;}
+
+/* ── 카드 ── */
+.card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:18px;}
 .mkt-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:14px;}
-.mkt-card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:12px 14px;}
-.mkt-label{font-size:10px;color:var(--sub);margin-bottom:5px;font-weight:500;}
-.mkt-val{font-size:18px;font-weight:800;}
-.mkt-chg{font-size:11px;font-weight:600;margin-top:3px;}
+.mkt-card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px 16px;}
+.mkt-label{font-size:11px;color:var(--sub);margin-bottom:6px;font-weight:600;}
+.mkt-val{font-size:20px;font-weight:800;}
+.mkt-chg{font-size:12px;font-weight:600;margin-top:4px;}
 .up{color:#ef4444;} .dn{color:#3b82f6;}
+
+/* ── 공포/탐욕 & 투자 비중 ── */
 .fi-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;}
-.fear-bar{height:8px;border-radius:4px;background:linear-gradient(to right,#ef4444,#f59e0b,#eab308,#22c55e);position:relative;margin:10px 0 5px;}
-.fear-needle{position:absolute;top:-4px;width:16px;height:16px;background:#fff;border:2.5px solid #374151;border-radius:50%;transform:translateX(-50%);transition:left .6s ease;}
-.fear-labels{display:flex;justify-content:space-between;font-size:9px;color:var(--sub);}
-.fear-num{font-size:32px;font-weight:800;margin-top:8px;}
-.inv-row{display:flex;align-items:center;gap:8px;margin-bottom:8px;}
-.inv-name{font-size:11px;color:var(--sub);width:28px;}
-.inv-bg{flex:1;height:7px;background:#f1f5f9;border-radius:4px;overflow:hidden;}
+.fear-bar{height:9px;border-radius:5px;background:linear-gradient(to right,#ef4444,#f59e0b,#eab308,#22c55e);position:relative;margin:12px 0 6px;}
+.fear-needle{position:absolute;top:-5px;width:18px;height:18px;background:#fff;border:3px solid #374151;border-radius:50%;transform:translateX(-50%);transition:left .6s ease;}
+.fear-labels{display:flex;justify-content:space-between;font-size:10px;color:var(--sub);}
+.fear-num{font-size:34px;font-weight:800;margin-top:10px;}
+.inv-row{display:flex;align-items:center;gap:10px;margin-bottom:10px;}
+.inv-name{font-size:12px;color:var(--sub);width:32px;font-weight:600;}
+.inv-bg{flex:1;height:8px;background:#f1f5f9;border-radius:4px;overflow:hidden;}
 .inv-fill{height:100%;border-radius:4px;transition:width .6s ease;}
-.inv-note{background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:9px 11px;font-size:11px;color:#92400e;margin-top:8px;line-height:1.5;}
+.inv-note{background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:10px 12px;font-size:12px;color:#92400e;margin-top:10px;line-height:1.6;}
+
+/* ── 모델 카드 ── */
 .model-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px;}
-.model-card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px;cursor:pointer;transition:box-shadow .15s;}
-.model-card:hover{box-shadow:0 4px 12px rgba(0,0,0,.08);}
-.model-head{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;}
-.model-title{font-size:13px;font-weight:700;}
-.model-sub-text{font-size:10px;color:var(--sub);margin-top:1px;}
-.model-count{font-size:24px;font-weight:800;color:var(--blue);line-height:1;}
-.model-total{font-size:10px;color:var(--sub);}
-.stock-row{display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid var(--border);}
+.model-card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px;cursor:pointer;transition:box-shadow .15s;}
+.model-card:hover{box-shadow:0 4px 14px rgba(0,0,0,.09);}
+.model-head{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px;}
+.model-title{font-size:14px;font-weight:700;}
+.model-sub-text{font-size:11px;color:var(--sub);margin-top:2px;}
+.model-count{font-size:26px;font-weight:800;color:var(--blue);line-height:1;}
+.model-total{font-size:11px;color:var(--sub);}
+.stock-row{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);}
 .stock-row:last-of-type{border:none;}
-.sname{font-size:12px;font-weight:600;color:#1d4ed8;}
-.badge{font-size:10px;font-weight:700;padding:2px 8px;border-radius:4px;}
+.sname{font-size:13px;font-weight:600;color:#1d4ed8;}
+.badge{font-size:11px;font-weight:700;padding:2px 9px;border-radius:4px;}
 .badge-sb{background:#dcfce7;color:#15803d;}
 .badge-b{background:#dbeafe;color:#1d4ed8;}
 .badge-h{background:#fef9c3;color:#854d0e;}
 .badge-w{background:#f1f5f9;color:#64748b;}
-.model-btn{width:100%;margin-top:10px;padding:8px;background:#f8fafc;border:1px solid var(--border);border-radius:7px;font-size:12px;color:var(--sub);cursor:pointer;font-weight:500;}
+.model-btn{width:100%;margin-top:12px;padding:9px;background:#f8fafc;border:1px solid var(--border);border-radius:7px;font-size:13px;color:var(--sub);cursor:pointer;font-weight:600;}
 .model-btn:hover{background:#f1f5f9;}
+
+/* ── 베스트 픽 ── */
 .picks-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-bottom:14px;}
-.pick-card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:12px;}
-.pick-rank{font-size:11px;font-weight:700;color:var(--blue);margin-bottom:3px;}
-.pick-name{font-size:13px;font-weight:700;margin-bottom:1px;}
-.pick-code{font-size:10px;color:var(--sub);margin-bottom:8px;}
-.pick-circle{width:44px;height:44px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:800;}
+
+/* ── 테이블 ── */
 .table-wrap{overflow-x:auto;}
-.stbl{width:100%;border-collapse:collapse;font-size:12px;}
-.stbl th{padding:9px 12px;text-align:left;font-size:11px;color:var(--sub);font-weight:600;border-bottom:1px solid var(--border);white-space:nowrap;}
-.stbl td{padding:11px 12px;border-bottom:1px solid var(--border);vertical-align:middle;}
+.stbl{width:100%;border-collapse:collapse;font-size:13px;}
+.stbl th{padding:10px 14px;text-align:left;font-size:12px;color:var(--sub);font-weight:700;border-bottom:1px solid var(--border);white-space:nowrap;}
+.stbl td{padding:12px 14px;border-bottom:1px solid var(--border);vertical-align:middle;}
 .stbl tr:hover td{background:#f8fafc;}
 .stbl tr:last-child td{border:none;}
-.tname{font-size:13px;font-weight:700;color:#1d4ed8;}
-.tcode{font-size:10px;color:var(--sub);margin-top:1px;}
-.score-bar-wrap{position:relative;padding-top:14px;width:100px;}
-.score-bar-num{position:absolute;top:0;right:0;font-size:11px;font-weight:700;color:#1d4ed8;}
-.score-bar-bg{height:5px;background:#f1f5f9;border-radius:3px;overflow:hidden;}
+.tname{font-size:14px;font-weight:700;color:#1d4ed8;}
+.tcode{font-size:11px;color:var(--sub);margin-top:2px;}
+.score-bar-wrap{position:relative;padding-top:16px;width:100px;}
+.score-bar-num{position:absolute;top:0;right:0;font-size:12px;font-weight:700;color:#1d4ed8;}
+.score-bar-bg{height:6px;background:#f1f5f9;border-radius:3px;overflow:hidden;}
 .score-bar-fill{height:100%;border-radius:3px;background:linear-gradient(to right,#3b82f6,#06b6d4);}
-.weight-badge{display:inline-block;background:#eff6ff;color:#1d4ed8;font-size:11px;font-weight:700;padding:3px 9px;border-radius:5px;}
-.loading{text-align:center;padding:40px;color:var(--sub);}
-.spinner{width:32px;height:32px;border:3px solid var(--border);border-top-color:var(--blue);border-radius:50%;animation:spin .7s linear infinite;margin:0 auto 12px;}
+.weight-badge{display:inline-block;background:#eff6ff;color:#1d4ed8;font-size:12px;font-weight:700;padding:3px 10px;border-radius:5px;}
+
+/* ── 로딩 ── */
+.loading{text-align:center;padding:44px;color:var(--sub);}
+.spinner{width:34px;height:34px;border:3px solid var(--border);border-top-color:var(--blue);border-radius:50%;animation:spin .7s linear infinite;margin:0 auto 14px;}
 @keyframes spin{to{transform:rotate(360deg);}}
-.section-title{font-size:14px;font-weight:700;margin-bottom:12px;display:flex;align-items:center;gap:6px;}
-.section-right{font-size:10px;color:var(--sub);font-weight:400;margin-left:auto;}
-.empty{text-align:center;padding:30px;color:var(--sub);font-size:12px;}
-.back-btn{background:#fff;border:1px solid var(--border);border-radius:8px;padding:8px 16px;cursor:pointer;font-size:13px;font-weight:600;}
+.section-title{font-size:15px;font-weight:700;margin-bottom:14px;display:flex;align-items:center;gap:7px;}
+.section-right{font-size:11px;color:var(--sub);font-weight:400;margin-left:auto;}
+.empty{text-align:center;padding:32px;color:var(--sub);font-size:13px;}
+.back-btn{background:#fff;border:1px solid var(--border);border-radius:8px;padding:8px 18px;cursor:pointer;font-size:14px;font-weight:600;}
 .back-btn:hover{background:#f1f5f9;}
-.filter-btn{padding:5px 12px;border-radius:20px;border:1px solid var(--border);background:#fff;color:var(--sub);font-size:11px;font-weight:600;cursor:pointer;transition:all .15s;}
+.filter-btn{padding:5px 13px;border-radius:20px;border:1px solid var(--border);background:#fff;color:var(--sub);font-size:12px;font-weight:600;cursor:pointer;transition:all .15s;}
 .filter-btn.active{background:#eff6ff;color:#1d4ed8;border-color:#3b82f6;}
-.cond-step{border-radius:8px;padding:12px;flex:1;}
-/* Backtest 전용 */
+.cond-step{border-radius:8px;padding:14px;flex:1;}
+
+/* ── 백테스트 ── */
 .bt-summary-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:14px;}
-.bt-stat-card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px 16px;}
-.bt-stat-label{font-size:10px;color:var(--sub);margin-bottom:6px;font-weight:500;}
-.bt-stat-val{font-size:22px;font-weight:800;}
-.bt-select{padding:6px 10px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;border:1px solid var(--border);background:#fff;color:var(--text);outline:none;}
-/* Smart Money 전용 */
-.sm-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:14px;}
-.sm-sector-row{display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--card);border:1px solid var(--border);border-radius:10px;margin-bottom:8px;transition:box-shadow .15s;}
-.sm-sector-row:hover{box-shadow:0 3px 10px rgba(0,0,0,.07);}
-.sm-trend-확대{color:#22c55e;font-weight:800;font-size:12px;}
-.sm-trend-소폭확대{color:#86efac;font-weight:700;font-size:12px;}
-.sm-trend-유지{color:var(--sub);font-weight:500;font-size:12px;}
-.sm-trend-소폭축소{color:#fca5a5;font-weight:700;font-size:12px;}
-.sm-trend-축소{color:#ef4444;font-weight:800;font-size:12px;}
-.sm-badge{font-size:10px;font-weight:700;padding:2px 8px;border-radius:4px;}
-.sm-badge-확대{background:#dcfce7;color:#15803d;}
-.sm-badge-소폭확대{background:#d1fae5;color:#065f46;}
-.sm-badge-유지{background:#f1f5f9;color:#64748b;}
-.sm-badge-소폭축소{background:#fee2e2;color:#991b1b;}
-.sm-badge-축소{background:#fecaca;color:#7f1d1d;}
-.sm-toggle-box{display:flex;align-items:center;gap:10px;padding:12px 16px;background:linear-gradient(135deg,#f0fdf4,#dcfce7);border:1px solid #86efac;border-radius:12px;margin-bottom:14px;}
+.bt-stat-card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px 18px;}
+.bt-stat-label{font-size:11px;color:var(--sub);margin-bottom:7px;font-weight:600;}
+.bt-stat-val{font-size:24px;font-weight:800;}
+.bt-select{padding:7px 12px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;border:1px solid var(--border);background:#fff;color:var(--text);outline:none;}
+
+/* ── 스마트머니 ── */
+.sm-toggle-box{display:flex;align-items:center;gap:10px;padding:14px 18px;background:linear-gradient(135deg,#f0fdf4,#dcfce7);border:1px solid #86efac;border-radius:12px;margin-bottom:14px;}
 </style>
 </head>
 <body>
 
-<!-- SIDEBAR -->
+<!-- 사이드바 -->
 <div class="sidebar">
   <div class="logo-area">
     <div><span class="logo-name">MAGU STOCK</span><span class="logo-badge">MVP</span></div>
-    <div class="logo-sub">Multi-Model Stock Screener</div>
+    <div class="logo-sub">멀티모델 주식 스크리너</div>
   </div>
   <nav class="nav">
     <div class="nav-item active" id="nav-dashboard" onclick="showPage('dashboard')">
-      <span class="nav-icon">🏠</span>
-      <div><div>Dashboard</div><div class="nav-sub">홈</div></div>
+      <span class="nav-icon">📊</span>
+      <div><div class="nav-label">주식 종합 현황</div><div class="nav-sub">홈 대시보드</div></div>
     </div>
     <div class="nav-item" id="nav-classic" onclick="showPage('classic')">
-      <span class="nav-icon">📊</span>
-      <div><div>Classic Model</div><div class="nav-sub">엘더 3중 스크린</div></div>
+      <span class="nav-icon">📉</span>
+      <div><div class="nav-label">클래식 모델</div><div class="nav-sub">엘더 3중 스크린</div></div>
     </div>
     <div class="nav-item" id="nav-growth" onclick="showPage('growth')">
       <span class="nav-icon">📈</span>
-      <div><div>Growth Model</div><div class="nav-sub">퀀트펀더멘털</div></div>
+      <div><div class="nav-label">성장 모델</div><div class="nav-sub">퀀트 펀더멘털</div></div>
     </div>
     <div class="nav-item" id="nav-modern" onclick="showPage('modern')">
       <span class="nav-icon">🤖</span>
-      <div><div>Modern Model</div><div class="nav-sub">AI & 심리</div></div>
+      <div><div class="nav-label">모던 모델</div><div class="nav-sub">AI & 심리</div></div>
     </div>
-    <!-- ★ Backtest 메뉴 추가 -->
     <div class="nav-item" id="nav-backtest" onclick="showPage('backtest')">
       <span class="nav-icon">🧪</span>
-      <div><div>Backtest</div><div class="nav-sub">과거 신호 검증</div></div>
+      <div><div class="nav-label">백테스트</div><div class="nav-sub">과거 신호 검증</div></div>
     </div>
     <div class="nav-item" id="nav-smartmoney" onclick="showPage('smartmoney')">
       <span class="nav-icon">🏦</span>
-      <div><div>Smart Money</div><div class="nav-sub">13F 섹터 트렌드</div></div>
+      <div><div class="nav-label">스마트머니</div><div class="nav-sub">섹터 자금 흐름</div></div>
     </div>
   </nav>
   <div class="sidebar-footer">
@@ -173,30 +172,30 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
       <div style="text-align:right;"><div class="idx-val" id="sp500-val">—</div><div class="idx-chg" id="sp500-chg"></div></div>
     </div>
     <div class="idx-row">
-      <span class="idx-name">NASDAQ</span>
+      <span class="idx-name">나스닥</span>
       <div style="text-align:right;"><div class="idx-val" id="nasdaq-val">—</div><div class="idx-chg" id="nasdaq-chg"></div></div>
     </div>
     <div class="idx-row">
-      <span class="idx-name">DOW</span>
+      <span class="idx-name">다우존스</span>
       <div style="text-align:right;"><div class="idx-val" id="dow-val">—</div><div class="idx-chg" id="dow-chg"></div></div>
     </div>
     <div class="idx-row">
-      <span class="idx-name">RUSSELL</span>
+      <span class="idx-name">러셀2000</span>
       <div style="text-align:right;"><div class="idx-val" id="russell-val">—</div><div class="idx-chg" id="russell-chg"></div></div>
     </div>
   </div>
 </div>
 
-<!-- MAIN -->
+<!-- 메인 -->
 <div class="main">
 
-  <!-- ───────── 대시보드 ───────── -->
+  <!-- ───────── 주식 종합 현황 ───────── -->
   <div id="page-dashboard">
     <div class="topbar">
       <div>
-        <div class="page-title">Dashboard</div>
+        <div class="page-title">📊 주식 종합 현황</div>
         <div class="update-row">⏱ 마지막 업데이트: <span id="last-update">—</span>
-          <span class="tag-status" id="market-status" style="background:#ecfdf5;color:#15803d;">로딩중</span>
+          <span class="tag-status" id="market-status" style="background:#ecfdf5;color:#15803d;">로딩 중</span>
         </div>
       </div>
       <div class="topbar-right">
@@ -205,50 +204,72 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
         <button class="run-btn" id="run-btn" onclick="runScreener()">🔄 전체 스크리닝 실행</button>
       </div>
     </div>
-    <!-- ★ 종목 검색창 -->
+
+    <!-- 종목 검색 -->
     <div class="card" style="margin-bottom:14px;">
       <div class="section-title">🔍 종목 점수 조회 <span class="section-right">티커 입력 후 Enter (미국: AAPL / 한국: 005930.KS)</span></div>
       <div style="display:flex;gap:8px;align-items:center;">
-        <input id="stock-search-input" type="text" placeholder="티커 입력 (예: AAPL, TSLA, 005930.KS, 000660.KS)"
-          style="flex:1;padding:10px 14px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;outline:none;font-family:inherit;transition:border-color .15s;"
+        <input id="stock-search-input" type="text"
+          placeholder="티커 입력 (예: AAPL, TSLA, 005930.KS, 000660.KS)"
+          style="flex:1;padding:11px 15px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;outline:none;font-family:inherit;transition:border-color .15s;"
           onkeydown="if(event.key==='Enter') searchStock()"
           onfocus="this.style.borderColor='#3b82f6'"
           onblur="this.style.borderColor='var(--border)'">
         <button class="run-btn" onclick="searchStock()" id="search-btn">🔍 조회</button>
       </div>
-      <div id="stock-search-result" style="margin-top:12px;display:none;"></div>
+      <div id="stock-search-result" style="margin-top:14px;display:none;"></div>
     </div>
 
+    <!-- 시장 지표 카드 -->
     <div class="mkt-grid">
       <div class="mkt-card"><div class="mkt-label">🏅 금 (Gold)</div><div class="mkt-val" id="gold-val">—</div><div class="mkt-chg" id="gold-chg">—</div></div>
       <div class="mkt-card"><div class="mkt-label">🛢 WTI 유가</div><div class="mkt-val" id="wti-val">—</div><div class="mkt-chg" id="wti-chg">—</div></div>
-      <div class="mkt-card"><div class="mkt-label">💱 USD/KRW</div><div class="mkt-val" id="krw-val">—</div><div class="mkt-chg" id="krw-chg">—</div></div>
-      <div class="mkt-card"><div class="mkt-label">🏦 US 10Y</div><div class="mkt-val" id="bond-val">—</div><div class="mkt-chg" id="bond-chg">—</div></div>
-      <div class="mkt-card"><div class="mkt-label">📉 VIX</div><div class="mkt-val" id="vix-val">—</div><div class="mkt-chg" id="vix-chg">—</div></div>
+      <div class="mkt-card"><div class="mkt-label">💱 달러/원</div><div class="mkt-val" id="krw-val">—</div><div class="mkt-chg" id="krw-chg">—</div></div>
+      <div class="mkt-card"><div class="mkt-label">🏦 미국 10년 국채</div><div class="mkt-val" id="bond-val">—</div><div class="mkt-chg" id="bond-chg">—</div></div>
+      <div class="mkt-card"><div class="mkt-label">📉 변동성지수 (VIX)</div><div class="mkt-val" id="vix-val">—</div><div class="mkt-chg" id="vix-chg">—</div></div>
     </div>
+
+    <!-- 공포탐욕 + 투자비중 -->
     <div class="fi-grid">
       <div class="card">
-        <div class="section-title">📊 공포탐욕 지수 <span class="section-right">스크리닝 결과 기반</span></div>
+        <div class="section-title">📊 공포·탐욕 지수 <span class="section-right">스크리닝 결과 기반 산출</span></div>
         <div class="fear-bar"><div class="fear-needle" id="fear-needle" style="left:50%"></div></div>
-        <div class="fear-labels"><span>극단공포</span><span>공포</span><span>중립</span><span>탐욕</span><span>극단탐욕</span></div>
-        <div style="display:flex;align-items:baseline;margin-top:8px;">
+        <div class="fear-labels"><span>극단 공포</span><span>공포</span><span>중립</span><span>탐욕</span><span>극단 탐욕</span></div>
+        <div style="display:flex;align-items:baseline;margin-top:10px;">
           <div class="fear-num" id="fear-num">—</div>
-          <div style="font-size:13px;font-weight:600;color:var(--orange);margin-left:10px;" id="fear-label">계산중</div>
+          <div style="font-size:14px;font-weight:700;color:var(--orange);margin-left:12px;" id="fear-label">계산 중</div>
         </div>
-        <div style="font-size:10px;color:var(--sub);margin-top:4px;" id="fear-sub">스크리닝 실행 후 계산</div>
+        <div style="font-size:11px;color:var(--sub);margin-top:5px;" id="fear-sub">스크리닝 실행 후 계산됩니다</div>
       </div>
       <div class="card">
         <div class="section-title">📦 AI 투자 비중 추천</div>
-        <div class="inv-row"><div class="inv-name">주식</div><div class="inv-bg"><div class="inv-fill" id="stock-fill" style="width:60%;background:#3b82f6;"></div></div><div style="font-size:11px;font-weight:700;width:34px;text-align:right;color:#3b82f6;" id="stock-pct">60%</div></div>
-        <div class="inv-row"><div class="inv-name">현금</div><div class="inv-bg"><div class="inv-fill" id="cash-fill" style="width:30%;background:#22c55e;"></div></div><div style="font-size:11px;font-weight:700;width:34px;text-align:right;color:#22c55e;" id="cash-pct">30%</div></div>
-        <div class="inv-row"><div class="inv-name">채권</div><div class="inv-bg"><div class="inv-fill" id="bond-fill" style="width:10%;background:#8b5cf6;"></div></div><div style="font-size:11px;font-weight:700;width:34px;text-align:right;color:#8b5cf6;" id="bond-pct">10%</div></div>
+        <div class="inv-row">
+          <div class="inv-name">주식</div>
+          <div class="inv-bg"><div class="inv-fill" id="stock-fill" style="width:60%;background:#3b82f6;"></div></div>
+          <div style="font-size:12px;font-weight:700;width:36px;text-align:right;color:#3b82f6;" id="stock-pct">60%</div>
+        </div>
+        <div class="inv-row">
+          <div class="inv-name">현금</div>
+          <div class="inv-bg"><div class="inv-fill" id="cash-fill" style="width:30%;background:#22c55e;"></div></div>
+          <div style="font-size:12px;font-weight:700;width:36px;text-align:right;color:#22c55e;" id="cash-pct">30%</div>
+        </div>
+        <div class="inv-row">
+          <div class="inv-name">채권</div>
+          <div class="inv-bg"><div class="inv-fill" id="bond-fill" style="width:10%;background:#8b5cf6;"></div></div>
+          <div style="font-size:12px;font-weight:700;width:36px;text-align:right;color:#8b5cf6;" id="bond-pct">10%</div>
+        </div>
         <div class="inv-note" id="inv-note">💡 스크리닝 실행 후 AI 추천 비중이 표시됩니다.</div>
       </div>
     </div>
+
+    <!-- 모델 카드 3개 -->
     <div class="model-grid">
       <div class="model-card" onclick="showPage('classic')">
         <div class="model-head">
-          <div style="display:flex;align-items:center;gap:6px;"><span style="font-size:18px;">📊</span><div><div class="model-title">Classic Model</div><div class="model-sub-text">엘더 3중 스크린 (30점)</div></div></div>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span style="font-size:20px;">📉</span>
+            <div><div class="model-title">클래식 모델</div><div class="model-sub-text">엘더 3중 스크린 (30점)</div></div>
+          </div>
           <div style="text-align:right;"><div class="model-count" id="classic-count">—</div><div class="model-total">/ 30점</div></div>
         </div>
         <div id="classic-stocks"><div class="empty">스크리닝 실행 전</div></div>
@@ -256,7 +277,10 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
       </div>
       <div class="model-card" onclick="showPage('growth')">
         <div class="model-head">
-          <div style="display:flex;align-items:center;gap:6px;"><span style="font-size:18px;">📈</span><div><div class="model-title">Growth Model</div><div class="model-sub-text">퀀트펀더멘털 (40점)</div></div></div>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span style="font-size:20px;">📈</span>
+            <div><div class="model-title">성장 모델</div><div class="model-sub-text">퀀트 펀더멘털 (40점)</div></div>
+          </div>
           <div style="text-align:right;"><div class="model-count" id="growth-count">—</div><div class="model-total">/ 40점</div></div>
         </div>
         <div id="growth-stocks"><div class="empty">스크리닝 실행 전</div></div>
@@ -264,23 +288,32 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
       </div>
       <div class="model-card" onclick="showPage('modern')">
         <div class="model-head">
-          <div style="display:flex;align-items:center;gap:6px;"><span style="font-size:18px;">🤖</span><div><div class="model-title">Modern Model</div><div class="model-sub-text">AI & 심리 (30점)</div></div></div>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span style="font-size:20px;">🤖</span>
+            <div><div class="model-title">모던 모델</div><div class="model-sub-text">AI & 심리 (30점)</div></div>
+          </div>
           <div style="text-align:right;"><div class="model-count" id="modern-count">—</div><div class="model-total">/ 30점</div></div>
         </div>
         <div id="modern-stocks"><div class="empty">스크리닝 실행 전</div></div>
         <button class="model-btn">자세히 보기 →</button>
       </div>
     </div>
-    <div class="section-title">🏆 오늘의 베스트 픽 <span class="section-right">Magu Score 상위 종목</span></div>
-    <div class="picks-grid" id="best-picks"><div class="empty" style="grid-column:1/-1;">🔄 스크리닝 실행 버튼을 눌러주세요</div></div>
+
+    <!-- 베스트 픽 -->
+    <div class="section-title">🏆 오늘의 베스트 픽 <span class="section-right">마구 스코어 상위 종목</span></div>
+    <div class="picks-grid" id="best-picks">
+      <div class="empty" style="grid-column:1/-1;">🔄 스크리닝 실행 버튼을 눌러주세요</div>
+    </div>
+
+    <!-- 전체 결과 테이블 -->
     <div class="card">
       <div class="section-title">전체 스크리닝 결과 <span class="section-right" id="screened-count"></span></div>
       <div class="table-wrap">
         <table class="stbl">
           <thead><tr>
-            <th>종목</th><th>현재가</th><th>등락</th>
-            <th>Classic (30)</th><th>Growth (40)</th><th>Modern (30)</th>
-            <th>Magu Score</th><th>추천</th><th>비중</th>
+            <th>종목</th><th>현재가</th><th>등락률</th>
+            <th>클래식 (30)</th><th>성장 (40)</th><th>모던 (30)</th>
+            <th>마구 스코어</th><th>추천</th><th>투자 비중</th>
           </tr></thead>
           <tbody id="result-table"><tr><td colspan="9" class="empty">스크리닝 실행 전입니다</td></tr></tbody>
         </table>
@@ -288,80 +321,101 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
     </div>
   </div>
 
-  <!-- ───────── Classic 페이지 ───────── -->
+  <!-- ───────── 클래식 모델 페이지 ───────── -->
   <div id="page-classic" style="display:none;">
-    <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;">
-      <button class="back-btn" onclick="showPage('dashboard')">← 대시보드</button>
-      <div><div class="page-title">📊 Classic Model</div><div style="font-size:11px;color:var(--sub);margin-top:3px;">알렉산더 엘더 3중 스크린 · 30점 만점</div></div>
+    <div style="display:flex;align-items:center;gap:14px;margin-bottom:22px;">
+      <button class="back-btn" onclick="showPage('dashboard')">← 종합 현황</button>
+      <div>
+        <div class="page-title">📉 클래식 모델</div>
+        <div style="font-size:12px;color:var(--sub);margin-top:4px;">알렉산더 엘더 3중 스크린 · 30점 만점</div>
+      </div>
     </div>
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px;">
       <div class="cond-step" style="background:#eff6ff;border:1px solid #bfdbfe;">
-        <div style="font-size:12px;font-weight:700;color:#1d4ed8;margin-bottom:6px;">1단계 — 조류 파악 (10점)</div>
-        <div style="font-size:11px;color:#3b82f6;line-height:1.6;">주봉 26주 EMA 상승 중<br>시장의 큰 흐름 확인</div>
+        <div style="font-size:13px;font-weight:700;color:#1d4ed8;margin-bottom:7px;">1단계 — 조류 파악 (10점)</div>
+        <div style="font-size:12px;color:#3b82f6;line-height:1.7;">주봉 26주 EMA 상승 중<br>시장의 큰 흐름 확인</div>
       </div>
       <div class="cond-step" style="background:#eff6ff;border:1px solid #bfdbfe;">
-        <div style="font-size:12px;font-weight:700;color:#1d4ed8;margin-bottom:6px;">2단계 — 파도 확인 (10점)</div>
-        <div style="font-size:11px;color:#3b82f6;line-height:1.6;">일봉 Stochastic 과매도 구간<br>상승 추세 속 눌림목 포착</div>
+        <div style="font-size:13px;font-weight:700;color:#1d4ed8;margin-bottom:7px;">2단계 — 파도 확인 (10점)</div>
+        <div style="font-size:12px;color:#3b82f6;line-height:1.7;">일봉 스토캐스틱 과매도 구간<br>상승 추세 속 눌림목 포착</div>
       </div>
       <div class="cond-step" style="background:#eff6ff;border:1px solid #bfdbfe;">
-        <div style="font-size:12px;font-weight:700;color:#1d4ed8;margin-bottom:6px;">3단계 — 진입 시점 (10점)</div>
-        <div style="font-size:11px;color:#3b82f6;line-height:1.6;">전일 고가 돌파 시도<br>추세 재개 확인</div>
+        <div style="font-size:13px;font-weight:700;color:#1d4ed8;margin-bottom:7px;">3단계 — 진입 시점 (10점)</div>
+        <div style="font-size:12px;color:#3b82f6;line-height:1.7;">전일 고가 돌파 시도<br>추세 재개 확인</div>
       </div>
     </div>
-    <div id="classic-page-content"><div class="empty" style="background:#fff;border-radius:12px;border:1px solid var(--border);padding:40px;">먼저 대시보드에서 스크리닝을 실행해주세요</div></div>
+    <div id="classic-page-content">
+      <div class="empty" style="background:#fff;border-radius:12px;border:1px solid var(--border);padding:44px;">
+        먼저 종합 현황에서 스크리닝을 실행해주세요
+      </div>
+    </div>
   </div>
 
-  <!-- ───────── Growth 페이지 ───────── -->
+  <!-- ───────── 성장 모델 페이지 ───────── -->
   <div id="page-growth" style="display:none;">
-    <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;">
-      <button class="back-btn" onclick="showPage('dashboard')">← 대시보드</button>
-      <div><div class="page-title">📈 Growth Model</div><div style="font-size:11px;color:var(--sub);margin-top:3px;">퀀트펀더멘털 성장주 스크린 · 40점 만점</div></div>
+    <div style="display:flex;align-items:center;gap:14px;margin-bottom:22px;">
+      <button class="back-btn" onclick="showPage('dashboard')">← 종합 현황</button>
+      <div>
+        <div class="page-title">📈 성장 모델</div>
+        <div style="font-size:12px;color:var(--sub);margin-top:4px;">퀀트 펀더멘털 성장주 스크린 · 40점 만점</div>
+      </div>
     </div>
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px;">
       <div class="cond-step" style="background:#f0fdf4;border:1px solid #bbf7d0;">
-        <div style="font-size:12px;font-weight:700;color:#15803d;margin-bottom:6px;">1단계 — 퀄리티 필터 (15점)</div>
-        <div style="font-size:11px;color:#16a34a;line-height:1.6;">ROE &gt; 15%<br>부채비율 &lt; 100%</div>
+        <div style="font-size:13px;font-weight:700;color:#15803d;margin-bottom:7px;">1단계 — 퀄리티 필터 (15점)</div>
+        <div style="font-size:12px;color:#16a34a;line-height:1.7;">ROE &gt; 15%<br>부채비율 &lt; 100%</div>
       </div>
       <div class="cond-step" style="background:#f0fdf4;border:1px solid #bbf7d0;">
-        <div style="font-size:12px;font-weight:700;color:#15803d;margin-bottom:6px;">2단계 — 성장성 + 가치 (15점)</div>
-        <div style="font-size:11px;color:#16a34a;line-height:1.6;">EPS 성장률 &gt; 20% (3년)<br>PEG &lt; 1.2</div>
+        <div style="font-size:13px;font-weight:700;color:#15803d;margin-bottom:7px;">2단계 — 성장성 + 가치 (15점)</div>
+        <div style="font-size:12px;color:#16a34a;line-height:1.7;">EPS 성장률 &gt; 20% (3년)<br>PEG &lt; 1.2</div>
       </div>
       <div class="cond-step" style="background:#f0fdf4;border:1px solid #bbf7d0;">
-        <div style="font-size:12px;font-weight:700;color:#15803d;margin-bottom:6px;">3단계 — 모멘텀 (10점)</div>
-        <div style="font-size:11px;color:#16a34a;line-height:1.6;">주가 &gt; 200일 이동평균<br>RSI(14) &gt; 50</div>
+        <div style="font-size:13px;font-weight:700;color:#15803d;margin-bottom:7px;">3단계 — 모멘텀 (10점)</div>
+        <div style="font-size:12px;color:#16a34a;line-height:1.7;">주가 &gt; 200일 이동평균<br>RSI(14) &gt; 50</div>
       </div>
     </div>
-    <div id="growth-page-content"><div class="empty" style="background:#fff;border-radius:12px;border:1px solid var(--border);padding:40px;">먼저 대시보드에서 스크리닝을 실행해주세요</div></div>
+    <div id="growth-page-content">
+      <div class="empty" style="background:#fff;border-radius:12px;border:1px solid var(--border);padding:44px;">
+        먼저 종합 현황에서 스크리닝을 실행해주세요
+      </div>
+    </div>
   </div>
 
-  <!-- ───────── Modern 페이지 ───────── -->
+  <!-- ───────── 모던 모델 페이지 ───────── -->
   <div id="page-modern" style="display:none;">
-    <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;">
-      <button class="back-btn" onclick="showPage('dashboard')">← 대시보드</button>
-      <div><div class="page-title">🤖 Modern Model</div><div style="font-size:11px;color:var(--sub);margin-top:3px;">AI & 심리 스크린 · 30점 만점</div></div>
+    <div style="display:flex;align-items:center;gap:14px;margin-bottom:22px;">
+      <button class="back-btn" onclick="showPage('dashboard')">← 종합 현황</button>
+      <div>
+        <div class="page-title">🤖 모던 모델</div>
+        <div style="font-size:12px;color:var(--sub);margin-top:4px;">AI & 심리 스크린 · 30점 만점</div>
+      </div>
     </div>
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px;">
       <div class="cond-step" style="background:#fdf4ff;border:1px solid #e9d5ff;">
-        <div style="font-size:12px;font-weight:700;color:#7e22ce;margin-bottom:6px;">1단계 — 실적 상향 (10점)</div>
-        <div style="font-size:11px;color:#9333ea;line-height:1.6;">애널리스트 Strong Buy/Buy<br>Zacks Rank #1~2 수준</div>
+        <div style="font-size:13px;font-weight:700;color:#7e22ce;margin-bottom:7px;">1단계 — 실적 상향 (10점)</div>
+        <div style="font-size:12px;color:#9333ea;line-height:1.7;">애널리스트 강력매수/매수<br>잭스 랭크 1~2 수준</div>
       </div>
       <div class="cond-step" style="background:#fdf4ff;border:1px solid #e9d5ff;">
-        <div style="font-size:12px;font-weight:700;color:#7e22ce;margin-bottom:6px;">2단계 — 상대적 강세 (10점)</div>
-        <div style="font-size:11px;color:#9333ea;line-height:1.6;">52주 수익률 &gt; 20%<br>S&P 500 대비 초과 성과</div>
+        <div style="font-size:13px;font-weight:700;color:#7e22ce;margin-bottom:7px;">2단계 — 상대적 강세 (10점)</div>
+        <div style="font-size:12px;color:#9333ea;line-height:1.7;">52주 수익률 &gt; 20%<br>S&P 500 대비 초과 성과</div>
       </div>
       <div class="cond-step" style="background:#fdf4ff;border:1px solid #e9d5ff;">
-        <div style="font-size:12px;font-weight:700;color:#7e22ce;margin-bottom:6px;">3단계 — 거래량 모멘텀 (10점)</div>
-        <div style="font-size:11px;color:#9333ea;line-height:1.6;">최근 거래량 &gt; 20일 평균<br>시장 관심도 확인</div>
+        <div style="font-size:13px;font-weight:700;color:#7e22ce;margin-bottom:7px;">3단계 — 거래량 모멘텀 (10점)</div>
+        <div style="font-size:12px;color:#9333ea;line-height:1.7;">최근 거래량 &gt; 20일 평균<br>시장 관심도 확인</div>
       </div>
     </div>
-    <div id="modern-page-content"><div class="empty" style="background:#fff;border-radius:12px;border:1px solid var(--border);padding:40px;">먼저 대시보드에서 스크리닝을 실행해주세요</div></div>
+    <div id="modern-page-content">
+      <div class="empty" style="background:#fff;border-radius:12px;border:1px solid var(--border);padding:44px;">
+        먼저 종합 현황에서 스크리닝을 실행해주세요
+      </div>
+    </div>
   </div>
 
-  <!-- ───────── Backtest 페이지 ★ 신규 ───────── -->
+  <!-- ───────── 백테스트 페이지 ───────── -->
   <div id="page-backtest" style="display:none;">
     <div class="topbar">
       <div>
-        <div class="page-title">🧪 Backtest</div>
+        <div class="page-title">🧪 백테스트</div>
         <div class="update-row">과거 신호 기준으로 실제 수익률을 검증합니다</div>
       </div>
       <div class="topbar-right">
@@ -370,64 +424,35 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
           <option value="kr">🇰🇷 한국</option>
         </select>
         <select id="bt-hold" class="bt-select">
-          <option value="14">보유: 14일</option>
-          <option value="30" selected>보유: 30일</option>
-          <option value="60">보유: 60일</option>
-          <option value="90">보유: 90일</option>
+          <option value="14">보유 기간: 14일</option>
+          <option value="30" selected>보유 기간: 30일</option>
+          <option value="60">보유 기간: 60일</option>
+          <option value="90">보유 기간: 90일</option>
         </select>
         <select id="bt-score" class="bt-select">
-          <option value="60">점수 기준: 60점+</option>
-          <option value="70" selected>점수 기준: 70점+</option>
-          <option value="80">점수 기준: 80점+</option>
+          <option value="60">최소 점수: 60점+</option>
+          <option value="70" selected>최소 점수: 70점+</option>
+          <option value="80">최소 점수: 80점+</option>
         </select>
         <button class="run-btn" id="bt-run-btn" onclick="runBacktest()">▶ 백테스트 실행</button>
       </div>
     </div>
 
-    <!-- 요약 카드 -->
-    <div class="bt-summary-grid" id="bt-summary-grid">
-      <div class="bt-stat-card">
-        <div class="bt-stat-label">📊 분석 종목 수</div>
-        <div class="bt-stat-val" id="bt-total">—</div>
-      </div>
-      <div class="bt-stat-card">
-        <div class="bt-stat-label">🏆 승률</div>
-        <div class="bt-stat-val" id="bt-winrate">—</div>
-      </div>
-      <div class="bt-stat-card">
-        <div class="bt-stat-label">📈 평균 수익률</div>
-        <div class="bt-stat-val" id="bt-avg">—</div>
-      </div>
-      <div class="bt-stat-card">
-        <div class="bt-stat-label">🚀 최고 수익</div>
-        <div class="bt-stat-val up" id="bt-best">—</div>
-      </div>
-      <div class="bt-stat-card">
-        <div class="bt-stat-label">📉 최저 수익</div>
-        <div class="bt-stat-val" id="bt-worst">—</div>
-      </div>
+    <div class="bt-summary-grid">
+      <div class="bt-stat-card"><div class="bt-stat-label">📊 분석 종목 수</div><div class="bt-stat-val" id="bt-total">—</div></div>
+      <div class="bt-stat-card"><div class="bt-stat-label">🏆 승률</div><div class="bt-stat-val" id="bt-winrate">—</div></div>
+      <div class="bt-stat-card"><div class="bt-stat-label">📈 평균 수익률</div><div class="bt-stat-val" id="bt-avg">—</div></div>
+      <div class="bt-stat-card"><div class="bt-stat-label">🚀 최고 수익</div><div class="bt-stat-val up" id="bt-best">—</div></div>
+      <div class="bt-stat-card"><div class="bt-stat-label">📉 최저 수익</div><div class="bt-stat-val" id="bt-worst">—</div></div>
     </div>
 
-    <!-- 결과 테이블 -->
     <div class="card">
-      <div class="section-title">
-        백테스트 결과
-        <span class="section-right" id="bt-updated"></span>
-      </div>
+      <div class="section-title">백테스트 결과 <span class="section-right" id="bt-updated"></span></div>
       <div class="table-wrap">
         <table class="stbl">
           <thead><tr>
-            <th>종목</th>
-            <th>매수일</th>
-            <th>매도일</th>
-            <th>매수가</th>
-            <th>매도가</th>
-            <th>수익률</th>
-            <th>매수 시 Score</th>
-            <th>Classic</th>
-            <th>Growth</th>
-            <th>Modern</th>
-            <th>결과</th>
+            <th>종목</th><th>매수일</th><th>매도일</th><th>매수가</th><th>매도가</th>
+            <th>수익률</th><th>매수 시 점수</th><th>클래식</th><th>성장</th><th>모던</th><th>결과</th>
           </tr></thead>
           <tbody id="bt-table">
             <tr><td colspan="11" class="empty">▶ 백테스트 실행 버튼을 눌러주세요</td></tr>
@@ -437,70 +462,64 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
     </div>
   </div>
 
-
-  <!-- ───────── Smart Money 페이지 ───────── -->
+  <!-- ───────── 스마트머니 페이지 ───────── -->
   <div id="page-smartmoney" style="display:none;">
     <div class="topbar">
       <div>
-        <div class="page-title">🏦 Smart Money</div>
-        <div class="update-row">SPDR 섹터 ETF 기반 기관자금 흐름 실시간 분석</div>
+        <div class="page-title">🏦 스마트머니</div>
+        <div class="update-row">SPDR 섹터 ETF 기반 기관 자금 흐름 실시간 분석</div>
       </div>
       <div class="topbar-right">
         <button class="run-btn" id="sm-run-btn" onclick="loadSmartMoney()">🔄 섹터 트렌드 분석</button>
       </div>
     </div>
 
-    <!-- Smart Money 점수 합산 토글 -->
     <div class="sm-toggle-box">
-      <label style="display:flex;align-items:center;gap:10px;cursor:pointer;width:100%;">
+      <label style="display:flex;align-items:center;gap:12px;cursor:pointer;width:100%;">
         <input type="checkbox" id="sm-score-toggle" onchange="toggleSmartMoneyScore(this.checked)"
           style="width:18px;height:18px;cursor:pointer;accent-color:#22c55e;">
         <div>
-          <div style="font-size:13px;font-weight:700;color:#15803d;">🏦 Smart Money 점수 합산 모드</div>
-          <div style="font-size:11px;color:#166534;margin-top:2px;">
-            ON 시: 기관 자금 유입 섹터 종목에 가산점 반영 — 대시보드 스크리닝 결과에 즉시 적용
-          </div>
+          <div style="font-size:14px;font-weight:700;color:#15803d;">🏦 스마트머니 점수 합산 모드</div>
+          <div style="font-size:12px;color:#166534;margin-top:3px;">ON 시: 기관 자금 유입 섹터 종목에 가산점 반영 — 종합 현황 스크리닝 결과에 즉시 적용</div>
         </div>
         <div style="margin-left:auto;" id="sm-toggle-status">
-          <span style="background:#f1f5f9;color:#64748b;padding:4px 12px;border-radius:6px;font-size:12px;font-weight:700;">OFF</span>
+          <span style="background:#f1f5f9;color:#64748b;padding:4px 14px;border-radius:6px;font-size:13px;font-weight:700;">OFF</span>
         </div>
       </label>
     </div>
 
-    <!-- S&P500 대비 요약 -->
-    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px;" id="sm-summary">
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px;">
       <div class="mkt-card">
-        <div class="mkt-label">📈 강한유입 섹터</div>
+        <div class="mkt-label">📈 강한 유입 섹터</div>
         <div class="mkt-val" id="sm-strong-in" style="color:#15803d;">—</div>
-        <div style="font-size:10px;color:var(--sub);margin-top:4px;" id="sm-strong-in-names">분석 후 표시</div>
+        <div style="font-size:11px;color:var(--sub);margin-top:4px;" id="sm-strong-in-names">분석 후 표시</div>
       </div>
       <div class="mkt-card">
         <div class="mkt-label">↗ 유입 섹터</div>
         <div class="mkt-val" id="sm-in" style="color:#22c55e;">—</div>
-        <div style="font-size:10px;color:var(--sub);margin-top:4px;" id="sm-in-names">분석 후 표시</div>
+        <div style="font-size:11px;color:var(--sub);margin-top:4px;" id="sm-in-names">분석 후 표시</div>
       </div>
       <div class="mkt-card">
         <div class="mkt-label">↘ 유출 섹터</div>
         <div class="mkt-val" id="sm-out" style="color:#ef4444;">—</div>
-        <div style="font-size:10px;color:var(--sub);margin-top:4px;" id="sm-out-names">분석 후 표시</div>
+        <div style="font-size:11px;color:var(--sub);margin-top:4px;" id="sm-out-names">분석 후 표시</div>
       </div>
       <div class="mkt-card">
-        <div class="mkt-label">📊 S&P500 1개월</div>
+        <div class="mkt-label">📊 S&P500 1개월 수익률</div>
         <div class="mkt-val" id="sm-spy-ret">—</div>
-        <div style="font-size:10px;color:var(--sub);margin-top:4px;" id="sm-updated">분석 후 표시</div>
+        <div style="font-size:11px;color:var(--sub);margin-top:4px;" id="sm-updated">분석 후 표시</div>
       </div>
     </div>
 
-    <!-- 섹터 ETF 트렌드 테이블 -->
     <div class="card">
       <div class="section-title">
         📊 섹터 ETF 자금 흐름 트렌드
-        <span class="section-right">가산점: 강한유입+10 / 유입+5 / 소폭유입+3 / 중립0 / 소폭유출-3 / 유출-5 / 강한유출-10</span>
+        <span class="section-right">가산점: 강한유입 +10 / 유입 +5 / 소폭유입 +3 / 중립 0 / 소폭유출 -3 / 유출 -5 / 강한유출 -10</span>
       </div>
       <div class="table-wrap">
         <table class="stbl" id="sm-etf-table">
           <thead><tr>
-            <th style="min-width:180px;text-align:left;">섹터 ETF</th>
+            <th style="min-width:180px;">섹터 ETF</th>
             <th style="text-align:right;">현재가</th>
             <th style="text-align:right;">1일</th>
             <th style="text-align:right;">1주</th>
@@ -508,9 +527,9 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
             <th style="text-align:right;">3개월</th>
             <th style="text-align:right;">6개월</th>
             <th style="text-align:right;">1년</th>
-            <th style="text-align:center;">거래량비율</th>
+            <th style="text-align:center;">거래량 비율</th>
             <th style="text-align:center;">RSI</th>
-            <th style="text-align:center;">52주高대비</th>
+            <th style="text-align:center;">52주 고점 대비</th>
             <th style="text-align:center;">트렌드</th>
             <th style="text-align:center;">가산점</th>
           </tr></thead>
@@ -536,12 +555,12 @@ function showPage(page) {
     const nav = document.getElementById('nav-'+p);
     if(nav) nav.classList.toggle('active', p===page);
   });
-  if(page !== 'dashboard' && page !== 'backtest') {
+  if(page !== 'dashboard' && page !== 'backtest' && page !== 'smartmoney') {
     if(_lastResults.length > 0) {
       renderModelPage(page);
     } else {
       document.getElementById(page+'-page-content').innerHTML =
-        '<div class="empty" style="background:#fff;border-radius:12px;border:1px solid var(--border);padding:40px;">먼저 대시보드에서 🔄 스크리닝을 실행해주세요</div>';
+        '<div class="empty" style="background:#fff;border-radius:12px;border:1px solid var(--border);padding:44px;">먼저 종합 현황에서 🔄 스크리닝을 실행해주세요</div>';
     }
   }
   window.scrollTo(0,0);
@@ -554,8 +573,14 @@ function switchMarket(m) {
 }
 
 function getBadge(rec) {
-  const map = {'Strong Buy':'badge-sb','Buy':'badge-b','Hold':'badge-h','Watch':'badge-w'};
-  return `<span class="badge ${map[rec]||'badge-w'}">${rec}</span>`;
+  const map = {
+    'Strong Buy': ['badge-sb','강력 매수'],
+    'Buy':        ['badge-b', '매수'],
+    'Hold':       ['badge-h', '보유'],
+    'Watch':      ['badge-w', '관망']
+  };
+  const [cls, label] = map[rec] || ['badge-w', rec];
+  return `<span class="badge ${cls}">${label}</span>`;
 }
 
 function getCircleColor(score) {
@@ -568,28 +593,28 @@ function getCircleColor(score) {
 // ── 모델 페이지 렌더 ──
 function renderModelPage(modelKey) {
   const configs = {
-    classic:{scoreKey:'classic_score',maxScore:30,color:'#3b82f6',label:'Classic'},
-    growth: {scoreKey:'growth_score', maxScore:40,color:'#22c55e',label:'Growth'},
-    modern: {scoreKey:'modern_score', maxScore:30,color:'#8b5cf6',label:'Modern'}
+    classic:{scoreKey:'classic_score',maxScore:30,color:'#3b82f6',label:'클래식'},
+    growth: {scoreKey:'growth_score', maxScore:40,color:'#22c55e',label:'성장'},
+    modern: {scoreKey:'modern_score', maxScore:30,color:'#8b5cf6',label:'모던'}
   };
   const cfg = configs[modelKey];
   const sorted = [..._lastResults].sort((a,b)=>b[cfg.scoreKey]-a[cfg.scoreKey]);
   const html = `
     <div style="background:#fff;border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-      <span style="font-size:12px;font-weight:600;color:var(--sub);">필터:</span>
+      <span style="font-size:13px;font-weight:600;color:var(--sub);">필터:</span>
       <button class="filter-btn active" onclick="applyFilter('${modelKey}','all',this)">전체 (${sorted.length})</button>
-      <button class="filter-btn" onclick="applyFilter('${modelKey}','Strong Buy',this)">Strong Buy</button>
-      <button class="filter-btn" onclick="applyFilter('${modelKey}','Buy',this)">Buy</button>
-      <button class="filter-btn" onclick="applyFilter('${modelKey}','Hold',this)">Hold</button>
+      <button class="filter-btn" onclick="applyFilter('${modelKey}','Strong Buy',this)">강력 매수</button>
+      <button class="filter-btn" onclick="applyFilter('${modelKey}','Buy',this)">매수</button>
+      <button class="filter-btn" onclick="applyFilter('${modelKey}','Hold',this)">보유</button>
       <input id="search-${modelKey}" type="text" placeholder="종목 검색..." oninput="applyFilter('${modelKey}','search',null)"
-        style="margin-left:auto;padding:6px 12px;border:1px solid var(--border);border-radius:8px;font-size:12px;outline:none;width:150px;">
+        style="margin-left:auto;padding:7px 13px;border:1px solid var(--border);border-radius:8px;font-size:13px;outline:none;width:160px;">
     </div>
     <div style="background:#fff;border:1px solid var(--border);border-radius:12px;overflow:hidden;">
       <table class="stbl">
         <thead><tr>
-          <th>순위</th><th>종목</th><th>현재가</th><th>등락</th>
+          <th>순위</th><th>종목</th><th>현재가</th><th>등락률</th>
           <th>${cfg.label} 점수 (${cfg.maxScore}점)</th>
-          <th>Magu Score</th><th>추천</th><th>조건</th>
+          <th>마구 스코어</th><th>추천</th><th>조건 충족</th>
         </tr></thead>
         <tbody id="tbody-${modelKey}">${buildModelRows(sorted,cfg)}</tbody>
       </table>
@@ -605,29 +630,31 @@ function buildModelRows(data, cfg) {
     const s1 = score >= Math.round(cfg.maxScore*0.33) ? '✅':'❌';
     const s2 = score >= Math.round(cfg.maxScore*0.67) ? '✅':'❌';
     const s3 = score >= cfg.maxScore ? '✅':'❌';
-    return `<tr onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background=''">
-      <td style="padding:10px 12px;font-weight:700;color:var(--sub);">${i+1}</td>
-      <td style="padding:10px 12px;"><div class="tname">${s.name.length>20?s.ticker:s.name}</div><div class="tcode">${s.ticker}</div></td>
-      <td style="padding:10px 12px;font-weight:600;">$${s.price.toLocaleString()}</td>
-      <td style="padding:10px 12px;" class="${s.change_pct>=0?'up':'dn'}">${s.change_pct>=0?'▲':'▼'}${Math.abs(s.change_pct)}%</td>
-      <td style="padding:10px 12px;">
+    const chgClass = s.change_pct>=0?'up':'dn';
+    const chgSign  = s.change_pct>=0?'▲':'▼';
+    return `<tr>
+      <td style="padding:11px 14px;font-weight:700;color:var(--sub);">${i+1}</td>
+      <td style="padding:11px 14px;"><div class="tname">${s.name.length>20?s.ticker:s.name}</div><div class="tcode">${s.ticker}</div></td>
+      <td style="padding:11px 14px;font-weight:600;">$${s.price.toLocaleString()}</td>
+      <td style="padding:11px 14px;" class="${chgClass}">${chgSign}${Math.abs(s.change_pct)}%</td>
+      <td style="padding:11px 14px;">
         <div style="display:flex;align-items:center;gap:8px;">
           <div style="width:80px;height:6px;background:#f1f5f9;border-radius:3px;overflow:hidden;">
             <div style="height:100%;background:${cfg.color};width:${pct}%;border-radius:3px;"></div>
           </div>
-          <span style="font-size:12px;font-weight:700;color:${cfg.color};">${score}점</span>
+          <span style="font-size:13px;font-weight:700;color:${cfg.color};">${score}점</span>
         </div>
       </td>
-      <td style="padding:10px 12px;">
+      <td style="padding:11px 14px;">
         <div style="display:flex;align-items:center;gap:6px;">
           <div style="width:70px;height:5px;background:#f1f5f9;border-radius:3px;overflow:hidden;">
             <div style="height:100%;background:linear-gradient(to right,#3b82f6,#06b6d4);width:${s.total_score}%;border-radius:3px;"></div>
           </div>
-          <span style="font-size:12px;font-weight:700;color:#1d4ed8;">${s.total_score}</span>
+          <span style="font-size:13px;font-weight:700;color:#1d4ed8;">${s.total_score}</span>
         </div>
       </td>
-      <td style="padding:10px 12px;">${getBadge(s.recommendation)}</td>
-      <td style="padding:10px 12px;font-size:13px;letter-spacing:2px;">${s1}${s2}${s3}</td>
+      <td style="padding:11px 14px;">${getBadge(s.recommendation)}</td>
+      <td style="padding:11px 14px;font-size:14px;letter-spacing:3px;">${s1}${s2}${s3}</td>
     </tr>`;
   }).join('');
 }
@@ -638,9 +665,9 @@ function applyFilter(modelKey, type, btn) {
     btn.classList.add('active');
   }
   const configs = {
-    classic:{scoreKey:'classic_score',maxScore:30,color:'#3b82f6',label:'Classic'},
-    growth: {scoreKey:'growth_score', maxScore:40,color:'#22c55e',label:'Growth'},
-    modern: {scoreKey:'modern_score', maxScore:30,color:'#8b5cf6',label:'Modern'}
+    classic:{scoreKey:'classic_score',maxScore:30,color:'#3b82f6',label:'클래식'},
+    growth: {scoreKey:'growth_score', maxScore:40,color:'#22c55e',label:'성장'},
+    modern: {scoreKey:'modern_score', maxScore:30,color:'#8b5cf6',label:'모던'}
   };
   const cfg = configs[modelKey];
   let data = [..._lastResults].sort((a,b)=>b[cfg.scoreKey]-a[cfg.scoreKey]);
@@ -671,7 +698,7 @@ async function runScreener() {
     document.getElementById('market-status').textContent = '업데이트 완료';
   } catch(e) {
     document.getElementById('result-table').innerHTML =
-      `<tr><td colspan="9" class="empty">⚠️ 서버 연결 실패</td></tr>`;
+      `<tr><td colspan="9" class="empty">⚠️ 서버 연결 실패. 잠시 후 다시 시도해주세요.</td></tr>`;
   }
   btn.disabled = false;
   btn.innerHTML = '🔄 전체 스크리닝 실행';
@@ -682,9 +709,11 @@ function renderResults(data) {
   const topClassic = [...results].sort((a,b)=>b.classic_score-a.classic_score).slice(0,3);
   const topGrowth  = [...results].sort((a,b)=>b.growth_score-a.growth_score).slice(0,3);
   const topModern  = [...results].sort((a,b)=>b.modern_score-a.modern_score).slice(0,3);
+
   document.getElementById('classic-count').textContent = topClassic[0]?.classic_score||0;
   document.getElementById('growth-count').textContent  = topGrowth[0]?.growth_score||0;
   document.getElementById('modern-count').textContent  = topModern[0]?.modern_score||0;
+
   const renderStocks = (stocks) => stocks.map(s=>`
     <div class="stock-row">
       <span class="sname">${s.name.length>16?s.ticker:s.name}</span>
@@ -693,6 +722,8 @@ function renderResults(data) {
   document.getElementById('classic-stocks').innerHTML = renderStocks(topClassic);
   document.getElementById('growth-stocks').innerHTML  = renderStocks(topGrowth);
   document.getElementById('modern-stocks').innerHTML  = renderStocks(topModern);
+
+  // 베스트 픽
   const top5 = results.slice(0,5);
   const darkGradients = [
     'linear-gradient(135deg,#0f2027,#203a43,#2c5364)',
@@ -706,68 +737,41 @@ function renderResults(data) {
 
   document.getElementById('best-picks').innerHTML = top5.map((s,i)=>`
     <div style="
-      background:${darkGradients[i]};
-      border:1px solid rgba(255,255,255,0.08);
-      border-radius:14px;
-      padding:16px;
-      position:relative;
-      overflow:hidden;
-      transition:transform .2s,box-shadow .2s;
-      cursor:default;
-    "
-    onmouseover="this.style.transform='translateY(-3px)';this.style.boxShadow='0 8px 24px rgba(0,0,0,0.4)'"
-    onmouseout="this.style.transform='';this.style.boxShadow=''">
-      <!-- 배경 글로우 효과 -->
+      background:${darkGradients[i]};border:1px solid rgba(255,255,255,0.08);
+      border-radius:14px;padding:16px;position:relative;overflow:hidden;
+      transition:transform .2s,box-shadow .2s;cursor:default;"
+      onmouseover="this.style.transform='translateY(-3px)';this.style.boxShadow='0 8px 24px rgba(0,0,0,0.4)'"
+      onmouseout="this.style.transform='';this.style.boxShadow=''">
       <div style="position:absolute;top:-20px;right:-20px;width:80px;height:80px;border-radius:50%;background:${getCircleColor(s.total_score)};opacity:0.08;filter:blur(20px);"></div>
-      <!-- 순위 -->
-      <div style="font-size:13px;font-weight:700;color:rgba(255,255,255,0.5);margin-bottom:8px;letter-spacing:0.5px;">
-        ${rankIcons[i]} #${i+1}
-      </div>
-      <!-- 종목명 -->
-      <div style="font-size:14px;font-weight:800;color:#fff;margin-bottom:2px;line-height:1.3;">
-        ${s.name.length>12?s.name.substring(0,12)+'...':s.name}
-      </div>
-      <div style="font-size:10px;color:rgba(255,255,255,0.35);margin-bottom:12px;">${s.ticker}</div>
-      <!-- 점수 + 배지 -->
+      <div style="font-size:13px;font-weight:700;color:rgba(255,255,255,0.5);margin-bottom:8px;">${rankIcons[i]} #${i+1}</div>
+      <div style="font-size:14px;font-weight:800;color:#fff;margin-bottom:2px;line-height:1.3;">${s.name.length>12?s.name.substring(0,12)+'...':s.name}</div>
+      <div style="font-size:11px;color:rgba(255,255,255,0.35);margin-bottom:12px;">${s.ticker}</div>
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-        <div style="
-          width:52px;height:52px;border-radius:50%;
-          border:3px solid ${getCircleColor(s.total_score)};
-          display:flex;align-items:center;justify-content:center;
-          font-size:18px;font-weight:800;
-          color:${getCircleColor(s.total_score)};
-          box-shadow:${scoreGlow(s.total_score)};
-        ">${s.total_score}</div>
+        <div style="width:52px;height:52px;border-radius:50%;border:3px solid ${getCircleColor(s.total_score)};display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:800;color:${getCircleColor(s.total_score)};box-shadow:${scoreGlow(s.total_score)};">${s.total_score}</div>
         <div>${getBadge(s.recommendation)}</div>
       </div>
-      <!-- 3모델 미니 바 -->
       <div style="display:flex;flex-direction:column;gap:4px;">
         <div style="display:flex;align-items:center;gap:5px;">
-          <div style="font-size:9px;color:rgba(255,255,255,0.4);width:14px;">C</div>
-          <div style="flex:1;height:3px;background:rgba(255,255,255,0.1);border-radius:2px;">
-            <div style="height:100%;background:#3b82f6;border-radius:2px;width:${Math.round(s.classic_score/30*100)}%;"></div>
-          </div>
+          <div style="font-size:9px;color:rgba(255,255,255,0.4);width:14px;">클</div>
+          <div style="flex:1;height:3px;background:rgba(255,255,255,0.1);border-radius:2px;"><div style="height:100%;background:#3b82f6;border-radius:2px;width:${Math.round(s.classic_score/30*100)}%;"></div></div>
           <div style="font-size:9px;color:rgba(255,255,255,0.4);width:16px;text-align:right;">${s.classic_score}</div>
         </div>
         <div style="display:flex;align-items:center;gap:5px;">
-          <div style="font-size:9px;color:rgba(255,255,255,0.4);width:14px;">G</div>
-          <div style="flex:1;height:3px;background:rgba(255,255,255,0.1);border-radius:2px;">
-            <div style="height:100%;background:#22c55e;border-radius:2px;width:${Math.round(s.growth_score/40*100)}%;"></div>
-          </div>
+          <div style="font-size:9px;color:rgba(255,255,255,0.4);width:14px;">성</div>
+          <div style="flex:1;height:3px;background:rgba(255,255,255,0.1);border-radius:2px;"><div style="height:100%;background:#22c55e;border-radius:2px;width:${Math.round(s.growth_score/40*100)}%;"></div></div>
           <div style="font-size:9px;color:rgba(255,255,255,0.4);width:16px;text-align:right;">${s.growth_score}</div>
         </div>
         <div style="display:flex;align-items:center;gap:5px;">
-          <div style="font-size:9px;color:rgba(255,255,255,0.4);width:14px;">M</div>
-          <div style="flex:1;height:3px;background:rgba(255,255,255,0.1);border-radius:2px;">
-            <div style="height:100%;background:#8b5cf6;border-radius:2px;width:${Math.round(s.modern_score/30*100)}%;"></div>
-          </div>
+          <div style="font-size:9px;color:rgba(255,255,255,0.4);width:14px;">모</div>
+          <div style="flex:1;height:3px;background:rgba(255,255,255,0.1);border-radius:2px;"><div style="height:100%;background:#8b5cf6;border-radius:2px;width:${Math.round(s.modern_score/30*100)}%;"></div></div>
           <div style="font-size:9px;color:rgba(255,255,255,0.4);width:16px;text-align:right;">${s.modern_score}</div>
         </div>
       </div>
     </div>`).join('');
+
   updateInvestWeight(data);
   document.getElementById('screened-count').textContent =
-    `총 ${results.length}개 종목 · Classic 30 + Growth 40 + Modern 30 = 100점 만점`;
+    `총 ${results.length}개 종목 · 클래식 30 + 성장 40 + 모던 30 = 100점 만점`;
   document.getElementById('result-table').innerHTML = results.map(s=>`
     <tr>
       <td><div class="tname">${s.name.length>20?s.ticker:s.name}</div><div class="tcode">${s.ticker}</div></td>
@@ -802,7 +806,7 @@ function updateInvestWeight(data) {
   const fearScore = Math.round(bullRatio*100);
   document.getElementById('fear-num').textContent = fearScore;
   document.getElementById('fear-needle').style.left = fearScore+'%';
-  const fearLabel = fearScore>=75?'극단탐욕':fearScore>=55?'탐욕':fearScore>=45?'중립':fearScore>=25?'공포':'극단공포';
+  const fearLabel = fearScore>=75?'극단 탐욕':fearScore>=55?'탐욕':fearScore>=45?'중립':fearScore>=25?'공포':'극단 공포';
   document.getElementById('fear-label').textContent = fearLabel;
   document.getElementById('fear-sub').textContent = `매수 신호 종목 ${buyCount}개 / 전체 ${total}개 기준`;
 }
@@ -813,44 +817,31 @@ async function runBacktest() {
   const market   = document.getElementById('bt-market').value;
   const holdDays = document.getElementById('bt-hold').value;
   const minScore = document.getElementById('bt-score').value;
-
   btn.disabled = true;
   btn.textContent = '⏳ 분석 중...';
-
   document.getElementById('bt-table').innerHTML =
     `<tr><td colspan="11"><div class="loading"><div class="spinner"></div>과거 데이터 분석 중... (30초~1분 소요)</div></td></tr>`;
-
   ['bt-total','bt-winrate','bt-avg','bt-best','bt-worst'].forEach(id=>{
     document.getElementById(id).textContent = '...';
   });
-
   try {
-    // ★ 파라미터명 score_threshold (백엔드와 일치)
     const res = await fetch(`${API}/api/backtest?market=${market}&hold_days=${holdDays}&score_threshold=${minScore}`);
     if(!res.ok) throw new Error('HTTP '+res.status);
     const data = await res.json();
-
-    // ★ 백엔드 응답: data.summary.xxx 구조
     const s = data.summary;
-
     document.getElementById('bt-total').textContent   = s.total_signals + '개';
     document.getElementById('bt-winrate').textContent = s.win_rate + '%';
-
     const avgEl = document.getElementById('bt-avg');
     avgEl.textContent = (s.avg_return >= 0 ? '+' : '') + s.avg_return + '%';
     avgEl.className   = 'bt-stat-val ' + (s.avg_return >= 0 ? 'up' : 'dn');
-
-    // best/worst는 signals 배열에서 직접 계산
     const signals = data.signals || [];
     const rets = signals.map(r => r.return_pct);
     const best  = rets.length ? Math.max(...rets) : 0;
     const worst = rets.length ? Math.min(...rets) : 0;
-
     document.getElementById('bt-best').textContent  = (best >= 0 ? '+' : '') + best + '%';
     document.getElementById('bt-worst').textContent = worst + '%';
     document.getElementById('bt-worst').className   = 'bt-stat-val ' + (worst >= 0 ? 'up' : 'dn');
-    document.getElementById('bt-updated').textContent = '알파: ' + s.alpha + '% / 최고모델: ' + s.best_model;
-
+    document.getElementById('bt-updated').textContent = '알파: ' + s.alpha + '% / 최고 모델: ' + s.best_model;
     if(!signals.length) {
       document.getElementById('bt-table').innerHTML =
         `<tr><td colspan="11" class="empty">해당 조건의 신호가 없습니다. 점수 기준을 낮추거나 보유 기간을 줄여보세요.</td></tr>`;
@@ -861,10 +852,10 @@ async function runBacktest() {
         const winBadge = r.win
           ? '<span class="badge badge-sb">수익</span>'
           : '<span class="badge badge-w" style="background:#fee2e2;color:#991b1b;">손실</span>';
-        return `<tr onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background=''">
+        return `<tr>
           <td><div class="tname">${r.ticker}</div></td>
-          <td style="font-size:11px;color:var(--sub);">${r.signal_date}</td>
-          <td style="font-size:11px;color:var(--sub);">${r.sell_date || '—'}</td>
+          <td style="font-size:12px;color:var(--sub);">${r.signal_date}</td>
+          <td style="font-size:12px;color:var(--sub);">${r.sell_date || '—'}</td>
           <td style="font-weight:600;">$${r.entry_price.toLocaleString()}</td>
           <td style="font-weight:600;">$${r.exit_price.toLocaleString()}</td>
           <td style="font-weight:800;" class="${retClass}">${retSign}${Math.abs(r.return_pct)}%</td>
@@ -890,7 +881,6 @@ async function runBacktest() {
       document.getElementById(id).textContent = '—';
     });
   }
-
   btn.disabled = false;
   btn.innerHTML = '▶ 백테스트 실행';
 }
@@ -900,77 +890,62 @@ async function searchStock() {
   const input = document.getElementById('stock-search-input');
   const ticker = input.value.trim().toUpperCase();
   if(!ticker) return;
-
   const btn = document.getElementById('search-btn');
   const resultBox = document.getElementById('stock-search-result');
   btn.disabled = true;
   btn.textContent = '⏳';
   resultBox.style.display = 'block';
   resultBox.innerHTML = `<div style="text-align:center;padding:16px;color:var(--sub);"><div class="spinner" style="margin:0 auto 8px;"></div>${ticker} 조회 중...</div>`;
-
   try {
     const res = await fetch(`${API}/api/stock/${ticker}`);
     const d = await res.json();
-
     if(d.error) {
       resultBox.innerHTML = `<div style="padding:12px;color:var(--red);font-weight:600;">❌ ${d.error}</div>`;
     } else {
-      const recMap = {'Strong Buy':'badge-sb','Buy':'badge-b','Hold':'badge-h','Watch':'badge-w'};
       const chgClass = d.change_pct >= 0 ? 'up' : 'dn';
       const chgSign  = d.change_pct >= 0 ? '▲' : '▼';
       const currency = d.currency === 'KRW' ? '₩' : '$';
       const scoreColor = d.total_score >= 70 ? '#22c55e' : d.total_score >= 55 ? '#3b82f6' : d.total_score >= 40 ? '#f59e0b' : '#94a3b8';
-
       resultBox.innerHTML = `
-        <div style="background:#f8fafc;border:1px solid var(--border);border-radius:10px;padding:14px;display:flex;gap:16px;flex-wrap:wrap;align-items:center;">
-          <!-- 종목 기본 정보 -->
-          <div style="min-width:140px;">
-            <div style="font-size:16px;font-weight:800;color:#1d4ed8;">${d.name}</div>
-            <div style="font-size:11px;color:var(--sub);margin-top:2px;">${d.ticker} · ${d.sector}</div>
-            <div style="font-size:18px;font-weight:700;margin-top:6px;">${currency}${d.price.toLocaleString()}</div>
-            <div style="font-size:12px;font-weight:600;margin-top:2px;" class="${chgClass}">${chgSign}${Math.abs(d.change_pct)}%</div>
+        <div style="background:#f8fafc;border:1px solid var(--border);border-radius:10px;padding:16px;display:flex;gap:18px;flex-wrap:wrap;align-items:center;">
+          <div style="min-width:150px;">
+            <div style="font-size:17px;font-weight:800;color:#1d4ed8;">${d.name}</div>
+            <div style="font-size:12px;color:var(--sub);margin-top:3px;">${d.ticker} · ${d.sector}</div>
+            <div style="font-size:20px;font-weight:700;margin-top:7px;">${currency}${d.price.toLocaleString()}</div>
+            <div style="font-size:13px;font-weight:600;margin-top:3px;" class="${chgClass}">${chgSign}${Math.abs(d.change_pct)}%</div>
           </div>
-          <!-- Magu Score 원형 -->
           <div style="text-align:center;">
-            <div style="width:64px;height:64px;border-radius:50%;border:4px solid ${scoreColor};display:flex;align-items:center;justify-content:center;flex-direction:column;">
-              <div style="font-size:20px;font-weight:800;color:${scoreColor};line-height:1;">${d.total_score}</div>
-              <div style="font-size:8px;color:var(--sub);">/ 100</div>
+            <div style="width:68px;height:68px;border-radius:50%;border:4px solid ${scoreColor};display:flex;align-items:center;justify-content:center;flex-direction:column;">
+              <div style="font-size:22px;font-weight:800;color:${scoreColor};line-height:1;">${d.total_score}</div>
+              <div style="font-size:9px;color:var(--sub);">/ 100</div>
             </div>
-            <div style="margin-top:5px;"><span class="badge ${recMap[d.recommendation]||'badge-w'}">${d.recommendation}</span></div>
+            <div style="margin-top:6px;">${getBadge(d.recommendation)}</div>
           </div>
-          <!-- 3개 모델 점수 -->
-          <div style="flex:1;min-width:200px;">
-            <div style="display:flex;align-items:center;gap:8px;margin-bottom:7px;">
-              <div style="font-size:11px;color:#3b82f6;font-weight:600;width:70px;">📊 Classic</div>
-              <div style="flex:1;height:6px;background:#e2e8f0;border-radius:3px;overflow:hidden;">
-                <div style="height:100%;background:#3b82f6;border-radius:3px;width:${Math.round(d.classic_score/30*100)}%;"></div>
-              </div>
-              <div style="font-size:12px;font-weight:700;color:#3b82f6;width:32px;text-align:right;">${d.classic_score}/30</div>
+          <div style="flex:1;min-width:220px;">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+              <div style="font-size:12px;color:#3b82f6;font-weight:600;width:72px;">📉 클래식</div>
+              <div style="flex:1;height:7px;background:#e2e8f0;border-radius:3px;overflow:hidden;"><div style="height:100%;background:#3b82f6;border-radius:3px;width:${Math.round(d.classic_score/30*100)}%;"></div></div>
+              <div style="font-size:13px;font-weight:700;color:#3b82f6;width:34px;text-align:right;">${d.classic_score}/30</div>
             </div>
-            <div style="display:flex;align-items:center;gap:8px;margin-bottom:7px;">
-              <div style="font-size:11px;color:#22c55e;font-weight:600;width:70px;">📈 Growth</div>
-              <div style="flex:1;height:6px;background:#e2e8f0;border-radius:3px;overflow:hidden;">
-                <div style="height:100%;background:#22c55e;border-radius:3px;width:${Math.round(d.growth_score/40*100)}%;"></div>
-              </div>
-              <div style="font-size:12px;font-weight:700;color:#22c55e;width:32px;text-align:right;">${d.growth_score}/40</div>
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+              <div style="font-size:12px;color:#22c55e;font-weight:600;width:72px;">📈 성장</div>
+              <div style="flex:1;height:7px;background:#e2e8f0;border-radius:3px;overflow:hidden;"><div style="height:100%;background:#22c55e;border-radius:3px;width:${Math.round(d.growth_score/40*100)}%;"></div></div>
+              <div style="font-size:13px;font-weight:700;color:#22c55e;width:34px;text-align:right;">${d.growth_score}/40</div>
             </div>
             <div style="display:flex;align-items:center;gap:8px;">
-              <div style="font-size:11px;color:#8b5cf6;font-weight:600;width:70px;">🤖 Modern</div>
-              <div style="flex:1;height:6px;background:#e2e8f0;border-radius:3px;overflow:hidden;">
-                <div style="height:100%;background:#8b5cf6;border-radius:3px;width:${Math.round(d.modern_score/30*100)}%;"></div>
-              </div>
-              <div style="font-size:12px;font-weight:700;color:#8b5cf6;width:32px;text-align:right;">${d.modern_score}/30</div>
+              <div style="font-size:12px;color:#8b5cf6;font-weight:600;width:72px;">🤖 모던</div>
+              <div style="flex:1;height:7px;background:#e2e8f0;border-radius:3px;overflow:hidden;"><div style="height:100%;background:#8b5cf6;border-radius:3px;width:${Math.round(d.modern_score/30*100)}%;"></div></div>
+              <div style="font-size:13px;font-weight:700;color:#8b5cf6;width:34px;text-align:right;">${d.modern_score}/30</div>
             </div>
           </div>
-          <!-- 상세 지표 -->
-          <div style="min-width:160px;font-size:11px;">
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:5px;">
-              <div style="color:var(--sub);">ROE</div><div style="font-weight:600;">${d.detail.roe}%</div>
-              <div style="color:var(--sub);">부채비율</div><div style="font-weight:600;">${d.detail.debt_equity}%</div>
-              <div style="color:var(--sub);">EPS성장</div><div style="font-weight:600;">${d.detail.eps_growth}%</div>
-              <div style="color:var(--sub);">PEG</div><div style="font-weight:600;">${d.detail.peg}</div>
-              <div style="color:var(--sub);">RSI(14)</div><div style="font-weight:600;">${d.detail.rsi}</div>
-              <div style="color:var(--sub);">52주수익</div><div style="font-weight:600;" class="${d.detail.year_return>=0?'up':'dn'}">${d.detail.year_return>0?'+':''}${d.detail.year_return}%</div>
+          <div style="min-width:170px;font-size:12px;">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+              <div style="color:var(--sub);font-weight:600;">자기자본이익률</div><div style="font-weight:700;">${d.detail.roe}%</div>
+              <div style="color:var(--sub);font-weight:600;">부채비율</div><div style="font-weight:700;">${d.detail.debt_equity}%</div>
+              <div style="color:var(--sub);font-weight:600;">EPS 성장</div><div style="font-weight:700;">${d.detail.eps_growth}%</div>
+              <div style="color:var(--sub);font-weight:600;">PEG 비율</div><div style="font-weight:700;">${d.detail.peg}</div>
+              <div style="color:var(--sub);font-weight:600;">RSI(14)</div><div style="font-weight:700;">${d.detail.rsi}</div>
+              <div style="color:var(--sub);font-weight:600;">52주 수익률</div><div style="font-weight:700;" class="${d.detail.year_return>=0?'up':'dn'}">${d.detail.year_return>0?'+':''}${d.detail.year_return}%</div>
             </div>
           </div>
         </div>`;
@@ -978,12 +953,11 @@ async function searchStock() {
   } catch(e) {
     resultBox.innerHTML = `<div style="padding:12px;color:var(--red);font-weight:600;">❌ 서버 오류 — 잠시 후 다시 시도해주세요.</div>`;
   }
-
   btn.disabled = false;
   btn.innerHTML = '🔍 조회';
 }
 
-// ── Smart Money ──
+// ── 스마트머니 ──
 let _smSectorData = [];
 let _smScoreOn = false;
 
@@ -992,49 +966,40 @@ async function loadSmartMoney() {
   btn.disabled = true;
   btn.textContent = '⏳ 분석 중...';
   document.getElementById('sm-etf-tbody').innerHTML =
-    '<tr><td colspan="13"><div class="loading"><div class="spinner"></div>20개 섹터 ETF 데이터 수집 중... (30초~1분)</div></td></tr>';
-
+    '<tr><td colspan="13"><div class="loading"><div class="spinner"></div>섹터 ETF 데이터 수집 중... (30초~1분 소요)</div></td></tr>';
   try {
     const res = await fetch(`${API}/api/smartmoney`);
     const data = await res.json();
     if(data.error) throw new Error(data.error);
-
     _smSectorData = data.sectors || [];
     const spy1m = data.spy_ret_1m || 0;
     const spyEl = document.getElementById('sm-spy-ret');
     spyEl.textContent = (spy1m >= 0 ? '+' : '') + spy1m + '%';
     spyEl.className   = 'mkt-val ' + (spy1m >= 0 ? 'up' : 'dn');
     document.getElementById('sm-updated').textContent = '업데이트: ' + data.updated_at;
-
-    // 요약 카드
     const strongIn = _smSectorData.filter(s => s.trend === '강한유입');
     const inflow   = _smSectorData.filter(s => s.trend === '유입' || s.trend === '소폭유입');
     const outflow  = _smSectorData.filter(s => s.trend === '유출' || s.trend === '강한유출' || s.trend === '소폭유출');
-
-    document.getElementById('sm-strong-in').textContent      = strongIn.length + '개';
-    document.getElementById('sm-in').textContent             = inflow.length + '개';
-    document.getElementById('sm-out').textContent            = outflow.length + '개';
+    document.getElementById('sm-strong-in').textContent       = strongIn.length + '개';
+    document.getElementById('sm-in').textContent              = inflow.length + '개';
+    document.getElementById('sm-out').textContent             = outflow.length + '개';
     document.getElementById('sm-strong-in-names').textContent = strongIn.map(s=>s.emoji+s.name).join(' ') || '없음';
     document.getElementById('sm-in-names').textContent        = inflow.map(s=>s.emoji+s.name).join(' ') || '없음';
     document.getElementById('sm-out-names').textContent       = outflow.map(s=>s.emoji+s.name).join(' ') || '없음';
-
-    // 트렌드 배지 스타일
     const trendStyle = {
-      '강한유입': 'background:#14532d;color:#86efac;',
-      '유입':     'background:#dcfce7;color:#15803d;',
-      '소폭유입': 'background:#f0fdf4;color:#16a34a;',
-      '중립':     'background:#f1f5f9;color:#64748b;',
-      '소폭유출': 'background:#fff1f2;color:#9f1239;',
-      '유출':     'background:#fee2e2;color:#991b1b;',
-      '강한유출': 'background:#7f1d1d;color:#fca5a5;',
+      '강한유입':'background:#14532d;color:#86efac;',
+      '유입':    'background:#dcfce7;color:#15803d;',
+      '소폭유입':'background:#f0fdf4;color:#16a34a;',
+      '중립':    'background:#f1f5f9;color:#64748b;',
+      '소폭유출':'background:#fff1f2;color:#9f1239;',
+      '유출':    'background:#fee2e2;color:#991b1b;',
+      '강한유출':'background:#7f1d1d;color:#fca5a5;',
     };
     const trendIcon = {
       '강한유입':'▲▲▲','유입':'▲▲','소폭유입':'▲',
       '중립':'➡',
       '소폭유출':'▼','유출':'▼▼','강한유출':'▼▼▼'
     };
-
-    // ETF 테이블
     document.getElementById('sm-etf-tbody').innerHTML = _smSectorData.map(s => {
       const retCell = (v) => {
         const cls = v >= 0 ? 'up' : 'dn';
@@ -1044,32 +1009,26 @@ async function loadSmartMoney() {
       const volColor   = s.vol_ratio > 1.2 ? '#22c55e' : s.vol_ratio < 0.8 ? '#ef4444' : 'var(--sub)';
       const bonusColor = s.trend_score > 0 ? '#22c55e' : s.trend_score < 0 ? '#ef4444' : '#94a3b8';
       const rsiColor   = s.rsi > 65 ? '#ef4444' : s.rsi < 35 ? '#3b82f6' : 'var(--text)';
-      return `<tr onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background=''">
-        <!-- 섹터명: 이모지 + 한글명 + 티커 + 영문명 -->
-        <td style="min-width:180px;padding:12px 16px;">
+      return `<tr>
+        <td style="min-width:180px;padding:13px 16px;">
           <div style="display:flex;align-items:center;gap:10px;">
             <div style="font-size:22px;width:28px;text-align:center;flex-shrink:0;">${s.emoji}</div>
             <div>
-              <div style="font-size:13px;font-weight:800;color:var(--text);">${s.name}</div>
+              <div style="font-size:14px;font-weight:800;color:var(--text);">${s.name}</div>
               <div style="display:flex;align-items:center;gap:5px;margin-top:2px;">
                 <span style="font-size:11px;font-weight:700;color:#fff;background:#1d4ed8;padding:1px 6px;border-radius:4px;">${s.ticker}</span>
-                <span style="font-size:10px;color:var(--sub);">${s.name_en}</span>
+                <span style="font-size:11px;color:var(--sub);">${s.name_en}</span>
               </div>
             </div>
           </div>
         </td>
         <td style="font-weight:700;text-align:right;">$${s.price.toLocaleString()}</td>
-        ${retCell(s.ret_1d)}
-        ${retCell(s.ret_1w)}
-        ${retCell(s.ret_1m)}
-        ${retCell(s.ret_3m)}
-        ${retCell(s.ret_6m)}
-        ${retCell(s.ret_1y)}
-        <td style="font-weight:700;color:${volColor};text-align:center;">${s.vol_ratio}x</td>
+        ${retCell(s.ret_1d)}${retCell(s.ret_1w)}${retCell(s.ret_1m)}${retCell(s.ret_3m)}${retCell(s.ret_6m)}${retCell(s.ret_1y)}
+        <td style="font-weight:700;color:${volColor};text-align:center;">${s.vol_ratio}배</td>
         <td style="font-weight:700;color:${rsiColor};text-align:center;">${s.rsi}</td>
         <td style="text-align:center;" class="${s.from_52w_high>-5?'up':'dn'}">${s.from_52w_high}%</td>
         <td style="text-align:center;">
-          <span style="padding:4px 10px;border-radius:6px;font-size:11px;font-weight:700;white-space:nowrap;${trendStyle[s.trend]||''}">
+          <span style="padding:4px 10px;border-radius:6px;font-size:12px;font-weight:700;white-space:nowrap;${trendStyle[s.trend]||''}">
             ${trendIcon[s.trend]||''} ${s.trend}
           </span>
         </td>
@@ -1078,7 +1037,6 @@ async function loadSmartMoney() {
         </td>
       </tr>`;
     }).join('');
-
   } catch(e) {
     document.getElementById('sm-etf-tbody').innerHTML =
       `<tr><td colspan="13" class="empty">❌ 오류: ${e.message}</td></tr>`;
@@ -1091,31 +1049,26 @@ function toggleSmartMoneyScore(isOn) {
   _smScoreOn = isOn;
   const el = document.getElementById('sm-toggle-status');
   el.innerHTML = isOn
-    ? '<span style="background:#dcfce7;color:#15803d;padding:4px 12px;border-radius:6px;font-size:12px;font-weight:700;">ON ✅</span>'
-    : '<span style="background:#f1f5f9;color:#64748b;padding:4px 12px;border-radius:6px;font-size:12px;font-weight:700;">OFF</span>';
+    ? '<span style="background:#dcfce7;color:#15803d;padding:4px 14px;border-radius:6px;font-size:13px;font-weight:700;">ON ✅</span>'
+    : '<span style="background:#f1f5f9;color:#64748b;padding:4px 14px;border-radius:6px;font-size:13px;font-weight:700;">OFF</span>';
   if(_lastResults.length > 0) applySmartMoneyBonus(_lastResults);
 }
 
 function applySmartMoneyBonus(results) {
   if(!_smScoreOn || !_smSectorData.length) return;
-
-  // ETF 티커 → 가산점 맵
   const etfBonus = {};
   _smSectorData.forEach(s => { etfBonus[s.ticker] = s.trend_score || 0; });
-
   const adjusted = results.map(r => {
-    const etfTicker = r.etf || '';
-    const bonus = etfBonus[etfTicker] || 0;
+    const bonus = etfBonus[r.etf || ''] || 0;
     return { ...r, total_score: r.total_score + bonus, sm_bonus: bonus,
              recommendation: getRecommendationJS(r.total_score + bonus) };
   });
   adjusted.sort((a,b) => b.total_score - a.total_score);
-
   document.getElementById('result-table').innerHTML = adjusted.map(s => `
     <tr>
       <td>
         <div class="tname">${s.name.length>20?s.ticker:s.name}</div>
-        <div class="tcode">${s.ticker}${s.sm_bonus ? ` <span style="color:${s.sm_bonus>0?'#22c55e':'#ef4444'};font-weight:700;font-size:9px;">${s.sm_bonus>0?'+':''}${s.sm_bonus}pts</span>` : ''}</div>
+        <div class="tcode">${s.ticker}${s.sm_bonus ? ` <span style="color:${s.sm_bonus>0?'#22c55e':'#ef4444'};font-weight:700;font-size:10px;">${s.sm_bonus>0?'+':''}${s.sm_bonus}점</span>` : ''}</div>
       </td>
       <td><strong>${currentMarket==='kr'?'₩':'$'}${s.price.toLocaleString()}</strong></td>
       <td class="${s.change_pct>=0?'up':'dn'}">${s.change_pct>=0?'▲':'▼'}${Math.abs(s.change_pct)}%</td>
@@ -1130,7 +1083,7 @@ function applySmartMoneyBonus(results) {
       <td>${s.weight>0?`<span class="weight-badge">${s.weight}%</span>`:'—'}</td>
     </tr>`).join('');
   document.getElementById('screened-count').textContent =
-    `총 ${adjusted.length}개 종목 · 🏦 Smart Money 보정 적용 중`;
+    `총 ${adjusted.length}개 종목 · 🏦 스마트머니 보정 적용 중`;
 }
 
 function getRecommendationJS(score) {
@@ -1160,7 +1113,7 @@ async function loadMarketData() {
 
 const now = new Date();
 const h = now.getHours();
-document.getElementById('market-status').textContent = (h>=9&&h<16)?'장중':'장마감';
+document.getElementById('market-status').textContent = (h>=9&&h<16)?'장중':'장 마감';
 loadMarketData();
 setInterval(loadMarketData, 300000);
 </script>
