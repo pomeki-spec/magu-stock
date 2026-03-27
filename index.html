@@ -203,9 +203,17 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
         </div>
       </div>
       <div class="topbar-right">
-        <button class="seg-btn active" id="btn-us" onclick="switchMarket('us')">🇺🇸 미국</button>
-        <button class="seg-btn" id="btn-kr" onclick="switchMarket('kr')">🇰🇷 한국</button>
-        <button class="run-btn" id="run-btn" onclick="runScreener()">🔄 전체 스크리닝 실행</button>
+        <div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center;">
+          <button class="seg-btn active" id="btn-nasdaq" onclick="switchMarket('nasdaq')">🇺🇸 나스닥</button>
+          <button class="seg-btn" id="btn-sp500" onclick="switchMarket('sp500')">🇺🇸 S&P500</button>
+          <button class="seg-btn" id="btn-kospi" onclick="switchMarket('kospi')">🇰🇷 코스피</button>
+          <button class="seg-btn" id="btn-kosdaq" onclick="switchMarket('kosdaq')">🇰🇷 코스닥</button>
+        </div>
+        <button class="run-btn" id="run-btn" onclick="runScreener()">🔄 스크리닝 실행</button>
+        <button class="run-btn" id="merge-us-btn" onclick="mergeResults('us')" disabled
+          style="background:#1e3a5f;opacity:0.4;" title="나스닥+S&P 합산">🇺🇸 미국 합산</button>
+        <button class="run-btn" id="merge-kr-btn" onclick="mergeResults('kr')" disabled
+          style="background:#dc2626;opacity:0.4;" title="코스피+코스닥 합산">🇰🇷 한국 합산</button>
       </div>
     </div>
 
@@ -639,8 +647,10 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
 
 <script>
 const API = 'https://magu-stock-production.up.railway.app';
-let currentMarket = 'us';
+let currentMarket = 'nasdaq';
 let _lastResults = [];
+// 시장별 캐시 {nasdaq, sp500, kospi, kosdaq}
+let _marketCache = {};
 let _tbResults = [];
 
 // ── 페이지 전환 ──
@@ -664,8 +674,17 @@ function showPage(page) {
 
 function switchMarket(m) {
   currentMarket = m;
-  document.getElementById('btn-us').classList.toggle('active', m==='us');
-  document.getElementById('btn-kr').classList.toggle('active', m==='kr');
+  ['nasdaq','sp500','kospi','kosdaq'].forEach(k => {
+    const el = document.getElementById('btn-'+k);
+    if(el) el.classList.toggle('active', k===m);
+  });
+  // 캐시된 결과 있으면 즉시 표시
+  if(_marketCache[m]) {
+    _lastResults = _marketCache[m].results;
+    renderResults(_marketCache[m]);
+    document.getElementById('last-update').textContent = _marketCache[m].updated_at;
+    document.getElementById('market-status').textContent = _marketCache[m].market_label + ' 완료';
+  }
 }
 
 function getBadge(rec) {
@@ -779,28 +798,71 @@ function applyFilter(modelKey, type, btn) {
 // ── 스크리너 실행 ──
 async function runScreener() {
   const btn = document.getElementById('run-btn');
+  const market = currentMarket;
+  const labels = {nasdaq:'나스닥',sp500:'S&P500',kospi:'코스피',kosdaq:'코스닥'};
+  const label  = labels[market] || market;
   btn.disabled = true;
   btn.textContent = '⏳ 분석 중...';
   document.getElementById('result-table').innerHTML =
-    `<tr><td colspan="9"><div class="loading"><div class="spinner"></div>종목 데이터 수집 및 분석 중... (1~2분 소요)</div></td></tr>`;
+    `<tr><td colspan="9"><div class="loading"><div class="spinner"></div>${label} 종목 분석 중... (1~2분 소요)</div></td></tr>`;
   document.getElementById('best-picks').innerHTML =
-    `<div class="empty" style="grid-column:1/-1;"><div class="spinner" style="margin:0 auto 8px;"></div>분석 중...</div>`;
+    `<div class="empty" style="grid-column:1/-1;"><div class="spinner" style="margin:0 auto 8px;"></div>${label} 분석 중...</div>`;
   try {
-    const res = await fetch(`${API}/api/screen/${currentMarket}`);
+    const res = await fetch(`${API}/api/screen/${market}`);
     const data = await res.json();
+    // 캐시 저장
+    _marketCache[market] = data;
     _lastResults = data.results;
     renderResults(data);
     document.getElementById('last-update').textContent = data.updated_at;
-    document.getElementById('market-status').textContent = '업데이트 완료';
+    document.getElementById('market-status').textContent = label + ' 완료';
+    // 합산 버튼 활성화 체크
+    updateMergeBtns();
   } catch(e) {
     document.getElementById('result-table').innerHTML =
       `<tr><td colspan="9" class="empty">⚠️ 서버 연결 실패. 잠시 후 다시 시도해주세요.</td></tr>`;
   }
   btn.disabled = false;
-  btn.innerHTML = '🔄 전체 스크리닝 실행';
+  btn.innerHTML = '🔄 스크리닝 실행';
+}
+
+function updateMergeBtns() {
+  const hasUS = _marketCache['nasdaq'] || _marketCache['sp500'];
+  const hasKR = _marketCache['kospi']  || _marketCache['kosdaq'];
+  const usBtn = document.getElementById('merge-us-btn');
+  const krBtn = document.getElementById('merge-kr-btn');
+  if(usBtn) { usBtn.disabled = !hasUS; usBtn.style.opacity = hasUS ? '1' : '0.4'; }
+  if(krBtn) { krBtn.disabled = !hasKR; krBtn.style.opacity = hasKR ? '1' : '0.4'; }
+}
+
+function mergeResults(region) {
+  let merged = [];
+  if(region === 'us') {
+    if(_marketCache['nasdaq']) merged = merged.concat(_marketCache['nasdaq'].results);
+    if(_marketCache['sp500'])  merged = merged.concat(_marketCache['sp500'].results);
+  } else {
+    if(_marketCache['kospi'])  merged = merged.concat(_marketCache['kospi'].results);
+    if(_marketCache['kosdaq']) merged = merged.concat(_marketCache['kosdaq'].results);
+  }
+  // 티커 중복 제거 (점수 높은 것 유지)
+  const seen = {};
+  merged = merged.filter(r => {
+    if(seen[r.ticker]) return false;
+    seen[r.ticker] = true;
+    return true;
+  });
+  merged.sort((a,b) => b.total_score - a.total_score);
+  _lastResults = merged;
+  const label = region === 'us' ? '🇺🇸 미국 합산 (나스닥+S&P500)' : '🇰🇷 한국 합산 (코스피+코스닥)';
+  const currency = region === 'us' ? 'USD' : 'KRW';
+  document.getElementById('market-status').textContent = label;
+  document.getElementById('screened-count').textContent =
+    `${label} · 총 ${merged.length}개 종목`;
+  renderResults({results: merged, market_label: label, currency, updated_at: new Date().toLocaleString('ko-KR')});
 }
 
 function renderResults(data) {
+  data._currency = data.currency || (currentMarket.startsWith('kos') ? 'KRW' : 'USD');
   const results = data.results;
   const topClassic = [...results].sort((a,b)=>b.classic_score-a.classic_score).slice(0,3);
   const topGrowth  = [...results].sort((a,b)=>b.growth_score-a.growth_score).slice(0,3);
@@ -871,7 +933,7 @@ function renderResults(data) {
   document.getElementById('result-table').innerHTML = results.map(s=>`
     <tr>
       <td><div class="tname">${s.name.length>20?s.ticker:s.name}</div><div class="tcode">${s.ticker}</div></td>
-      <td><strong>${currentMarket==='kr'?'₩':'$'}${s.price.toLocaleString()}</strong></td>
+      <td><strong>${data._currency==='KRW'?'₩':'$'}${s.price.toLocaleString()}</strong></td>
       <td class="${s.change_pct>=0?'up':'dn'}">${s.change_pct>=0?'▲':'▼'}${Math.abs(s.change_pct)}%</td>
       <td><strong>${s.classic_score}</strong></td>
       <td><strong>${s.growth_score}</strong></td>
@@ -1166,7 +1228,7 @@ function applySmartMoneyBonus(results) {
         <div class="tname">${s.name.length>20?s.ticker:s.name}</div>
         <div class="tcode">${s.ticker}${s.sm_bonus ? ` <span style="color:${s.sm_bonus>0?'#22c55e':'#ef4444'};font-weight:700;font-size:10px;">${s.sm_bonus>0?'+':''}${s.sm_bonus}점</span>` : ''}</div>
       </td>
-      <td><strong>${currentMarket==='kr'?'₩':'$'}${s.price.toLocaleString()}</strong></td>
+      <td><strong>${data._currency==='KRW'?'₩':'$'}${s.price.toLocaleString()}</strong></td>
       <td class="${s.change_pct>=0?'up':'dn'}">${s.change_pct>=0?'▲':'▼'}${Math.abs(s.change_pct)}%</td>
       <td><strong>${s.classic_score}</strong></td>
       <td><strong>${s.growth_score}</strong></td>
