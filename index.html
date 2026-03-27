@@ -662,11 +662,17 @@ function showPage(page) {
   });
   const modelPages = ['classic','growth','modern'];
   if(modelPages.includes(page)) {
-    if(_lastResults.length > 0) {
-      renderModelPage(page);
-    } else {
+    try {
+      if(_lastResults && _lastResults.length > 0) {
+        renderModelPage(page);
+      } else {
+        document.getElementById(page+'-page-content').innerHTML =
+          '<div class="empty" style="background:#fff;border-radius:12px;border:1px solid var(--border);padding:44px;">먼저 종합 현황에서 🔄 스크리닝을 실행해주세요</div>';
+      }
+    } catch(e) {
+      console.error('renderModelPage 오류:', e);
       document.getElementById(page+'-page-content').innerHTML =
-        '<div class="empty" style="background:#fff;border-radius:12px;border:1px solid var(--border);padding:44px;">먼저 종합 현황에서 🔄 스크리닝을 실행해주세요</div>';
+        '<div class="empty" style="background:#fff;border-radius:12px;border:1px solid var(--border);padding:44px;">데이터 로딩 중 오류가 발생했습니다. 다시 시도해주세요.</div>';
     }
   }
   window.scrollTo(0,0);
@@ -869,13 +875,13 @@ function renderModelPage(modelKey) {
           <th>${cfg.label} 점수 (${cfg.maxScore}점)</th>
           <th>마구 스코어</th><th>추천</th><th>조건 충족</th>
         </tr></thead>
-        <tbody id="tbody-${modelKey}">${buildModelRows(sorted,cfg)}</tbody>
+        <tbody id="tbody-${modelKey}">${buildModelRows(sorted,cfg,modelKey)}</tbody>
       </table>
     </div>`;
   document.getElementById(modelKey+'-page-content').innerHTML = html;
 }
 
-function buildModelRows(data, cfg) {
+function buildModelRows(data, cfg, modelKey) {
   if(!data.length) return '<tr><td colspan="8" class="empty">해당 조건의 종목이 없습니다</td></tr>';
   return data.map((s,i)=>{
     const score = s[cfg.scoreKey];
@@ -951,7 +957,7 @@ function applyFilter(modelKey, type, btn) {
   } else if(type!=='all'){
     data = data.filter(s=>s.recommendation===type);
   }
-  document.getElementById('tbody-'+modelKey).innerHTML = buildModelRows(data,cfg);
+  document.getElementById('tbody-'+modelKey).innerHTML = buildModelRows(data,cfg,modelKey);
 }
 
 
