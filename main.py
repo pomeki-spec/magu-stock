@@ -589,9 +589,24 @@ def fetch_single_stock(ticker, market):
         if hist_daily.empty or len(hist_daily) < 20:
             return None
 
-        classic = calculate_classic_score(info, hist_weekly, hist_daily)
-        growth  = calculate_growth_score(info, hist_daily)
-        modern  = calculate_modern_score(info, hist_daily)
+        # 각 모델 단계별 점수 분리 계산
+        c_ema   = score_ema_slope(hist_weekly)
+        c_stoch = score_stochastic(hist_daily)
+        c_break = score_breakout(hist_daily)
+        classic = c_ema + (c_stoch//2 if c_ema==0 else c_stoch) + (c_break//2 if c_ema==0 else c_break)
+
+        g_roe   = score_roe(info.get('returnOnEquity', 0) or 0)
+        g_debt  = score_debt(info.get('debtToEquity', 999) or 999)
+        g_eps   = score_eps_growth(info)
+        g_peg   = score_peg(info.get('pegRatio', None))
+        g_ma200 = score_ma200(hist_daily)
+        g_rsi   = score_rsi(hist_daily)
+        growth  = g_roe + g_debt + g_eps + g_peg + g_ma200 + g_rsi
+
+        m_anal  = score_analyst(info.get('recommendationKey','') or '')
+        m_rs    = score_relative_strength(hist_daily)
+        m_obv   = score_obv_momentum(hist_daily)
+        modern  = m_anal + m_rs + m_obv
         total   = classic + growth + modern
 
         current_price = float(hist_daily['Close'].iloc[-1])
@@ -621,6 +636,11 @@ def fetch_single_stock(ticker, market):
             "rsi":            rsi_val,
             "roe":            round((info.get('returnOnEquity', 0) or 0) * 100, 1),
             "peg":            round(info.get('pegRatio', 0) or 0, 2),
+            # 단계별 점수 (UI 조건 충족 표시용)
+            "c_ema":    c_ema,   "c_stoch": c_stoch, "c_break": c_break,
+            "g_roe":    g_roe,   "g_debt":  g_debt,  "g_eps":   g_eps,
+            "g_peg":    g_peg,   "g_ma200": g_ma200, "g_rsi":   g_rsi,
+            "m_anal":   m_anal,  "m_rs":    m_rs,    "m_obv":   m_obv,
         }
     except:
         return None
@@ -1058,9 +1078,24 @@ def get_stock_score(ticker: str):
         if hist_daily.empty or len(hist_daily) < 20:
             return {"error": "데이터가 부족합니다"}
 
-        classic = calculate_classic_score(info, hist_weekly, hist_daily)
-        growth  = calculate_growth_score(info, hist_daily)
-        modern  = calculate_modern_score(info, hist_daily)
+        # 각 모델 단계별 점수 분리 계산
+        c_ema   = score_ema_slope(hist_weekly)
+        c_stoch = score_stochastic(hist_daily)
+        c_break = score_breakout(hist_daily)
+        classic = c_ema + (c_stoch//2 if c_ema==0 else c_stoch) + (c_break//2 if c_ema==0 else c_break)
+
+        g_roe   = score_roe(info.get('returnOnEquity', 0) or 0)
+        g_debt  = score_debt(info.get('debtToEquity', 999) or 999)
+        g_eps   = score_eps_growth(info)
+        g_peg   = score_peg(info.get('pegRatio', None))
+        g_ma200 = score_ma200(hist_daily)
+        g_rsi   = score_rsi(hist_daily)
+        growth  = g_roe + g_debt + g_eps + g_peg + g_ma200 + g_rsi
+
+        m_anal  = score_analyst(info.get('recommendationKey','') or '')
+        m_rs    = score_relative_strength(hist_daily)
+        m_obv   = score_obv_momentum(hist_daily)
+        modern  = m_anal + m_rs + m_obv
         total   = classic + growth + modern
 
         current_price = float(hist_daily['Close'].iloc[-1])
