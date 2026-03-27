@@ -844,21 +844,49 @@ function mergeResults(region) {
     if(_marketCache['kospi'])  merged = merged.concat(_marketCache['kospi'].results);
     if(_marketCache['kosdaq']) merged = merged.concat(_marketCache['kosdaq'].results);
   }
-  // 티커 중복 제거 (점수 높은 것 유지)
+
+  if(!merged.length) {
+    alert('먼저 해당 시장을 각각 스크리닝 실행해주세요.');
+    return;
+  }
+
+  // 티커 중복 제거 — 점수 높은 것 유지
   const seen = {};
   merged = merged.filter(r => {
     if(seen[r.ticker]) return false;
     seen[r.ticker] = true;
     return true;
   });
+
+  // 점수 내림차순 정렬
   merged.sort((a,b) => b.total_score - a.total_score);
+
+  // 포트폴리오 비중 재계산
+  const buyStocks = merged.filter(r => ['Strong Buy','Buy'].includes(r.recommendation));
+  const totalScore = buyStocks.reduce((sum, r) => sum + r.total_score, 0);
+  merged.forEach(r => {
+    r.weight = (r.recommendation === 'Strong Buy' || r.recommendation === 'Buy') && totalScore > 0
+      ? Math.round((r.total_score / totalScore) * 1000) / 10
+      : 0;
+  });
+
   _lastResults = merged;
-  const label = region === 'us' ? '🇺🇸 미국 합산 (나스닥+S&P500)' : '🇰🇷 한국 합산 (코스피+코스닥)';
+
+  const label    = region === 'us' ? '🇺🇸 미국 합산 (나스닥+S&P500)' : '🇰🇷 한국 합산 (코스피+코스닥)';
   const currency = region === 'us' ? 'USD' : 'KRW';
-  document.getElementById('market-status').textContent = label;
-  document.getElementById('screened-count').textContent =
-    `${label} · 총 ${merged.length}개 종목`;
-  renderResults({results: merged, market_label: label, currency, updated_at: new Date().toLocaleString('ko-KR')});
+  const now      = new Date().toLocaleString('ko-KR');
+
+  // ★ renderResults에 완전한 data 객체 전달
+  // → 베스트픽, 모델카드, 공포탐욕, 투자비중, 테이블 전부 갱신
+  renderResults({
+    results:      merged,
+    market_label: label,
+    currency:     currency,
+    updated_at:   now,
+  });
+
+  document.getElementById('last-update').textContent    = now;
+  document.getElementById('market-status').textContent  = label;
 }
 
 function renderResults(data) {
@@ -928,8 +956,9 @@ function renderResults(data) {
     </div>`).join('');
 
   updateInvestWeight(data);
+  const marketLabel = data.market_label ? `[${data.market_label}] ` : '';
   document.getElementById('screened-count').textContent =
-    `총 ${results.length}개 종목 · 클래식 30 + 성장 40 + 모던 30 = 100점 만점`;
+    `${marketLabel}총 ${results.length}개 종목 · 클래식 30 + 성장 40 + 모던 30 = 100점 만점`;
   document.getElementById('result-table').innerHTML = results.map(s=>`
     <tr>
       <td><div class="tname">${s.name.length>20?s.ticker:s.name}</div><div class="tcode">${s.ticker}</div></td>
