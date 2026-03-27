@@ -112,42 +112,30 @@ TICKERS_KOSPI = list(dict.fromkeys([
     "032560.KS","033530.KS","034730.KS","036570.KS","037560.KS",
 ]))[:180]
 
-# ── 코스닥 (yfinance 검증 종목) ──
+# ── 코스닥 — yfinance 실제 작동 검증 종목 ──
 TICKERS_KOSDAQ = list(dict.fromkeys([
-    # 반도체·IT
-    "247540.KQ","086520.KQ","039030.KQ","084370.KQ","095340.KQ",
-    "064760.KQ","357780.KQ","022100.KQ","241560.KQ","042700.KQ",
-    "058970.KQ","067160.KQ","078070.KQ","036540.KQ","114840.KQ",
-    "036830.KQ","053160.KQ","191410.KQ","065510.KQ","036010.KQ",
-    "232140.KQ","101490.KQ","126340.KQ","256840.KQ","094360.KQ",
-    "112610.KQ","319400.KQ","298540.KQ","204840.KQ","058110.KQ",
+    # 에코프로 계열
+    "247540.KQ","086520.KQ",
+    # 셀트리온 계열
+    "068760.KQ","091990.KQ",
     # 바이오·제약
-    "196170.KQ","091990.KQ","096530.KQ","145020.KQ","068760.KQ",
-    "086040.KQ","009420.KQ","048410.KQ","237690.KQ","031370.KQ",
-    "095660.KQ","082270.KQ","228760.KQ","173940.KQ","141080.KQ",
-    "058850.KQ","111010.KQ","348210.KQ","251970.KQ","016450.KQ",
-    "078520.KQ","119850.KQ","066700.KQ","041920.KQ","005290.KQ",
+    "196170.KQ","096530.KQ","145020.KQ","009420.KQ","048410.KQ",
+    "237690.KQ","088290.KQ","058850.KQ","039200.KQ","031370.KQ",
+    # 반도체·IT 소재
+    "039030.KQ","357780.KQ","084370.KQ","064760.KQ","095340.KQ",
+    "022100.KQ","058970.KQ","214150.KQ","151910.KQ","042700.KQ",
+    "078070.KQ","036540.KQ","114840.KQ","101490.KQ","126340.KQ",
+    "112610.KQ","140860.KQ","323280.KQ","232140.KQ","065510.KQ",
     # 엔터·게임·미디어
     "035900.KQ","041510.KQ","122870.KQ","263750.KQ","293490.KQ",
-    "112040.KQ","036570.KQ","179900.KQ","950130.KQ","323280.KQ",
-    "140860.KQ","357120.KQ","023160.KQ","047560.KQ","060900.KQ",
-    # 소재·화학·에너지
-    "214150.KQ","151910.KQ","039200.KQ","070300.KQ","066430.KQ",
-    "019170.KQ","079160.KQ","053300.KQ","057030.KQ","045300.KQ",
-    "049070.KQ","071280.KQ","078160.KQ","075130.KQ","088290.KQ",
-    # 금융·기타 성장주
-    "950160.KQ","950140.KQ","950200.KQ","330860.KQ","091120.KQ",
-    "093190.KQ","097780.KQ","104460.KQ","109820.KQ","115180.KQ",
-    "119860.KQ","123260.KQ","131290.KQ","137400.KQ","155660.KQ",
-    "158300.KQ","160600.KQ","163560.KQ","166090.KQ","168490.KQ",
-    "170900.KQ","171490.KQ","174900.KQ","176750.KQ","178600.KQ",
-    "180060.KQ","182360.KQ","183490.KQ","185490.KQ","187220.KQ",
-    "189300.KQ","192820.KQ","194480.KQ","195870.KQ","196300.KQ",
-    "199550.KQ","200130.KQ","200880.KQ","206650.KQ","208350.KQ",
-    "210980.KQ","215000.KQ","217270.KQ","218410.KQ","220630.KQ",
-    "222040.KQ","225570.KQ","226400.KQ","234080.KQ","236810.KQ",
-    "239340.KQ","243840.KQ","248070.KQ","251340.KQ","253590.KQ",
-]))[:180]
+    "112040.KQ","036570.KQ","067160.KQ","095660.KQ","066430.KQ",
+    # 기타 성장주
+    "241560.KQ","179900.KQ","950130.KQ","082270.KQ","091120.KQ",
+    "070300.KQ","086040.KQ","039440.KQ","053160.KQ","191410.KQ",
+    "228760.KQ","251970.KQ","256840.KQ","319400.KQ","298540.KQ",
+    "204840.KQ","036830.KQ","357120.KQ","048910.KQ","060310.KQ",
+]))
+
 
 # ── 하위 호환용 (백테스트 등 기존 코드) ──
 TICKERS_US = list(dict.fromkeys(TICKERS_NASDAQ + TICKERS_SP500))
@@ -582,12 +570,24 @@ def get_portfolio_weight(results):
 
 def fetch_single_stock(ticker, market):
     try:
-        stock       = yf.Ticker(ticker)
-        info        = stock.info
-        hist_daily  = stock.history(period="1y")
-        hist_weekly = stock.history(period="2y", interval="1wk")
-        if hist_daily.empty or len(hist_daily) < 20:
-            return None
+        stock      = yf.Ticker(ticker)
+        info       = stock.info
+
+        # KQ 종목은 period를 짧게 시도 후 실패 시 더 짧게 재시도
+        if ticker.endswith('.KQ'):
+            hist_daily = stock.history(period="1y")
+            if hist_daily.empty or len(hist_daily) < 20:
+                hist_daily = stock.history(period="6mo")
+            if hist_daily.empty or len(hist_daily) < 20:
+                return None
+            hist_weekly = stock.history(period="2y", interval="1wk")
+            if hist_weekly.empty:
+                hist_weekly = stock.history(period="1y", interval="1wk")
+        else:
+            hist_daily  = stock.history(period="1y")
+            hist_weekly = stock.history(period="2y", interval="1wk")
+            if hist_daily.empty or len(hist_daily) < 20:
+                return None
 
         # 각 모델 단계별 점수 분리 계산
         c_ema   = score_ema_slope(hist_weekly)
