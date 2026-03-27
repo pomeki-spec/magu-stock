@@ -818,6 +818,11 @@ async function runScreener() {
     document.getElementById('market-status').textContent = label + ' 완료';
     // 합산 버튼 활성화 체크
     updateMergeBtns();
+    // ★ 탭 버튼 상태 복원 (합산 후 재실행 시 올바른 탭 강조)
+    ['nasdaq','sp500','kospi','kosdaq'].forEach(k => {
+      const el = document.getElementById('btn-'+k);
+      if(el) el.classList.toggle('active', k === market);
+    });
   } catch(e) {
     document.getElementById('result-table').innerHTML =
       `<tr><td colspan="9" class="empty">⚠️ 서버 연결 실패. 잠시 후 다시 시도해주세요.</td></tr>`;
@@ -862,7 +867,7 @@ function mergeResults(region) {
   merged.sort((a,b) => b.total_score - a.total_score);
 
   // 포트폴리오 비중 재계산
-  const buyStocks = merged.filter(r => ['Strong Buy','Buy'].includes(r.recommendation));
+  const buyStocks  = merged.filter(r => ['Strong Buy','Buy'].includes(r.recommendation));
   const totalScore = buyStocks.reduce((sum, r) => sum + r.total_score, 0);
   merged.forEach(r => {
     r.weight = (r.recommendation === 'Strong Buy' || r.recommendation === 'Buy') && totalScore > 0
@@ -870,14 +875,14 @@ function mergeResults(region) {
       : 0;
   });
 
+  // ★ 핵심 수정: currentMarket은 변경하지 않음
+  // 합산은 "보기 전환"일 뿐, 현재 선택된 시장 탭은 유지
   _lastResults = merged;
 
   const label    = region === 'us' ? '🇺🇸 미국 합산 (나스닥+S&P500)' : '🇰🇷 한국 합산 (코스피+코스닥)';
   const currency = region === 'us' ? 'USD' : 'KRW';
   const now      = new Date().toLocaleString('ko-KR');
 
-  // ★ renderResults에 완전한 data 객체 전달
-  // → 베스트픽, 모델카드, 공포탐욕, 투자비중, 테이블 전부 갱신
   renderResults({
     results:      merged,
     market_label: label,
@@ -885,8 +890,15 @@ function mergeResults(region) {
     updated_at:   now,
   });
 
-  document.getElementById('last-update').textContent    = now;
-  document.getElementById('market-status').textContent  = label;
+  document.getElementById('last-update').textContent   = now;
+  document.getElementById('market-status').textContent = label;
+
+  // ★ 합산 후에도 탭 버튼 상태는 currentMarket 기준 유지
+  // (스크리닝 실행 버튼은 여전히 currentMarket 기준으로 동작)
+  ['nasdaq','sp500','kospi','kosdaq'].forEach(k => {
+    const el = document.getElementById('btn-'+k);
+    if(el) el.classList.toggle('active', k === currentMarket);
+  });
 }
 
 function renderResults(data) {
