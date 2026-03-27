@@ -659,24 +659,77 @@ def fetch_tenbagger_stock(ticker):
     except:
         return None
 
+# ══════════════════════════════════════════════════════════════
+# ★ 텐배거 전용 종목 풀 — 나스닥 중소형 성장주
+#   기존 TICKERS_US(대형주)와 완전 분리. 시총 기준 $10B 이하 위주.
+#   섹터: AI/SaaS/바이오/핀테크/클린에너지/우주/소비 성장주
+# ══════════════════════════════════════════════════════════════
+TICKERS_TENBAGGER = [
+    # ── AI · 데이터 · 클라우드 ──
+    "PLTR","AI","SOUN","BBAI","IREN","ALAB","IDCC","CWAN",
+    "ALKT","AIOT","RBRK","AEHR","EVTC","RSKD","KTOS","CACI",
+    "GFAI","AEYE","NRDS","AEIS",
+
+    # ── 반도체 · 하드웨어 중소형 ──
+    "AMBA","LSCC","SITM","POWI","AOSL","DIOD","MRAM","QUIK",
+    "FORM","ONTO","ACLS","ICHR","KLIC","IPGP","COHU","UCTT",
+    "CAMT","AEHR","AXTI","MTSI",
+
+    # ── SaaS · 핀테크 · 결제 ──
+    "AFRM","UPST","BILL","TOST","GTLB","DDOG","ZS","CELH",
+    "DUOL","HIMS","RDDT","CAVA","APP","SMAR","ASAN","MNDY",
+    "TASK","PCVX","ALVO","RELY",
+
+    # ── 바이오 · 헬스케어 성장 ──
+    "RXRX","NVCR","BEAM","CRSP","EDIT","NTLA","PACB","ARWR",
+    "KYMR","VKTX","HRMY","PRAX","INVA","IMVT","LEGN","KROS",
+    "RVMD","INSM","RARE","ACAD",
+
+    # ── 클린에너지 · 배터리 ──
+    "FSLR","ENPH","ARRY","SHLS","NOVA","STEM","FLUX","REGI",
+    "BE","PLUG","BLDP","HYLN","MKFG","NRGV","EVGO","CHPT",
+
+    # ── 우주 · 방산 · 드론 ──
+    "RKLB","ASTS","LUNR","IRDM","SPCE","JOBY","ACHR","LILM",
+    "ASTR","MNTS","KTOS","CACI","AVAV","HLIT","PRFT",
+
+    # ── 소비 성장 · 라이프스타일 ──
+    "CELH","BROS","CAVA","SHAK","WING","TXRH","PDFS","XPOF",
+    "MODG","GOLI","BRZE","FRPT","YETI","BIRD","GOOS",
+
+    # ── 이머징 플랫폼 · 커머스 ──
+    "RDDT","SNAP","PINS","BMBL","MTTR","OPEN","OPAD","LOTZ",
+    "SPWH","PRTS","VTEX","GLBE","BIGC","PRCH","CLPR",
+]
+
+# 중복 제거
+TICKERS_TENBAGGER = list(dict.fromkeys(TICKERS_TENBAGGER))
+
+
 @app.get("/api/tenbagger")
-def get_tenbagger(market: str = "us"):
-    """텐배거 스크리너 — 피터린치 + 오닐 + 미너비니 종합"""
-    tickers = TICKERS_US if market == "us" else TICKERS_KR
+def get_tenbagger():
+    """
+    텐배거 스크리너 — 나스닥 중소형 전용 (기존 스크리너와 완전 독립)
+    피터 린치 + 오닐 CANSLIM + 미너비니 SEPA 종합
+    """
     results = []
-    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-        futures = {executor.submit(fetch_tenbagger_stock, t): t for t in tickers}
-        for f in concurrent.futures.as_completed(futures):
-            r = f.result()
-            if r:
-                results.append(r)
+    # 과부하 방지: max_workers=8, 타임아웃 관리
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+        futures = {executor.submit(fetch_tenbagger_stock, t): t for t in TICKERS_TENBAGGER}
+        for f in concurrent.futures.as_completed(futures, timeout=180):
+            try:
+                r = f.result(timeout=20)
+                if r:
+                    results.append(r)
+            except Exception:
+                continue
 
     results.sort(key=lambda x: x['total_score'], reverse=True)
     return {
-        "market":     market,
-        "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
-        "total":      len(results),
-        "results":    results,
+        "updated_at":  datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "total":       len(results),
+        "universe":    f"나스닥 중소형 성장주 {len(TICKERS_TENBAGGER)}개",
+        "results":     results,
         "scoring": {
             "lynch":     "35점 — 피터 린치: PEG + EPS성장 + 시총(소형선호)",
             "oneil":     "35점 — 오닐 CANSLIM: 분기EPS + 52주신고가 + 거래량급증 + RS",
