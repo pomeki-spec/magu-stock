@@ -70,7 +70,7 @@ TICKERS_SP500 = list(dict.fromkeys([
     "ETN","ETR","EVRG","EXC","EXR","EXPD","EXPE","FDS","FDX","FE",
     "FFIV","FLT","FMC","FOX","FOXA","FRT","FTV","GIS","GL","GPC",
     "HIG","HON","HPQ","HSY","HUM","ICE","IFF","IP","IPG","IRM",
-])[:180])
+]))[:180]
 
 # ── 코스피 180개 ──
 TICKERS_KOSPI = list(dict.fromkeys([
