@@ -573,21 +573,10 @@ def fetch_single_stock(ticker, market):
         stock      = yf.Ticker(ticker)
         info       = stock.info
 
-        # KQ 종목은 period를 짧게 시도 후 실패 시 더 짧게 재시도
-        if ticker.endswith('.KQ'):
-            hist_daily = stock.history(period="1y")
-            if hist_daily.empty or len(hist_daily) < 20:
-                hist_daily = stock.history(period="6mo")
-            if hist_daily.empty or len(hist_daily) < 20:
-                return None
-            hist_weekly = stock.history(period="2y", interval="1wk")
-            if hist_weekly.empty:
-                hist_weekly = stock.history(period="1y", interval="1wk")
-        else:
-            hist_daily  = stock.history(period="1y")
-            hist_weekly = stock.history(period="2y", interval="1wk")
-            if hist_daily.empty or len(hist_daily) < 20:
-                return None
+        hist_daily  = stock.history(period="1y")
+        hist_weekly = stock.history(period="2y", interval="1wk")
+        if hist_daily.empty or len(hist_daily) < 20:
+            return None
 
         # 각 모델 단계별 점수 분리 계산
         c_ema   = score_ema_slope(hist_weekly)
@@ -866,8 +855,8 @@ def fetch_tenbagger_stock(ticker):
     try:
         stock       = yf.Ticker(ticker)
         info        = stock.info
-        hist_daily  = stock.history(period="2y")
-        hist_weekly = stock.history(period="3y", interval="1wk")
+        hist_daily  = stock.history(period="1y")
+        hist_weekly = stock.history(period="2y", interval="1wk")
 
         if hist_daily.empty or len(hist_daily) < 60:
             return None
@@ -921,41 +910,19 @@ def fetch_tenbagger_stock(ticker):
 #   섹터: AI/SaaS/바이오/핀테크/클린에너지/우주/소비 성장주
 # ══════════════════════════════════════════════════════════════
 TICKERS_TENBAGGER = [
-    # ── AI · 데이터 · 클라우드 ──
-    "PLTR","AI","SOUN","BBAI","IREN","ALAB","IDCC","CWAN",
-    "ALKT","AIOT","RBRK","AEHR","EVTC","RSKD","KTOS","CACI",
-    "GFAI","AEYE","NRDS","AEIS",
-
-    # ── 반도체 · 하드웨어 중소형 ──
-    "AMBA","LSCC","SITM","POWI","AOSL","DIOD","MRAM","QUIK",
-    "FORM","ONTO","ACLS","ICHR","KLIC","IPGP","COHU","UCTT",
-    "CAMT","AEHR","AXTI","MTSI",
-
-    # ── SaaS · 핀테크 · 결제 ──
-    "AFRM","UPST","BILL","TOST","GTLB","DDOG","ZS","CELH",
-    "DUOL","HIMS","RDDT","CAVA","APP","SMAR","ASAN","MNDY",
-    "TASK","PCVX","ALVO","RELY",
-
-    # ── 바이오 · 헬스케어 성장 ──
-    "RXRX","NVCR","BEAM","CRSP","EDIT","NTLA","PACB","ARWR",
-    "KYMR","VKTX","HRMY","PRAX","INVA","IMVT","LEGN","KROS",
-    "RVMD","INSM","RARE","ACAD",
-
-    # ── 클린에너지 · 배터리 ──
-    "FSLR","ENPH","ARRY","SHLS","NOVA","STEM","FLUX","REGI",
-    "BE","PLUG","BLDP","HYLN","MKFG","NRGV","EVGO","CHPT",
-
-    # ── 우주 · 방산 · 드론 ──
-    "RKLB","ASTS","LUNR","IRDM","SPCE","JOBY","ACHR","LILM",
-    "ASTR","MNTS","KTOS","CACI","AVAV","HLIT","PRFT",
-
-    # ── 소비 성장 · 라이프스타일 ──
-    "CELH","BROS","CAVA","SHAK","WING","TXRH","PDFS","XPOF",
-    "MODG","GOLI","BRZE","FRPT","YETI","BIRD","GOOS",
-
-    # ── 이머징 플랫폼 · 커머스 ──
-    "RDDT","SNAP","PINS","BMBL","MTTR","OPEN","OPAD","LOTZ",
-    "SPWH","PRTS","VTEX","GLBE","BIGC","PRCH","CLPR",
+    # AI · 데이터 · 클라우드
+    "PLTR","AI","SOUN","BBAI","RBRK","CWAN","ALKT","AEIS",
+    # 반도체 중소형
+    "AMBA","LSCC","SITM","ONTO","ACLS","ICHR","KLIC","MTSI",
+    # SaaS · 핀테크
+    "AFRM","UPST","BILL","TOST","GTLB","DDOG","ZS","DUOL",
+    "HIMS","RDDT","APP","SMAR","ASAN","MNDY","RELY","BRZE",
+    # 바이오
+    "RXRX","BEAM","CRSP","ARWR","KYMR","VKTX","NVCR","INSM",
+    # 클린에너지 · 우주
+    "FSLR","ENPH","ARRY","RKLB","ASTS","JOBY","ACHR",
+    # 소비 성장
+    "CELH","BROS","CAVA","WING","FRPT","YETI",
 ]
 
 # 중복 제거
@@ -1143,7 +1110,7 @@ def analyze_etf(etf_info: dict):
     try:
         t    = yf.Ticker(ticker)
         info = t.info
-        hist = t.history(period="1y")
+        hist = t.history(period="6mo")
         if hist.empty or len(hist) < 60:
             return None
 
