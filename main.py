@@ -24,16 +24,34 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-TICKERS_US = [
+# ══════════════════════════════════════════════════════════════
+# 종목 풀 — 4개 시장 완전 독립
+# ══════════════════════════════════════════════════════════════
+
+# ── 나스닥 180개 (기술·성장 중심) ──
+TICKERS_NASDAQ = list(dict.fromkeys([
     "AAPL","MSFT","NVDA","AMZN","META","GOOGL","TSLA","AVGO","COST","NFLX",
-    "TMUS","AMD","PEP","LIN","CSCO","ADBE","TXN","QCOM","INTU","AMAT",
-    "AMGN","ISRG","MU","LRCX","KLAC","MRVL","MDLZ","ADP","REGN","PANW",
-    "SNPS","CDNS","ORLY","CRWD","ADI","FTNT","MELI","MAR","PYPL","WDAY",
-    "ABNB","DXCM","ROST","IDXX","ODFL","FAST","VRSK","BIIB","PCAR","TEAM",
-    "ZS","CPRT","PAYX","NXPI","CHTR","DLTR","FANG","ANSS","CTAS","CTSH",
-    "MCHP","MRNA","DDOG","EBAY","ENPH","TTWO","XEL","GEHC","ON","GILD",
-    "SBUX","BKNG","VRTX","LULU","NTAP","FSLR","CDW","SMCI","CCEP","CEG",
-    "MNST","KDP","ILMN","OKTA","ALGN","DOCU","ZM","SGEN","MTCH","ARM",
+    "TMUS","AMD","ADBE","TXN","QCOM","INTU","AMAT","AMGN","ISRG","MU",
+    "LRCX","KLAC","MRVL","ADP","REGN","PANW","SNPS","CDNS","CRWD","ADI",
+    "FTNT","MELI","PYPL","WDAY","ABNB","DXCM","IDXX","FAST","VRSK","BIIB",
+    "PCAR","TEAM","ZS","CPRT","PAYX","NXPI","ANSS","CTAS","CTSH","MCHP",
+    "MRNA","DDOG","EBAY","ENPH","TTWO","GEHC","ON","GILD","SBUX","BKNG",
+    "VRTX","LULU","NTAP","FSLR","CDW","SMCI","CCEP","CEG","MNST","KDP",
+    "ILMN","OKTA","ALGN","DOCU","ZM","MTCH","ARM","MDLZ","ORLY","MAR",
+    "PLTR","COIN","RBLX","DASH","HOOD","AFRM","UPST","BILL","TOST","GTLB",
+    "DUOL","HIMS","RDDT","CAVA","APP","CELH","DKNG","RIVN","CHWY","ETSY",
+    "PINS","SNAP","BMBL","LYFT","UBER","SQ","ROKU","SOFI","NU","MSTR",
+    "RIOT","MARA","SOUN","BBAI","IONQ","RKLB","ASTS","JOBY","ACHR","LUNR",
+    "ARRY","NOVA","STEM","EVGO","CHPT","BLNK","PLUG","BE","FCEL","NKLA",
+    "RXRX","BEAM","CRSP","EDIT","NTLA","PACB","ARWR","KYMR","VKTX","NVCR",
+    "AMBA","LSCC","SITM","POWI","AOSL","ONTO","ACLS","ICHR","KLIC","MTSI",
+    "BROS","SHAK","WING","TXRH","XPOF","FRPT","YETI","BRZE","SMAR","ASAN",
+    "MNDY","GTLB","PCVX","RELY","TASK","ALVO","KTOS","AVAV","HLIT","PRFT",
+    "CWAN","ALKT","RBRK","AEHR","EVTC","RSKD","IDCC","AEIS","NRDS","GFAI",
+]))[:180]
+
+# ── S&P500 180개 (가치·배당·전통 대형주) ──
+TICKERS_SP500 = list(dict.fromkeys([
     "BRK-B","JPM","V","UNH","XOM","JNJ","WMT","MA","PG","HD",
     "CVX","MRK","ABBV","BAC","KO","LLY","TMO","MCD","CRM","ACN",
     "ABT","DHR","NKE","NEE","WFC","PM","T","UPS","MS","RTX",
@@ -43,10 +61,19 @@ TICKERS_US = [
     "SHW","FCX","ECL","TRV","APD","COF","EW","CARR","IQV","BDX",
     "SPG","GD","NOC","AIG","WELL","CME","MPC","VLO","CCI","CBRE",
     "STZ","YUM","ROP","KEYS","AWK","FIS","LHX","DG","CTVA","TDG",
-    "LOW","INTC","IBM","GE","F","GM","PFE","UBER","LYFT","SQ"
-]
+    "LOW","INTC","IBM","GE","F","GM","PFE","LIN","PEP","CSCO",
+    "MMM","AFL","ALB","AMP","AMT","AZO","BAX","BEN","BSX","BWA",
+    "CAG","CAH","CE","CF","CHD","CHRW","CINF","CL","CLX","CMA",
+    "CMS","CNP","COO","CPB","CSX","CTLT","D","DAL","DD","DE",
+    "DFS","DGX","DHI","DIS","DLTR","DOV","DRI","DTE","DVA","DVN",
+    "EA","ED","EFX","EIX","EMN","EOG","EQIX","EQR","ES","ESS",
+    "ETN","ETR","EVRG","EXC","EXR","EXPD","EXPE","FDS","FDX","FE",
+    "FFIV","FLT","FMC","FOX","FOXA","FRT","FTV","GIS","GL","GPC",
+    "HIG","HON","HPQ","HSY","HUM","ICE","IFF","IP","IPG","IRM",
+])[:180])
 
-TICKERS_KR = [
+# ── 코스피 180개 ──
+TICKERS_KOSPI = list(dict.fromkeys([
     "005930.KS","000660.KS","005380.KS","000270.KS","051910.KS",
     "006400.KS","035420.KS","035720.KS","028260.KS","105560.KS",
     "055550.KS","086790.KS","032830.KS","003550.KS","066570.KS",
@@ -57,13 +84,77 @@ TICKERS_KR = [
     "016360.KS","139480.KS","004170.KS","021240.KS","097950.KS",
     "000080.KS","033780.KS","271560.KS","282330.KS","326030.KS",
     "207940.KS","068270.KS","128940.KS","002270.KS","001040.KS",
+    "011070.KS","161390.KS","009830.KS","000720.KS","002790.KS",
+    "008770.KS","010060.KS","001800.KS","004000.KS","006260.KS",
+    "009540.KS","000150.KS","003490.KS","005300.KS","007070.KS",
+    "007310.KS","008060.KS","009240.KS","010620.KS","011790.KS",
+    "012030.KS","014820.KS","015350.KS","017550.KS","018880.KS",
+    "023530.KS","024110.KS","025560.KS","026960.KS","028050.KS",
+    "029780.KS","030000.KS","031430.KS","032640.KS","033240.KS",
+    "034020.KS","034220.KS","036460.KS","037270.KS","042670.KS",
+    "042700.KS","044490.KS","047040.KS","051600.KS","051900.KS",
+    "055490.KS","057050.KS","064350.KS","069260.KS","071050.KS",
+    "078930.KS","079550.KS","081660.KS","086280.KS","088350.KS",
+    "090350.KS","096400.KS","103140.KS","108670.KS","180640.KS",
+    "185750.KS","192080.KS","267250.KS","272210.KS","278280.KS",
+    "316140.KS","323410.KS","352820.KS","377300.KS","000240.KS",
+    "000390.KS","000670.KS","000880.KS","001230.KS","001450.KS",
+    "001740.KS","002320.KS","002350.KS","002820.KS","003070.KS",
+    "003240.KS","003580.KS","004140.KS","004370.KS","004490.KS",
+    "004990.KS","005010.KS","005160.KS","005440.KS","005850.KS",
+    "006050.KS","006360.KS","006650.KS","007160.KS","007340.KS",
+    "008300.KS","008350.KS","008490.KS","009680.KS","009770.KS",
+    "010040.KS","010140.KS","010580.KS","010780.KS","011080.KS",
+    "011420.KS","011760.KS","012450.KS","012750.KS","013360.KS",
+    "014680.KS","015760.KS","016380.KS","017040.KS","017180.KS",
+    "018120.KS","019170.KS","020150.KS","021080.KS","022000.KS",
+    "024090.KS","025860.KS","027740.KS","029530.KS","030190.KS",
+    "032560.KS","033530.KS","034730.KS","036570.KS","037560.KS",
+]))[:180]
+
+# ── 코스닥 180개 ──
+TICKERS_KOSDAQ = list(dict.fromkeys([
     "247540.KQ","086520.KQ","196170.KQ","091990.KQ","035900.KQ",
     "041510.KQ","122870.KQ","263750.KQ","293490.KQ","112040.KQ",
     "067160.KQ","039030.KQ","357780.KQ","096530.KQ","145020.KQ",
     "214150.KQ","151910.KQ","084370.KQ","095340.KQ","039200.KQ",
     "031370.KQ","048410.KQ","058970.KQ","064760.KQ","237690.KQ",
     "022100.KQ","179900.KQ","036570.KQ","241560.KQ","950130.KQ",
-]
+    "000250.KQ","003780.KQ","005090.KQ","009420.KQ","013310.KQ",
+    "017250.KQ","023160.KQ","033160.KQ","036010.KQ","039440.KQ",
+    "042500.KQ","045300.KQ","049070.KQ","053300.KQ","057030.KQ",
+    "062970.KQ","066430.KQ","068760.KQ","070300.KQ","075130.KQ",
+    "079160.KQ","082270.KQ","086040.KQ","088290.KQ","091120.KQ",
+    "093190.KQ","095660.KQ","097780.KQ","101490.KQ","104460.KQ",
+    "109820.KQ","112610.KQ","115180.KQ","119860.KQ","123260.KQ",
+    "126340.KQ","131290.KQ","137400.KQ","140410.KQ","141080.KQ",
+    "142280.KQ","145720.KQ","147760.KQ","152100.KQ","153460.KQ",
+    "155660.KQ","157490.KQ","158300.KQ","160600.KQ","161570.KQ",
+    "163560.KQ","166090.KQ","168490.KQ","170900.KQ","171490.KQ",
+    "173940.KQ","174900.KQ","176750.KQ","178600.KQ","180060.KQ",
+    "182360.KQ","183490.KQ","185490.KQ","187220.KQ","189300.KQ",
+    "192820.KQ","194480.KQ","195870.KQ","196300.KQ","199550.KQ",
+    "200130.KQ","200880.KQ","204840.KQ","206650.KQ","208350.KQ",
+    "210980.KQ","214150.KQ","215000.KQ","217270.KQ","218410.KQ",
+    "220630.KQ","222040.KQ","225570.KQ","226400.KQ","228760.KQ",
+    "232140.KQ","234080.KQ","236810.KQ","239340.KQ","241790.KQ",
+    "243840.KQ","248070.KQ","251340.KQ","253590.KQ","256840.KQ",
+    "258610.KQ","263810.KQ","265520.KQ","267260.KQ","268280.KQ",
+    "270870.KQ","271560.KQ","272290.KQ","274090.KQ","277070.KQ",
+    "278990.KQ","280360.KQ","281740.KQ","286940.KQ","289010.KQ",
+    "290510.KQ","291230.KQ","293480.KQ","298540.KQ","299030.KQ",
+    "301060.KQ","302430.KQ","304100.KQ","305090.KQ","307950.KQ",
+    "309930.KQ","312610.KQ","314930.KQ","317870.KQ","319660.KQ",
+    "321260.KQ","323780.KQ","325400.KQ","327260.KQ","330350.KQ",
+    "332370.KQ","335890.KQ","337930.KQ","340570.KQ","342510.KQ",
+    "344820.KQ","347860.KQ","348210.KQ","352480.KQ","354390.KQ",
+    "355150.KQ","357550.KQ","359090.KQ","360520.KQ","363250.KQ",
+    "365560.KQ","368210.KQ","370090.KQ","372290.KQ","376300.KQ",
+]))[:180]
+
+# ── 하위 호환용 (백테스트 등 기존 코드) ──
+TICKERS_US = list(dict.fromkeys(TICKERS_NASDAQ + TICKERS_SP500))
+TICKERS_KR = list(dict.fromkeys(TICKERS_KOSPI + TICKERS_KOSDAQ))
 
 KR_NAMES = {
     "005930.KS":"삼성전자","000660.KS":"SK하이닉스","005380.KS":"현대차",
@@ -83,6 +174,22 @@ KR_NAMES = {
     "033780.KS":"KT&G","271560.KS":"오리온","282330.KS":"BGF리테일",
     "326030.KS":"SK바이오팜","207940.KS":"삼성바이오로직스","068270.KS":"셀트리온",
     "128940.KS":"한미약품","002270.KS":"롯데제과","001040.KS":"CJ",
+    "011070.KS":"LG이노텍","161390.KS":"한국타이어앤테크놀로지",
+    "009830.KS":"한화솔루션","000720.KS":"현대건설","002790.KS":"아모레퍼시픽",
+    "008770.KS":"호텔신라","010060.KS":"OCI홀딩스","004000.KS":"롯데정밀화학",
+    "006260.KS":"LS","009540.KS":"한진칼","000150.KS":"두산",
+    "003490.KS":"대한항공","005300.KS":"롯데칠성","007070.KS":"GS리테일",
+    "007310.KS":"오뚜기","009240.KS":"한샘","011790.KS":"SKC",
+    "012030.KS":"DB손해보험","023530.KS":"롯데쇼핑","024110.KS":"기업은행",
+    "025560.KS":"메리츠화재","028050.KS":"삼성엔지니어링","034020.KS":"두산에너빌리티",
+    "034220.KS":"LG디스플레이","036460.KS":"한국가스공사","037270.KS":"YG엔터테인먼트",
+    "042670.KS":"HD현대인프라코어","042700.KS":"한미반도체","047040.KS":"대우건설",
+    "051600.KS":"한전KPS","051900.KS":"LG생활건강","064350.KS":"현대로템",
+    "078930.KS":"GS","079550.KS":"LIG넥스원","086280.KS":"현대글로비스",
+    "088350.KS":"한화생명","096400.KS":"BNK금융지주","103140.KS":"풍산",
+    "180640.KS":"한진칼","185750.KS":"종근당","267250.KS":"HD현대",
+    "272210.KS":"한화시스템","278280.KS":"천보","316140.KS":"우리금융지주",
+    "323410.KS":"카카오뱅크","352820.KS":"하이브","377300.KS":"카카오페이",
     "247540.KQ":"에코프로비엠","086520.KQ":"에코프로","196170.KQ":"알테오젠",
     "091990.KQ":"셀트리온헬스케어","035900.KQ":"JYP엔터","041510.KQ":"SM엔터테인먼트",
     "122870.KQ":"와이지엔터테인먼트","263750.KQ":"펄어비스","293490.KQ":"카카오게임즈",
@@ -93,6 +200,9 @@ KR_NAMES = {
     "048410.KQ":"현대바이오","058970.KQ":"엠씨넥스","064760.KQ":"티씨케이",
     "237690.KQ":"에스티팜","022100.KQ":"포스코DX","179900.KQ":"유티아이",
     "036570.KQ":"엔씨소프트","241560.KQ":"두산밥캣","950130.KQ":"엑스페릭스",
+    "068760.KQ":"셀트리온제약","091120.KQ":"레인보우로보틱스","009420.KQ":"한올바이오파마",
+    "112610.KQ":"씨에스윈드","082270.KQ":"뉴트리","086040.KQ":"JW중외제약",
+    "095660.KQ":"네오위즈","066430.KQ":"티에스이","070300.KQ":"엑스큐어",
 }
 
 TICKERS_KR_BT = TICKERS_KR[:50]
@@ -770,9 +880,21 @@ def get_market_data():
         return {}
 
 @app.get("/api/screen/{market}")
-def screen_stocks(market: str = "us"):
-    tickers = TICKERS_US if market == "us" else TICKERS_KR
-    results = []
+def screen_stocks(market: str = "nasdaq"):
+    """
+    market: nasdaq / sp500 / kospi / kosdaq / us / kr
+    """
+    market_map = {
+        "nasdaq": TICKERS_NASDAQ,
+        "sp500":  TICKERS_SP500,
+        "kospi":  TICKERS_KOSPI,
+        "kosdaq": TICKERS_KOSDAQ,
+        "us":     TICKERS_US,
+        "kr":     TICKERS_KR,
+    }
+    tickers  = market_map.get(market, TICKERS_NASDAQ)
+    currency = "KRW" if market in ("kospi","kosdaq","kr") else "USD"
+    results  = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
         futures = {executor.submit(fetch_single_stock, t, market): t for t in tickers}
         for f in concurrent.futures.as_completed(futures):
@@ -781,8 +903,15 @@ def screen_stocks(market: str = "us"):
                 results.append(r)
     results.sort(key=lambda x: x['total_score'], reverse=True)
     results = get_portfolio_weight(results)
+    labels  = {
+        "nasdaq":"나스닥","sp500":"S&P500",
+        "kospi":"코스피","kosdaq":"코스닥",
+        "us":"미국 전체","kr":"한국 전체",
+    }
     return {
         "market":         market,
+        "market_label":   labels.get(market, market),
+        "currency":       currency,
         "updated_at":     datetime.now().strftime("%Y-%m-%d %H:%M"),
         "total_screened": len(results),
         "results":        results,
