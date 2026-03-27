@@ -672,20 +672,158 @@ function showPage(page) {
   window.scrollTo(0,0);
 }
 
+// ── 시장 탭 전환 ──
 function switchMarket(m) {
   currentMarket = m;
+
+  // 탭 버튼 강조
   ['nasdaq','sp500','kospi','kosdaq'].forEach(k => {
     const el = document.getElementById('btn-'+k);
-    if(el) el.classList.toggle('active', k===m);
+    if(el) el.classList.toggle('active', k === m);
   });
+
   // 캐시된 결과 있으면 즉시 표시
   if(_marketCache[m]) {
     _lastResults = _marketCache[m].results;
     renderResults(_marketCache[m]);
-    document.getElementById('last-update').textContent = _marketCache[m].updated_at;
-    document.getElementById('market-status').textContent = _marketCache[m].market_label + ' 완료';
+    document.getElementById('last-update').textContent    = _marketCache[m].updated_at;
+    document.getElementById('market-status').textContent  =
+      (_marketCache[m].market_label || m) + ' 완료';
   }
 }
+
+// ── 합산 버튼 활성화 체크 ──
+function updateMergeBtns() {
+  const hasUS = !!(_marketCache['nasdaq'] || _marketCache['sp500']);
+  const hasKR = !!(_marketCache['kospi']  || _marketCache['kosdaq']);
+  const usBtn = document.getElementById('merge-us-btn');
+  const krBtn = document.getElementById('merge-kr-btn');
+  if(usBtn) { usBtn.disabled = !hasUS; usBtn.style.opacity = hasUS ? '1' : '0.4'; }
+  if(krBtn) { krBtn.disabled = !hasKR; krBtn.style.opacity = hasKR ? '1' : '0.4'; }
+}
+
+// ── 스크리닝 실행 ──
+async function runScreener() {
+  const btn    = document.getElementById('run-btn');
+  const market = currentMarket;  // 실행 시점의 currentMarket 고정
+  const labels = {nasdaq:'나스닥', sp500:'S&P500', kospi:'코스피', kosdaq:'코스닥'};
+  const label  = labels[market] || market;
+
+  // 버튼 비활성화
+  btn.disabled  = true;
+  btn.textContent = '⏳ 분석 중...';
+
+  // 로딩 표시
+  document.getElementById('result-table').innerHTML =
+    `<tr><td colspan="9"><div class="loading"><div class="spinner"></div>
+     ${label} 종목 분석 중... (1~2분 소요)</div></td></tr>`;
+  document.getElementById('best-picks').innerHTML =
+    `<div class="empty" style="grid-column:1/-1;">
+     <div class="spinner" style="margin:0 auto 8px;"></div>${label} 분석 중...</div>`;
+
+  try {
+    const res  = await fetch(`${API}/api/screen/${market}`);
+    if(!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+
+    // 캐시 저장 (이 시장의 결과만 덮어씀)
+    _marketCache[market] = data;
+    _lastResults = data.results;
+
+    // 전체 UI 갱신
+    renderResults(data);
+    document.getElementById('last-update').textContent   = data.updated_at;
+    document.getElementById('market-status').textContent = label + ' 완료';
+
+    // 탭 버튼 현재 시장으로 복원 (합산 후 재실행해도 올바른 탭 강조)
+    ['nasdaq','sp500','kospi','kosdaq'].forEach(k => {
+      const el = document.getElementById('btn-'+k);
+      if(el) el.classList.toggle('active', k === market);
+    });
+
+    // 합산 버튼 활성화
+    updateMergeBtns();
+
+  } catch(e) {
+    document.getElementById('result-table').innerHTML =
+      `<tr><td colspan="9" class="empty">⚠️ 서버 연결 실패. 잠시 후 다시 시도해주세요.</td></tr>`;
+    document.getElementById('best-picks').innerHTML =
+      `<div class="empty" style="grid-column:1/-1;">⚠️ 연결 실패</div>`;
+  }
+
+  // 버튼 복원
+  btn.disabled  = false;
+  btn.innerHTML = '🔄 스크리닝 실행';
+}
+
+// ── 합산 보기 ──
+function mergeResults(region) {
+  // 캐시에서 해당 시장 결과 수집
+  let merged = [];
+  if(region === 'us') {
+    if(_marketCache['nasdaq']) merged = merged.concat(
+      _marketCache['nasdaq'].results.map(r => ({...r, _src:'nasdaq'}))
+    );
+    if(_marketCache['sp500'])  merged = merged.concat(
+      _marketCache['sp500'].results.map(r => ({...r, _src:'sp500'}))
+    );
+  } else {
+    if(_marketCache['kospi'])  merged = merged.concat(
+      _marketCache['kospi'].results.map(r => ({...r, _src:'kospi'}))
+    );
+    if(_marketCache['kosdaq']) merged = merged.concat(
+      _marketCache['kosdaq'].results.map(r => ({...r, _src:'kosdaq'}))
+    );
+  }
+
+  if(!merged.length) {
+    alert('먼저 해당 시장을 각각 스크리닝 실행해주세요.');
+    return;
+  }
+
+  // 티커 중복 제거 — 점수 높은 것 유지 (원본 건드리지 않음)
+  const seen = {};
+  merged = merged.filter(r => {
+    if(seen[r.ticker]) return false;
+    seen[r.ticker] = true;
+    return true;
+  });
+
+  // 정렬
+  merged.sort((a, b) => b.total_score - a.total_score);
+
+  // 비중 재계산
+  const buyScoreSum = merged
+    .filter(r => ['Strong Buy','Buy'].includes(r.recommendation))
+    .reduce((s, r) => s + r.total_score, 0);
+  merged.forEach(r => {
+    r.weight = ['Strong Buy','Buy'].includes(r.recommendation) && buyScoreSum > 0
+      ? Math.round(r.total_score / buyScoreSum * 1000) / 10
+      : 0;
+  });
+
+  // ★ currentMarket은 절대 변경하지 않음
+  // 합산은 "보기 전환"일 뿐 — 탭 상태 유지
+  _lastResults = merged;
+
+  const label    = region === 'us'
+    ? '🇺🇸 미국 합산 (나스닥+S&P500)'
+    : '🇰🇷 한국 합산 (코스피+코스닥)';
+  const currency = region === 'us' ? 'USD' : 'KRW';
+  const now      = new Date().toLocaleString('ko-KR');
+
+  renderResults({ results: merged, market_label: label, currency, updated_at: now });
+
+  document.getElementById('last-update').textContent   = now;
+  document.getElementById('market-status').textContent = label;
+
+  // 탭 버튼은 currentMarket 기준으로 유지
+  ['nasdaq','sp500','kospi','kosdaq'].forEach(k => {
+    const el = document.getElementById('btn-'+k);
+    if(el) el.classList.toggle('active', k === currentMarket);
+  });
+}
+
 
 function getBadge(rec) {
   const map = {
@@ -742,9 +880,30 @@ function buildModelRows(data, cfg) {
   return data.map((s,i)=>{
     const score = s[cfg.scoreKey];
     const pct = Math.round((score/cfg.maxScore)*100);
-    const s1 = score >= Math.round(cfg.maxScore*0.33) ? '✅':'❌';
-    const s2 = score >= Math.round(cfg.maxScore*0.67) ? '✅':'❌';
-    const s3 = score >= cfg.maxScore ? '✅':'❌';
+    // ── 최종 확정 조건 충족 기준 (변경 금지) ──
+    let s1, s2, s3;
+    if(modelKey === 'classic') {
+      // 1단계 조류: 주봉 EMA26 상승 중 (4점+)
+      s1 = (s.c_ema   ?? 0) >= 4 ? '✅':'❌';
+      // 2단계 파도: 스토캐스틱 20~50 눌림목 (6점+)
+      s2 = (s.c_stoch ?? 0) >= 6 ? '✅':'❌';
+      // 3단계 진입: 전일 고가 근접/돌파 (6점+)
+      s3 = (s.c_break ?? 0) >= 6 ? '✅':'❌';
+    } else if(modelKey === 'growth') {
+      // 1단계 퀄리티: ROE + 부채비율 합산 8점+
+      s1 = ((s.g_roe ?? 0) + (s.g_debt  ?? 0)) >= 8 ? '✅':'❌';
+      // 2단계 성장+가치: EPS 성장률 + PEG 합산 6점+
+      s2 = ((s.g_eps ?? 0) + (s.g_peg   ?? 0)) >= 6 ? '✅':'❌';
+      // 3단계 모멘텀: MA200 + RSI 합산 6점+
+      s3 = ((s.g_ma200 ?? 0) + (s.g_rsi ?? 0)) >= 6 ? '✅':'❌';
+    } else {
+      // 1단계 실적상향: 애널리스트 Buy 이상 (7점+)
+      s1 = (s.m_anal ?? 0) >= 7 ? '✅':'❌';
+      // 2단계 상대강세: S&P500 대비 10%+ 초과수익 (6점+)
+      s2 = (s.m_rs   ?? 0) >= 6 ? '✅':'❌';
+      // 3단계 OBV 매수세: OBV 상승 + 평균 위 (6점+)
+      s3 = (s.m_obv  ?? 0) >= 6 ? '✅':'❌';
+    }
     const chgClass = s.change_pct>=0?'up':'dn';
     const chgSign  = s.change_pct>=0?'▲':'▼';
     return `<tr>
@@ -795,111 +954,6 @@ function applyFilter(modelKey, type, btn) {
   document.getElementById('tbody-'+modelKey).innerHTML = buildModelRows(data,cfg);
 }
 
-// ── 스크리너 실행 ──
-async function runScreener() {
-  const btn = document.getElementById('run-btn');
-  const market = currentMarket;
-  const labels = {nasdaq:'나스닥',sp500:'S&P500',kospi:'코스피',kosdaq:'코스닥'};
-  const label  = labels[market] || market;
-  btn.disabled = true;
-  btn.textContent = '⏳ 분석 중...';
-  document.getElementById('result-table').innerHTML =
-    `<tr><td colspan="9"><div class="loading"><div class="spinner"></div>${label} 종목 분석 중... (1~2분 소요)</div></td></tr>`;
-  document.getElementById('best-picks').innerHTML =
-    `<div class="empty" style="grid-column:1/-1;"><div class="spinner" style="margin:0 auto 8px;"></div>${label} 분석 중...</div>`;
-  try {
-    const res = await fetch(`${API}/api/screen/${market}`);
-    const data = await res.json();
-    // 캐시 저장
-    _marketCache[market] = data;
-    _lastResults = data.results;
-    renderResults(data);
-    document.getElementById('last-update').textContent = data.updated_at;
-    document.getElementById('market-status').textContent = label + ' 완료';
-    // 합산 버튼 활성화 체크
-    updateMergeBtns();
-    // ★ 탭 버튼 상태 복원 (합산 후 재실행 시 올바른 탭 강조)
-    ['nasdaq','sp500','kospi','kosdaq'].forEach(k => {
-      const el = document.getElementById('btn-'+k);
-      if(el) el.classList.toggle('active', k === market);
-    });
-  } catch(e) {
-    document.getElementById('result-table').innerHTML =
-      `<tr><td colspan="9" class="empty">⚠️ 서버 연결 실패. 잠시 후 다시 시도해주세요.</td></tr>`;
-  }
-  btn.disabled = false;
-  btn.innerHTML = '🔄 스크리닝 실행';
-}
-
-function updateMergeBtns() {
-  const hasUS = _marketCache['nasdaq'] || _marketCache['sp500'];
-  const hasKR = _marketCache['kospi']  || _marketCache['kosdaq'];
-  const usBtn = document.getElementById('merge-us-btn');
-  const krBtn = document.getElementById('merge-kr-btn');
-  if(usBtn) { usBtn.disabled = !hasUS; usBtn.style.opacity = hasUS ? '1' : '0.4'; }
-  if(krBtn) { krBtn.disabled = !hasKR; krBtn.style.opacity = hasKR ? '1' : '0.4'; }
-}
-
-function mergeResults(region) {
-  let merged = [];
-  if(region === 'us') {
-    if(_marketCache['nasdaq']) merged = merged.concat(_marketCache['nasdaq'].results);
-    if(_marketCache['sp500'])  merged = merged.concat(_marketCache['sp500'].results);
-  } else {
-    if(_marketCache['kospi'])  merged = merged.concat(_marketCache['kospi'].results);
-    if(_marketCache['kosdaq']) merged = merged.concat(_marketCache['kosdaq'].results);
-  }
-
-  if(!merged.length) {
-    alert('먼저 해당 시장을 각각 스크리닝 실행해주세요.');
-    return;
-  }
-
-  // 티커 중복 제거 — 점수 높은 것 유지
-  const seen = {};
-  merged = merged.filter(r => {
-    if(seen[r.ticker]) return false;
-    seen[r.ticker] = true;
-    return true;
-  });
-
-  // 점수 내림차순 정렬
-  merged.sort((a,b) => b.total_score - a.total_score);
-
-  // 포트폴리오 비중 재계산
-  const buyStocks  = merged.filter(r => ['Strong Buy','Buy'].includes(r.recommendation));
-  const totalScore = buyStocks.reduce((sum, r) => sum + r.total_score, 0);
-  merged.forEach(r => {
-    r.weight = (r.recommendation === 'Strong Buy' || r.recommendation === 'Buy') && totalScore > 0
-      ? Math.round((r.total_score / totalScore) * 1000) / 10
-      : 0;
-  });
-
-  // ★ 핵심 수정: currentMarket은 변경하지 않음
-  // 합산은 "보기 전환"일 뿐, 현재 선택된 시장 탭은 유지
-  _lastResults = merged;
-
-  const label    = region === 'us' ? '🇺🇸 미국 합산 (나스닥+S&P500)' : '🇰🇷 한국 합산 (코스피+코스닥)';
-  const currency = region === 'us' ? 'USD' : 'KRW';
-  const now      = new Date().toLocaleString('ko-KR');
-
-  renderResults({
-    results:      merged,
-    market_label: label,
-    currency:     currency,
-    updated_at:   now,
-  });
-
-  document.getElementById('last-update').textContent   = now;
-  document.getElementById('market-status').textContent = label;
-
-  // ★ 합산 후에도 탭 버튼 상태는 currentMarket 기준 유지
-  // (스크리닝 실행 버튼은 여전히 currentMarket 기준으로 동작)
-  ['nasdaq','sp500','kospi','kosdaq'].forEach(k => {
-    const el = document.getElementById('btn-'+k);
-    if(el) el.classList.toggle('active', k === currentMarket);
-  });
-}
 
 function renderResults(data) {
   data._currency = data.currency || (currentMarket.startsWith('kos') ? 'KRW' : 'USD');
