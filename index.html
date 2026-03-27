@@ -156,6 +156,10 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
       <span class="nav-icon">🤖</span>
       <div><div class="nav-label">모던 모델</div><div class="nav-sub">AI & 심리</div></div>
     </div>
+    <div class="nav-item" id="nav-tenbagger" onclick="showPage('tenbagger')">
+      <span class="nav-icon">🚀</span>
+      <div><div class="nav-label">텐배거</div><div class="nav-sub">린치·오닐·미너비니</div></div>
+    </div>
     <div class="nav-item" id="nav-backtest" onclick="showPage('backtest')">
       <span class="nav-icon">🧪</span>
       <div><div class="nav-label">백테스트</div><div class="nav-sub">과거 신호 검증</div></div>
@@ -541,21 +545,113 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
     </div>
   </div>
 
+  <!-- ───────── 텐배거 스크리너 ───────── -->
+  <div id="page-tenbagger" style="display:none;">
+    <div class="topbar">
+      <div>
+        <div class="page-title">🚀 텐배거 스크리너</div>
+        <div class="update-row">
+          피터 린치 · 윌리엄 오닐 CANSLIM · 마크 미너비니 SEPA — 거장 3인의 기준 종합
+          <span class="tag-status" style="background:#eff6ff;color:#1d4ed8;">📊 나스닥 중소형 전용</span>
+        </div>
+      </div>
+      <div class="topbar-right">
+        <button class="run-btn" id="tb-run-btn" onclick="runTenbagger()">🚀 텐배거 스크리닝</button>
+      </div>
+    </div>
+
+    <!-- 방법론 설명 카드 -->
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px;">
+      <div class="card" style="border-left:4px solid #22c55e;">
+        <div style="font-size:13px;font-weight:800;color:#15803d;margin-bottom:8px;">📗 피터 린치 (35점)</div>
+        <div style="font-size:12px;color:var(--sub);line-height:1.8;">
+          <b style="color:var(--text);">PEG &lt; 1.0</b> — 성장 대비 저평가<br>
+          <b style="color:var(--text);">EPS 성장 &gt; 25%</b> — 폭발적 이익 성장<br>
+          <b style="color:var(--text);">소형주 선호</b> — 시총 $10B 미만 우대<br>
+          <span style="font-size:10px;color:#94a3b8;">"PEG 1 이하면 공짜로 성장을 산다"</span>
+        </div>
+      </div>
+      <div class="card" style="border-left:4px solid #3b82f6;">
+        <div style="font-size:13px;font-weight:800;color:#1d4ed8;margin-bottom:8px;">📘 오닐 CANSLIM (35점)</div>
+        <div style="font-size:12px;color:var(--sub);line-height:1.8;">
+          <b style="color:var(--text);">분기 EPS &gt; 25%↑</b> — 현재 실적 급등<br>
+          <b style="color:var(--text);">52주 신고가 돌파</b> — 새로운 고점 돌파<br>
+          <b style="color:var(--text);">거래량 폭증</b> — 기관 매수 신호<br>
+          <span style="font-size:10px;color:#94a3b8;">"신고가를 경신하는 주식이 더 오른다"</span>
+        </div>
+      </div>
+      <div class="card" style="border-left:4px solid #f59e0b;">
+        <div style="font-size:13px;font-weight:800;color:#b45309;margin-bottom:8px;">📙 미너비니 SEPA (30점)</div>
+        <div style="font-size:12px;color:var(--sub);line-height:1.8;">
+          <b style="color:var(--text);">주가 &gt; 150MA · 200MA</b> — 추세 위에 존재<br>
+          <b style="color:var(--text);">150MA &gt; 200MA</b> — 골든크로스 구조<br>
+          <b style="color:var(--text);">52주 저점 대비 +30%↑</b> — 강한 탈출<br>
+          <span style="font-size:10px;color:#94a3b8;">"추세는 거짓말하지 않는다"</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 요약 통계 -->
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px;" id="tb-summary-grid">
+      <div class="bt-stat-card"><div class="bt-stat-label">📊 분석 종목</div><div class="bt-stat-val" id="tb-total">—</div></div>
+      <div class="bt-stat-card"><div class="bt-stat-label">🔥 최상위 (75점+)</div><div class="bt-stat-val" style="color:#22c55e;" id="tb-top">—</div></div>
+      <div class="bt-stat-card"><div class="bt-stat-label">⭐ 유망 (60~74점)</div><div class="bt-stat-val" style="color:#3b82f6;" id="tb-mid">—</div></div>
+      <div class="bt-stat-card"><div class="bt-stat-label">👀 관심 (45~59점)</div><div class="bt-stat-val" style="color:#f59e0b;" id="tb-watch">—</div></div>
+    </div>
+
+    <!-- 결과 테이블 -->
+    <div class="card">
+      <div class="section-title">
+        텐배거 스크리닝 결과
+        <span class="section-right" id="tb-updated"></span>
+      </div>
+      <!-- 필터 -->
+      <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;">
+        <button class="filter-btn active" onclick="filterTenbagger('all',this)">전체</button>
+        <button class="filter-btn" onclick="filterTenbagger('최상위',this)">🔥 최상위</button>
+        <button class="filter-btn" onclick="filterTenbagger('유망',this)">⭐ 유망</button>
+        <button class="filter-btn" onclick="filterTenbagger('관심',this)">👀 관심</button>
+        <button class="filter-btn" onclick="filterTenbagger('소형주',this)">🏷 소형주 ($2B↓)</button>
+      </div>
+      <div class="table-wrap">
+        <table class="stbl">
+          <thead><tr>
+            <th>종목</th>
+            <th>시총(B$)</th>
+            <th>현재가</th>
+            <th>등락률</th>
+            <th style="color:#15803d;">린치 (35)</th>
+            <th style="color:#1d4ed8;">오닐 (35)</th>
+            <th style="color:#b45309;">미너비니 (30)</th>
+            <th>종합 (100)</th>
+            <th>등급</th>
+            <th>세부 지표</th>
+          </tr></thead>
+          <tbody id="tb-table">
+            <tr><td colspan="10" class="empty">🚀 텐배거 스크리닝 버튼을 눌러주세요</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
 </div><!-- /main -->
 
 <script>
 const API = 'https://magu-stock-production.up.railway.app';
 let currentMarket = 'us';
 let _lastResults = [];
+let _tbResults = [];
 
 // ── 페이지 전환 ──
 function showPage(page) {
-  ['dashboard','classic','growth','modern','backtest','smartmoney'].forEach(p => {
+  ['dashboard','classic','growth','modern','tenbagger','backtest','smartmoney'].forEach(p => {
     document.getElementById('page-'+p).style.display = p===page ? 'block' : 'none';
     const nav = document.getElementById('nav-'+p);
     if(nav) nav.classList.toggle('active', p===page);
   });
-  if(page !== 'dashboard' && page !== 'backtest' && page !== 'smartmoney') {
+  const modelPages = ['classic','growth','modern'];
+  if(modelPages.includes(page)) {
     if(_lastResults.length > 0) {
       renderModelPage(page);
     } else {
@@ -1116,6 +1212,125 @@ const h = now.getHours();
 document.getElementById('market-status').textContent = (h>=9&&h<16)?'장중':'장 마감';
 loadMarketData();
 setInterval(loadMarketData, 300000);
+
+// ── 텐배거 스크리너 ──
+async function runTenbagger() {
+  const btn = document.getElementById('tb-run-btn');
+  btn.disabled = true;
+  btn.textContent = '⏳ 분석 중...';
+  document.getElementById('tb-table').innerHTML =
+    `<tr><td colspan="10"><div class="loading"><div class="spinner"></div>나스닥 중소형 성장주 분석 중... (1~2분 소요)</div></td></tr>`;
+  ['tb-total','tb-top','tb-mid','tb-watch'].forEach(id => {
+    document.getElementById(id).textContent = '...';
+  });
+  try {
+    const res = await fetch(`${API}/api/tenbagger`);
+    if(!res.ok) throw new Error('HTTP '+res.status);
+    const data = await res.json();
+    _tbResults = data.results || [];
+
+    document.getElementById('tb-total').textContent   = _tbResults.length + '개';
+    document.getElementById('tb-top').textContent     = _tbResults.filter(r=>r.total_score>=75).length + '개';
+    document.getElementById('tb-mid').textContent     = _tbResults.filter(r=>r.total_score>=60&&r.total_score<75).length + '개';
+    document.getElementById('tb-watch').textContent   = _tbResults.filter(r=>r.total_score>=45&&r.total_score<60).length + '개';
+    document.getElementById('tb-updated').textContent = `업데이트: ${data.updated_at} · ${data.universe||''}`;
+
+    renderTenbaggerTable(_tbResults);
+  } catch(e) {
+    document.getElementById('tb-table').innerHTML =
+      `<tr><td colspan="10" class="empty">❌ 서버 연결 실패 — 잠시 후 다시 시도해주세요.</td></tr>`;
+    ['tb-total','tb-top','tb-mid','tb-watch'].forEach(id => {
+      document.getElementById(id).textContent = '—';
+    });
+  }
+  btn.disabled = false;
+  btn.innerHTML = '🚀 텐배거 스크리닝';
+}
+
+function renderTenbaggerTable(data) {
+  if(!data.length) {
+    document.getElementById('tb-table').innerHTML =
+      '<tr><td colspan="10" class="empty">해당 조건의 종목이 없습니다.</td></tr>';
+    return;
+  }
+  document.getElementById('tb-table').innerHTML = data.map((s, i) => {
+    const chgClass = s.change_pct >= 0 ? 'up' : 'dn';
+    const chgSign  = s.change_pct >= 0 ? '▲' : '▼';
+    const gradeColor = s.total_score>=75?'#22c55e':s.total_score>=60?'#3b82f6':s.total_score>=45?'#f59e0b':'#94a3b8';
+
+    // 세부 지표 요약
+    const ld = s.lynch_detail    || {};
+    const od = s.oneil_detail    || {};
+    const md = s.minervini_detail|| {};
+    const details = [
+      ld.peg        ? `PEG ${ld.peg}` : '',
+      ld.eps_growth != null ? `EPS+${ld.eps_growth}%` : '',
+      od.from_52w_high != null ? `52주고점${od.from_52w_high>0?'돌파':od.from_52w_high+'%'}` : '',
+      md.from_52w_low != null  ? `저점+${md.from_52w_low}%` : '',
+    ].filter(Boolean).join(' · ');
+
+    // 린치/오닐/미너비니 바
+    const lPct = Math.round(s.lynch_score/35*100);
+    const oPct = Math.round(s.oneil_score/35*100);
+    const mPct = Math.round(s.minervini_score/30*100);
+    const mcap = s.market_cap_b > 0 ? `$${s.market_cap_b}B` : '—';
+
+    return `<tr>
+      <td>
+        <div style="font-size:13px;font-weight:800;color:#1d4ed8;">${s.name.length>18?s.ticker:s.name}</div>
+        <div style="font-size:11px;color:var(--sub);">${s.ticker} · ${s.sector||'—'}</div>
+      </td>
+      <td style="font-size:12px;font-weight:600;">${mcap}</td>
+      <td><strong>$${s.price.toLocaleString()}</strong></td>
+      <td class="${chgClass}">${chgSign}${Math.abs(s.change_pct)}%</td>
+      <td>
+        <div style="display:flex;align-items:center;gap:6px;">
+          <div style="width:60px;height:6px;background:#f1f5f9;border-radius:3px;overflow:hidden;">
+            <div style="height:100%;background:#22c55e;border-radius:3px;width:${lPct}%;"></div>
+          </div>
+          <span style="font-size:12px;font-weight:700;color:#15803d;">${s.lynch_score}</span>
+        </div>
+      </td>
+      <td>
+        <div style="display:flex;align-items:center;gap:6px;">
+          <div style="width:60px;height:6px;background:#f1f5f9;border-radius:3px;overflow:hidden;">
+            <div style="height:100%;background:#3b82f6;border-radius:3px;width:${oPct}%;"></div>
+          </div>
+          <span style="font-size:12px;font-weight:700;color:#1d4ed8;">${s.oneil_score}</span>
+        </div>
+      </td>
+      <td>
+        <div style="display:flex;align-items:center;gap:6px;">
+          <div style="width:60px;height:6px;background:#f1f5f9;border-radius:3px;overflow:hidden;">
+            <div style="height:100%;background:#f59e0b;border-radius:3px;width:${mPct}%;"></div>
+          </div>
+          <span style="font-size:12px;font-weight:700;color:#b45309;">${s.minervini_score}</span>
+        </div>
+      </td>
+      <td>
+        <div style="display:flex;align-items:center;gap:6px;">
+          <div style="width:60px;height:6px;background:#f1f5f9;border-radius:3px;overflow:hidden;">
+            <div style="height:100%;background:${gradeColor};border-radius:3px;width:${s.total_score}%;"></div>
+          </div>
+          <span style="font-size:13px;font-weight:800;color:${gradeColor};">${s.total_score}</span>
+        </div>
+      </td>
+      <td><span style="font-size:12px;font-weight:700;padding:3px 10px;border-radius:6px;background:${s.total_score>=75?'#dcfce7':s.total_score>=60?'#dbeafe':s.total_score>=45?'#fef9c3':'#f1f5f9'};color:${gradeColor};">${s.grade}</span></td>
+      <td style="font-size:11px;color:var(--sub);max-width:180px;">${details||'—'}</td>
+    </tr>`;
+  }).join('');
+}
+
+function filterTenbagger(type, btn) {
+  document.querySelectorAll('#page-tenbagger .filter-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  let data = [..._tbResults];
+  if(type === '최상위')  data = data.filter(r => r.total_score >= 75);
+  else if(type === '유망')  data = data.filter(r => r.total_score >= 60 && r.total_score < 75);
+  else if(type === '관심')  data = data.filter(r => r.total_score >= 45 && r.total_score < 60);
+  else if(type === '소형주') data = data.filter(r => r.market_cap_b > 0 && r.market_cap_b <= 2);
+  renderTenbaggerTable(data);
+}
 </script>
 </body>
 </html>
