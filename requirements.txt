@@ -5,7 +5,7 @@ pandas
 ta
 requests
 psycopg2-binary
-apscheduler
+APScheduler==3.10.4
 pytz
 lxml
 html5lib
