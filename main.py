@@ -1306,20 +1306,30 @@ def get_liquidity():
                              "38~54":"🟡 중립관망","20~37":"🟠 매수축소","0~19":"🔴 현금보유"}}
 
 def score_at_date(hist_daily, hist_weekly, info, cutoff_idx):
+    """과거 특정 시점 기준 점수 계산 — 기술적 지표만 사용 (재무 info는 현재값이라 제외)"""
     d=hist_daily.iloc[:cutoff_idx]
     w=hist_weekly[hist_weekly.index<=hist_daily.index[cutoff_idx-1]]
     if len(d)<20: return None
+    # Classic: 순수 기술적 지표 (과거 재현 가능)
     classic=calculate_classic_score(info,w,d)
-    growth=calculate_growth_score(info,d)
-    modern=calculate_modern_score(info,d)
+    # Growth: MA200, RSI만 사용 (과거 재현 가능한 것만)
+    growth=score_ma200(d)+score_rsi(d)
+    # Modern: RS, OBV만 사용 (애널리스트 의견은 과거값 없음)
+    modern=score_relative_strength(d)+score_obv_momentum(d)
     return int(classic),int(growth),int(classic+growth+modern)
 
 def backtest_single(ticker, hold_days, score_threshold):
     try:
         stock=yf.Ticker(ticker); info=stock.info
         hist=stock.history(period="2y"); histw=stock.history(period="3y",interval="1wk")
-        if hist.empty or len(hist)<60: return []
+        if hist.empty or len(hist)<60:
+            logger.debug(f"[백테스트] {ticker} 데이터 부족 ({len(hist)}일)")
+            return []
+        # timezone 정규화
+        hist.index=hist.index.tz_localize(None) if hist.index.tzinfo else hist.index
+        histw.index=histw.index.tz_localize(None) if histw.index.tzinfo else histw.index
         sp500=yf.Ticker("^GSPC").history(period="2y")
+        sp500.index=sp500.index.tz_localize(None) if sp500.index.tzinfo else sp500.index
         signals=[]; step=20
         for i in range(60,len(hist)-hold_days,step):
             result=score_at_date(hist,histw,info,i)
@@ -1332,7 +1342,7 @@ def backtest_single(ticker, hold_days, score_threshold):
             sp_slice=sp500[(sp500.index>=entry_date)&(sp500.index<=exit_date)]
             sp_ret=0.0
             if len(sp_slice)>=2: sp_ret=round(float((sp_slice['Close'].iloc[-1]/sp_slice['Close'].iloc[0]-1)*100),2)
-            name=KR_NAMES.get(ticker,ticker)
+            name=KR_NAMES.get(ticker, info.get('longName', ticker))
             signals.append({
                 "ticker":name,"signal_date":entry_date.strftime("%Y.%m.%d"),
                 "sell_date":exit_date.strftime("%Y.%m.%d"),
@@ -1343,20 +1353,28 @@ def backtest_single(ticker, hold_days, score_threshold):
                 "recommendation":get_recommendation(total,classic,growth,0),
                 "win":bool(ret>0),
             })
+        logger.info(f"[백테스트] {ticker}: {len(signals)}개 신호")
         return signals
-    except: return []
+    except Exception as e:
+        logger.warning(f"[백테스트] {ticker} 오류: {e}")
+        return []
 
 @app.get("/api/backtest")
-def run_backtest(market: str="us", hold_days: int=30, score_threshold: int=55):
+def run_backtest(market: str="us", hold_days: int=30, score_threshold: int=40):
     tickers=TICKERS_US[:50] if market=="us" else TICKERS_KR_BT
     all_signals=[]
     with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
         futures={executor.submit(backtest_single,t,hold_days,score_threshold):t for t in tickers}
-        for f in concurrent.futures.as_completed(futures): all_signals.extend(f.result())
+        for f in concurrent.futures.as_completed(futures,timeout=180):
+            try:
+                all_signals.extend(f.result(timeout=30))
+            except Exception as e:
+                logger.warning(f"[백테스트] future 오류: {e}")
     if not all_signals:
         return {"summary":{"total_signals":0,"win_rate":0.0,"avg_return":0.0,"avg_sp500":0.0,
                            "alpha":0.0,"hold_days":hold_days,"score_threshold":score_threshold,"best_model":"—"},
-                "band_stats":[],"period_returns":[],"signals":[],"error":"신호 없음"}
+                "band_stats":[],"period_returns":[],"signals":[],
+                "error":f"신호 없음 (시장:{market}, 보유:{hold_days}일, 최소점수:{score_threshold})"}
     total=len(all_signals); wins=sum(1 for s in all_signals if s["win"])
     win_rate=round(wins/total*100,1)
     avg_ret=round(sum(s["return_pct"] for s in all_signals)/total,2)
@@ -1369,9 +1387,9 @@ def run_backtest(market: str="us", hold_days: int=30, score_threshold: int=55):
         filtered=[s for s in all_signals if b["min"]<=s["total_score"]<=b["max"]]
         wr=round(sum(1 for s in filtered if s["win"])/len(filtered)*100,1) if filtered else 0.0
         band_stats.append({"label":b["label"],"win_rate":wr,"count":len(filtered)})
-    classic_wins=[s for s in all_signals if s["classic_score"]>=20 and s["win"]]
-    growth_wins=[s for s in all_signals if s["growth_score"]>=30 and s["win"]]
-    modern_wins=[s for s in all_signals if s["modern_score"]>=20 and s["win"]]
+    classic_wins=[s for s in all_signals if s["classic_score"]>=15 and s["win"]]
+    growth_wins=[s for s in all_signals if s["growth_score"]>=10 and s["win"]]
+    modern_wins=[s for s in all_signals if s["modern_score"]>=10 and s["win"]]
     best_model=max([("Classic",len(classic_wins)),("Growth",len(growth_wins)),("Modern",len(modern_wins))],key=lambda x:x[1])[0]
     all_signals.sort(key=lambda x:x["return_pct"],reverse=True)
     return {"summary":{"total_signals":total,"win_rate":win_rate,"avg_return":avg_ret,
