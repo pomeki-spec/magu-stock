@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, BackgroundTasks
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 import yfinance as yf
@@ -8,6 +8,16 @@ from datetime import datetime, timedelta
 import concurrent.futures
 import os
 import requests
+import psycopg2
+import psycopg2.extras
+import json
+import pytz
+import logging
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
@@ -27,8 +37,103 @@ app.add_middleware(
 )
 
 # ══════════════════════════════════════════════════════════════
-# 종목 풀
+# DB 연결
 # ══════════════════════════════════════════════════════════════
+
+DATABASE_URL = os.environ.get("DATABASE_URL", "")
+
+def get_conn():
+    url = DATABASE_URL
+    if url.startswith("postgres://"):
+        url = url.replace("postgres://", "postgresql://", 1)
+    return psycopg2.connect(url, sslmode="require")
+
+def init_db():
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS screening_cache (
+            ticker         TEXT NOT NULL,
+            market         TEXT NOT NULL,
+            name           TEXT,
+            sector         TEXT,
+            etf            TEXT,
+            price          FLOAT,
+            change_pct     FLOAT,
+            classic_score  INT,
+            growth_score   INT,
+            modern_score   INT,
+            total_score    INT,
+            recommendation TEXT,
+            weight         FLOAT,
+            rsi            FLOAT,
+            roe            FLOAT,
+            peg            FLOAT,
+            c_ema          INT,
+            c_stoch        INT,
+            c_break        INT,
+            g_roe          INT,
+            g_debt         INT,
+            g_eps          INT,
+            g_peg          INT,
+            g_ma200        INT,
+            g_rsi          INT,
+            m_anal         INT,
+            m_rs           INT,
+            m_obv          INT,
+            screened_at    TIMESTAMP DEFAULT NOW(),
+            PRIMARY KEY (ticker, market)
+        );
+        CREATE INDEX IF NOT EXISTS idx_sc_market ON screening_cache(market);
+        CREATE INDEX IF NOT EXISTS idx_sc_score  ON screening_cache(total_score DESC);
+
+        CREATE TABLE IF NOT EXISTS tenbagger_cache (
+            ticker           TEXT PRIMARY KEY,
+            name             TEXT,
+            sector           TEXT,
+            market_cap_b     FLOAT,
+            price            FLOAT,
+            change_pct       FLOAT,
+            lynch_score      INT,
+            oneil_score      INT,
+            minervini_score  INT,
+            total_score      INT,
+            grade            TEXT,
+            lynch_detail     JSONB,
+            oneil_detail     JSONB,
+            minervini_detail JSONB,
+            screened_at      TIMESTAMP DEFAULT NOW()
+        );
+    """)
+    conn.commit()
+    cur.close()
+    conn.close()
+    logger.info("DB 초기화 완료")
+
+def cleanup_old_data():
+    try:
+        conn = get_conn(); cur = conn.cursor()
+        cur.execute("DELETE FROM screening_cache WHERE screened_at < NOW() - INTERVAL '30 days'")
+        cur.execute("DELETE FROM tenbagger_cache WHERE screened_at < NOW() - INTERVAL '30 days'")
+        conn.commit(); cur.close(); conn.close()
+    except Exception as e:
+        logger.error(f"cleanup 오류: {e}")
+
+# ══════════════════════════════════════════════════════════════
+# 종목 풀 — 확장판 (나스닥200, S&P500, 코스피200, 코스닥150)
+# ══════════════════════════════════════════════════════════════
+
+def get_sp500_tickers():
+    """Wikipedia에서 S&P500 최신 구성종목 크롤링"""
+    try:
+        url = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
+        tables = pd.read_html(url)
+        tickers = tables[0]['Symbol'].str.replace('.', '-', regex=False).tolist()
+        logger.info(f"S&P500 Wikipedia 크롤링: {len(tickers)}개")
+        return tickers
+    except Exception as e:
+        logger.warning(f"S&P500 크롤링 실패, 하드코딩 폴백: {e}")
+        return []
 
 TICKERS_NASDAQ = list(dict.fromkeys([
     "AAPL","MSFT","NVDA","AMZN","META","GOOGL","TSLA","AVGO","COST","NFLX",
@@ -47,11 +152,13 @@ TICKERS_NASDAQ = list(dict.fromkeys([
     "RXRX","BEAM","CRSP","EDIT","NTLA","PACB","ARWR","KYMR","VKTX","NVCR",
     "AMBA","LSCC","SITM","POWI","AOSL","ONTO","ACLS","ICHR","KLIC","MTSI",
     "BROS","SHAK","WING","TXRH","XPOF","FRPT","YETI","BRZE","SMAR","ASAN",
-    "MNDY","GTLB","PCVX","RELY","TASK","ALVO","KTOS","AVAV","HLIT","PRFT",
-    "CWAN","ALKT","RBRK","AEHR","EVTC","RSKD","IDCC","AEIS","NRDS","GFAI",
-]))[:180]
+    "MNDY","PCVX","RELY","TASK","ALVO","KTOS","AVAV","HLIT","PRFT","CWAN",
+    "ALKT","RBRK","AEHR","EVTC","RSKD","IDCC","AEIS","NRDS","GFAI","INTC",
+    "CSCO","PEP","CMCSA","VRSN","SWKS","QRVO","MPWR","ENTG","FORM","UCTT",
+    "CRUS","SLAB","DIOD","AAON","EXPO","PRGS","PCTY","NCNO","JAMF","APPF",
+]))[:200]
 
-TICKERS_SP500 = list(dict.fromkeys([
+TICKERS_SP500_FALLBACK = list(dict.fromkeys([
     "BRK-B","JPM","V","UNH","XOM","JNJ","WMT","MA","PG","HD",
     "CVX","MRK","ABBV","BAC","KO","LLY","TMO","MCD","CRM","ACN",
     "ABT","DHR","NKE","NEE","WFC","PM","T","UPS","MS","RTX",
@@ -61,16 +168,17 @@ TICKERS_SP500 = list(dict.fromkeys([
     "SHW","FCX","ECL","TRV","APD","COF","EW","CARR","IQV","BDX",
     "SPG","GD","NOC","AIG","WELL","CME","MPC","VLO","CCI","CBRE",
     "STZ","YUM","ROP","KEYS","AWK","FIS","LHX","DG","CTVA","TDG",
-    "LOW","INTC","IBM","GE","F","GM","PFE","LIN","PEP","CSCO",
-    "MMM","AFL","ALB","AMP","AMT","AZO","BAX","BEN","BSX","BWA",
-    "CAG","CAH","CE","CF","CHD","CHRW","CINF","CL","CLX","CMA",
-    "CMS","CNP","COO","CPB","CSX","CTLT","D","DAL","DD","DE",
-    "DFS","DGX","DHI","DIS","DLTR","DOV","DRI","DTE","DVA","DVN",
-    "EA","ED","EFX","EIX","EMN","EOG","EQIX","EQR","ES","ESS",
-    "ETN","ETR","EVRG","EXC","EXR","EXPD","EXPE","FDS","FDX","FE",
-    "FFIV","FLT","FMC","FOX","FOXA","FRT","FTV","GIS","GL","GPC",
-    "HIG","HON","HPQ","HSY","HUM","ICE","IFF","IP","IPG","IRM",
-]))[:180]
+    "LOW","IBM","GE","F","GM","PFE","LIN","CSCO","MMM","AFL",
+    "ALB","AMP","AMT","AZO","BAX","BEN","BSX","BWA","CAG","CAH",
+    "CE","CF","CHD","CHRW","CINF","CL","CLX","CMA","CMS","CNP",
+    "COO","CPB","CSX","D","DAL","DD","DE","DFS","DGX","DHI",
+    "DIS","DLTR","DOV","DRI","DTE","DVA","DVN","EA","ED","EFX",
+    "EIX","EMN","EOG","EQIX","EQR","ES","ESS","ETN","ETR","EXC",
+    "EXR","EXPD","EXPE","FDS","FDX","FE","FFIV","FLT","FMC","FRT",
+    "FTV","GIS","GL","GPC","HIG","HON","HPQ","HSY","ICE","IFF",
+    "IP","IPG","IRM","SNA","SWK","SYY","TAP","TFC","TGT","TJX",
+    "TPR","TSCO","TSN","TT","TXT","UDR","UHS","ULTA","UNM","URI",
+]))
 
 TICKERS_KOSPI = list(dict.fromkeys([
     "005930.KS","000660.KS","005380.KS","000270.KS","051910.KS",
@@ -104,30 +212,63 @@ TICKERS_KOSPI = list(dict.fromkeys([
     "006050.KS","006360.KS","006650.KS","007160.KS","007340.KS",
     "008300.KS","008350.KS","008490.KS","009680.KS","009770.KS",
     "010040.KS","010140.KS","010580.KS","010780.KS","011080.KS",
-    "011420.KS","011760.KS","012450.KS","012750.KS","013360.KS",
-    "014680.KS","015760.KS","016380.KS","017040.KS","017180.KS",
-    "018120.KS","019170.KS","020150.KS","021080.KS","022000.KS",
-    "024090.KS","025860.KS","027740.KS","029530.KS","030190.KS",
-    "032560.KS","033530.KS","034730.KS","036570.KS","037560.KS",
-]))[:180]
+    "011420.KS","011760.KS","012750.KS","013360.KS","014680.KS",
+    "016380.KS","017040.KS","017180.KS","018120.KS","019170.KS",
+    "020150.KS","021080.KS","022000.KS","024090.KS","025860.KS",
+    "027740.KS","029530.KS","030190.KS","032560.KS","033530.KS",
+    "036570.KS","037560.KS","038530.KS","039130.KS","041650.KS",
+    "042660.KS","047050.KS","048270.KS","049770.KS","053210.KS",
+    "054210.KS","058430.KS","060980.KS","069620.KS","075580.KS",
+    "078520.KS","082740.KS","091810.KS","100840.KS","138040.KS",
+    "145990.KS","175330.KS","214390.KS","241560.KS","259960.KS",
+]))[:200]
 
 TICKERS_KOSDAQ = list(dict.fromkeys([
-    "247540.KQ","086520.KQ","068760.KQ","091990.KQ",
-    "196170.KQ","096530.KQ","145020.KQ","009420.KQ","048410.KQ",
-    "237690.KQ","088290.KQ","058850.KQ","039200.KQ","031370.KQ",
-    "039030.KQ","357780.KQ","084370.KQ","064760.KQ","095340.KQ",
-    "022100.KQ","058970.KQ","214150.KQ","151910.KQ","042700.KQ",
-    "078070.KQ","036540.KQ","114840.KQ","101490.KQ","126340.KQ",
-    "112610.KQ","140860.KQ","323280.KQ","232140.KQ","065510.KQ",
-    "035900.KQ","041510.KQ","122870.KQ","263750.KQ","293490.KQ",
-    "112040.KQ","036570.KQ","067160.KQ","095660.KQ","066430.KQ",
-    "241560.KQ","179900.KQ","950130.KQ","082270.KQ","091120.KQ",
-    "070300.KQ","086040.KQ","039440.KQ","053160.KQ","191410.KQ",
-    "228760.KQ","251970.KQ","256840.KQ","319400.KQ","298540.KQ",
-    "204840.KQ","036830.KQ","357120.KQ","048910.KQ","060310.KQ",
-]))
+    "247540.KQ","086520.KQ","068760.KQ","091990.KQ","196170.KQ",
+    "096530.KQ","145020.KQ","009420.KQ","048410.KQ","237690.KQ",
+    "088290.KQ","058850.KQ","039200.KQ","031370.KQ","039030.KQ",
+    "357780.KQ","084370.KQ","064760.KQ","095340.KQ","022100.KQ",
+    "058970.KQ","214150.KQ","151910.KQ","042700.KQ","078070.KQ",
+    "036540.KQ","114840.KQ","101490.KQ","126340.KQ","112610.KQ",
+    "140860.KQ","323280.KQ","232140.KQ","065510.KQ","035900.KQ",
+    "041510.KQ","122870.KQ","263750.KQ","293490.KQ","112040.KQ",
+    "036570.KQ","067160.KQ","095660.KQ","066430.KQ","241560.KQ",
+    "179900.KQ","950130.KQ","082270.KQ","091120.KQ","070300.KQ",
+    "086040.KQ","039440.KQ","053160.KQ","191410.KQ","228760.KQ",
+    "251970.KQ","256840.KQ","319400.KQ","298540.KQ","204840.KQ",
+    "036830.KQ","357120.KQ","048910.KQ","060310.KQ","053800.KQ",
+    "067900.KQ","041830.KQ","078130.KQ","033290.KQ","094970.KQ",
+    "058470.KQ","052690.KQ","090460.KQ","092130.KQ","054040.KQ",
+    "089590.KQ","083790.KQ","036200.KQ","067570.KQ","042420.KQ",
+    "054180.KQ","080000.KQ","066970.KQ","058610.KQ","041920.KQ",
+    "048260.KQ","050120.KQ","038500.KQ","053600.KQ","039610.KQ",
+    "053580.KQ","093240.KQ","051160.KQ","089180.KQ","091440.KQ",
+    "078340.KQ","078520.KQ","045970.KQ","060900.KQ","058430.KQ",
+    "083500.KQ","052260.KQ","047310.KQ","099290.KQ","036160.KQ",
+    "058820.KQ","081000.KQ","053210.KQ","045180.KQ","066790.KQ",
+    "053290.KQ","052710.KQ","049520.KQ","048870.KQ","039350.KQ",
+    "067730.KQ","046080.KQ","036000.KQ","052900.KQ","053700.KQ",
+    "058380.KQ","041190.KQ","042080.KQ","048550.KQ","037760.KQ",
+    "063570.KQ","038870.KQ","039840.KQ","048430.KQ","041440.KQ",
+    "050960.KQ","040290.KQ","049080.KQ","036810.KQ","039290.KQ",
+    "052400.KQ","038390.KQ","049830.KQ","052600.KQ","037950.KQ",
+    "041590.KQ","067000.KQ","043370.KQ","049010.KQ","038830.KQ",
+    "054780.KQ","067140.KQ","048310.KQ","036620.KQ","053050.KQ",
+]))[:150]
 
-TICKERS_US = list(dict.fromkeys(TICKERS_NASDAQ + TICKERS_SP500))
+_sp500_cache = []
+
+def get_tickers_sp500():
+    global _sp500_cache
+    if _sp500_cache:
+        return _sp500_cache
+    fresh = get_sp500_tickers()
+    if fresh:
+        _sp500_cache = fresh
+        return _sp500_cache
+    return TICKERS_SP500_FALLBACK
+
+TICKERS_US = list(dict.fromkeys(TICKERS_NASDAQ + TICKERS_SP500_FALLBACK))
 TICKERS_KR = list(dict.fromkeys(TICKERS_KOSPI + TICKERS_KOSDAQ))
 
 KR_NAMES = {
@@ -206,7 +347,7 @@ SECTOR_TO_ETF = {
 }
 
 # ══════════════════════════════════════════════════════════════
-# 점수 계산 함수
+# 점수 계산 함수 (기존 그대로)
 # ══════════════════════════════════════════════════════════════
 
 def score_ema_slope(hist_weekly):
@@ -417,6 +558,7 @@ def fetch_single_stock(ticker, market):
         name=KR_NAMES.get(ticker) or info.get('longName',ticker); sector=info.get('sector') or 'Unknown'
         return {
             "ticker":ticker,"name":name,"sector":sector,"etf":SECTOR_TO_ETF.get(sector,""),
+            "market":market,
             "price":round(current_price,2),"change_pct":round(change_pct,2),
             "classic_score":classic,"growth_score":growth,"modern_score":modern,
             "total_score":total,"recommendation":get_recommendation(total,classic,growth,modern),
@@ -429,7 +571,153 @@ def fetch_single_stock(ticker, market):
     except: return None
 
 # ══════════════════════════════════════════════════════════════
-# 텐배거 스크리너
+# DB 저장 / 조회
+# ══════════════════════════════════════════════════════════════
+
+def save_screening_to_db(results: list):
+    if not results or not DATABASE_URL: return
+    try:
+        conn = get_conn(); cur = conn.cursor()
+        for r in results:
+            cur.execute("""
+                INSERT INTO screening_cache
+                    (ticker,market,name,sector,etf,price,change_pct,
+                     classic_score,growth_score,modern_score,total_score,
+                     recommendation,weight,rsi,roe,peg,
+                     c_ema,c_stoch,c_break,g_roe,g_debt,g_eps,g_peg,g_ma200,g_rsi,
+                     m_anal,m_rs,m_obv,screened_at)
+                VALUES
+                    (%(ticker)s,%(market)s,%(name)s,%(sector)s,%(etf)s,%(price)s,%(change_pct)s,
+                     %(classic_score)s,%(growth_score)s,%(modern_score)s,%(total_score)s,
+                     %(recommendation)s,%(weight)s,%(rsi)s,%(roe)s,%(peg)s,
+                     %(c_ema)s,%(c_stoch)s,%(c_break)s,%(g_roe)s,%(g_debt)s,%(g_eps)s,
+                     %(g_peg)s,%(g_ma200)s,%(g_rsi)s,%(m_anal)s,%(m_rs)s,%(m_obv)s,NOW())
+                ON CONFLICT (ticker, market) DO UPDATE SET
+                    name=EXCLUDED.name, sector=EXCLUDED.sector, etf=EXCLUDED.etf,
+                    price=EXCLUDED.price, change_pct=EXCLUDED.change_pct,
+                    classic_score=EXCLUDED.classic_score, growth_score=EXCLUDED.growth_score,
+                    modern_score=EXCLUDED.modern_score, total_score=EXCLUDED.total_score,
+                    recommendation=EXCLUDED.recommendation, weight=EXCLUDED.weight,
+                    rsi=EXCLUDED.rsi, roe=EXCLUDED.roe, peg=EXCLUDED.peg,
+                    c_ema=EXCLUDED.c_ema, c_stoch=EXCLUDED.c_stoch, c_break=EXCLUDED.c_break,
+                    g_roe=EXCLUDED.g_roe, g_debt=EXCLUDED.g_debt, g_eps=EXCLUDED.g_eps,
+                    g_peg=EXCLUDED.g_peg, g_ma200=EXCLUDED.g_ma200, g_rsi=EXCLUDED.g_rsi,
+                    m_anal=EXCLUDED.m_anal, m_rs=EXCLUDED.m_rs, m_obv=EXCLUDED.m_obv,
+                    screened_at=NOW()
+            """, r)
+        conn.commit(); cur.close(); conn.close()
+        logger.info(f"DB 저장 완료: {len(results)}건 [{results[0]['market']}]")
+    except Exception as e:
+        logger.error(f"DB 저장 오류: {e}")
+
+def load_screening_from_db(market: str):
+    if not DATABASE_URL: return None
+    try:
+        conn = get_conn(); cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        if market in ("nasdaq","sp500","kospi","kosdaq"):
+            cur.execute("SELECT * FROM screening_cache WHERE market=%s ORDER BY total_score DESC", (market,))
+        elif market == "us":
+            cur.execute("SELECT * FROM screening_cache WHERE market IN ('nasdaq','sp500') ORDER BY total_score DESC")
+        elif market == "kr":
+            cur.execute("SELECT * FROM screening_cache WHERE market IN ('kospi','kosdaq') ORDER BY total_score DESC")
+        else:
+            cur.execute("SELECT * FROM screening_cache ORDER BY total_score DESC")
+        rows = cur.fetchall(); cur.close(); conn.close()
+        if not rows: return None
+        results = []
+        for r in rows:
+            d = dict(r)
+            if d.get("screened_at"): d["screened_at"] = d["screened_at"].strftime("%Y-%m-%d %H:%M")
+            results.append(d)
+        return results
+    except Exception as e:
+        logger.error(f"DB 조회 오류: {e}")
+        return None
+
+def save_tenbagger_to_db(results: list):
+    if not results or not DATABASE_URL: return
+    try:
+        conn = get_conn(); cur = conn.cursor()
+        for r in results:
+            cur.execute("""
+                INSERT INTO tenbagger_cache
+                    (ticker,name,sector,market_cap_b,price,change_pct,
+                     lynch_score,oneil_score,minervini_score,total_score,grade,
+                     lynch_detail,oneil_detail,minervini_detail,screened_at)
+                VALUES
+                    (%(ticker)s,%(name)s,%(sector)s,%(market_cap_b)s,%(price)s,%(change_pct)s,
+                     %(lynch_score)s,%(oneil_score)s,%(minervini_score)s,%(total_score)s,%(grade)s,
+                     %(lynch_detail)s,%(oneil_detail)s,%(minervini_detail)s,NOW())
+                ON CONFLICT (ticker) DO UPDATE SET
+                    name=EXCLUDED.name, sector=EXCLUDED.sector, market_cap_b=EXCLUDED.market_cap_b,
+                    price=EXCLUDED.price, change_pct=EXCLUDED.change_pct,
+                    lynch_score=EXCLUDED.lynch_score, oneil_score=EXCLUDED.oneil_score,
+                    minervini_score=EXCLUDED.minervini_score, total_score=EXCLUDED.total_score,
+                    grade=EXCLUDED.grade, lynch_detail=EXCLUDED.lynch_detail,
+                    oneil_detail=EXCLUDED.oneil_detail, minervini_detail=EXCLUDED.minervini_detail,
+                    screened_at=NOW()
+            """, {**r,
+                  "lynch_detail": json.dumps(r.get("lynch_detail",{})),
+                  "oneil_detail": json.dumps(r.get("oneil_detail",{})),
+                  "minervini_detail": json.dumps(r.get("minervini_detail",{}))})
+        conn.commit(); cur.close(); conn.close()
+        logger.info(f"텐배거 DB 저장: {len(results)}건")
+    except Exception as e:
+        logger.error(f"텐배거 DB 저장 오류: {e}")
+
+# ══════════════════════════════════════════════════════════════
+# 새벽 스케줄러 작업
+# ══════════════════════════════════════════════════════════════
+
+def run_full_screening_job():
+    """매일 KST 04:00 전체 스크리닝 → DB 저장"""
+    logger.info("=== MAGU STOCK 새벽 스크리닝 시작 ===")
+    start = datetime.now()
+
+    sp500 = get_sp500_tickers()
+    if sp500:
+        global _sp500_cache
+        _sp500_cache = sp500
+
+    markets = {
+        "nasdaq": TICKERS_NASDAQ,
+        "sp500":  get_tickers_sp500(),
+        "kospi":  TICKERS_KOSPI,
+        "kosdaq": TICKERS_KOSDAQ,
+    }
+
+    for market, tickers in markets.items():
+        logger.info(f"[{market}] {len(tickers)}개 스크리닝 중...")
+        results = []
+        with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
+            futures = {executor.submit(fetch_single_stock, t, market): t for t in tickers}
+            for f in concurrent.futures.as_completed(futures):
+                r = f.result()
+                if r: results.append(r)
+        results.sort(key=lambda x: x['total_score'], reverse=True)
+        results = get_portfolio_weight(results)
+        save_screening_to_db(results)
+        logger.info(f"[{market}] {len(results)}개 완료")
+
+    _run_tenbagger_job()
+    cleanup_old_data()
+    elapsed = int((datetime.now() - start).total_seconds() // 60)
+    logger.info(f"=== 스크리닝 완료: 소요 {elapsed}분 ===")
+
+def _run_tenbagger_job():
+    results = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+        futures = {executor.submit(fetch_tenbagger_stock, t): t for t in TICKERS_TENBAGGER}
+        for f in concurrent.futures.as_completed(futures, timeout=300):
+            try:
+                r = f.result(timeout=20)
+                if r: results.append(r)
+            except: continue
+    results.sort(key=lambda x: x['total_score'], reverse=True)
+    save_tenbagger_to_db(results)
+
+# ══════════════════════════════════════════════════════════════
+# 텐배거 스크리너 (기존 그대로)
 # ══════════════════════════════════════════════════════════════
 
 def score_lynch(info, hist_daily):
@@ -587,204 +875,117 @@ TICKERS_TENBAGGER = list(dict.fromkeys([
 ]))
 
 # ══════════════════════════════════════════════════════════════
-# ★ 유동성 모듈 최종판
-#
-# 점수 구조:
-#   ① Fed 순유동성 (WALCL-RRP-TGA): 40점 [절대수준 25 + 방향성 15]
-#   ② MMF 방향성:                    20점
-#   합계 60점 → 100점 환산
-#
-# "연준 대차대조표(WALCL이 곧 대차대조표)" 질문 답변:
-#   WALCL(연준 총자산)이 곧 대차대조표 규모입니다.
-#   단독 지표로 보는 것보다 RRP, TGA를 뺀 순유동성으로 보는 게
-#   시장에서 실제로 쓰는 정확한 방법입니다 (TradingView 등 검증).
-#
-# 오류 수정 완료:
-#   ✅ WIMFNS 2021년 폐기 → WRMFNS × 2.54 대체
-#   ✅ 데이터 없을 때 None 반환 → 기본 10점 왜곡 방지
-#   ✅ 캐시 폴백 (이전 성공 데이터 재사용)
-#   ✅ TGA 계절성 (4월 세금 등 월별 보정)
-#   ✅ RRP 소진 후 중립 재해석
-#   ✅ 순유동성 통합 지표 적용
+# 유동성 모듈 (기존 그대로)
 # ══════════════════════════════════════════════════════════════
 
 FRED_API_KEY = os.environ.get("FRED_API_KEY", "")
 FRED_BASE    = "https://api.stlouisfed.org/fred/series/observations"
-_liquidity_cache: dict = {}  # 캐시: 마지막 성공 데이터 보존
-
+_liquidity_cache: dict = {}
 
 def fetch_fred(series_id: str, limit: int = 20):
-    """
-    FRED 데이터 수집.
-    성공: [{"date": str, "value": float}, ...] 최신순
-    실패: None (빈 리스트 금지 — 점수 왜곡 방지)
-    """
-    if not FRED_API_KEY:
-        return None
+    if not FRED_API_KEY: return None
     try:
-        params = {
-            "series_id":         series_id,
-            "api_key":           FRED_API_KEY,
-            "file_type":         "json",
-            "sort_order":        "desc",
-            "limit":             limit,
-            "observation_start": (datetime.now()-timedelta(days=400)).strftime("%Y-%m-%d"),
-        }
+        params = {"series_id":series_id,"api_key":FRED_API_KEY,"file_type":"json",
+                  "sort_order":"desc","limit":limit,
+                  "observation_start":(datetime.now()-timedelta(days=400)).strftime("%Y-%m-%d")}
         resp = requests.get(FRED_BASE, params=params, timeout=10)
-        if resp.status_code != 200:
-            return None
-        result = [
-            {"date": obs["date"], "value": float(obs["value"])}
-            for obs in resp.json().get("observations", [])
-            if obs["value"] != "."
-        ]
-        if len(result) >= 2:
-            _liquidity_cache[series_id] = result
+        if resp.status_code != 200: return None
+        result = [{"date":obs["date"],"value":float(obs["value"])}
+                  for obs in resp.json().get("observations",[]) if obs["value"]!="."]
+        if len(result)>=2: _liquidity_cache[series_id]=result
         return result if result else None
-    except:
-        return None
-
+    except: return None
 
 def fetch_fred_cached(series_id: str, limit: int = 20):
-    """FRED 수집 + 실패 시 캐시 폴백. 반환: (data, is_cached)"""
     fresh = fetch_fred(series_id, limit)
-    if fresh is not None:
-        return fresh, False
+    if fresh is not None: return fresh, False
     cached = _liquidity_cache.get(series_id)
     return (cached, True) if cached else (None, False)
 
-
 def _err_ind(label, fred_id, max_score, is_cached):
-    return {
-        "label":label, "fred_id":fred_id,
-        "score":None, "max_score":max_score,
-        "error":True, "is_cached":is_cached,
-        "status":"⚠️ 데이터 수집 실패 — 점수 산정 제외",
-        "value":0, "value_unit":"—",
-        "change_pct":0, "history":[], "context":"",
-    }
+    return {"label":label,"fred_id":fred_id,"score":None,"max_score":max_score,
+            "error":True,"is_cached":is_cached,"status":"⚠️ 데이터 수집 실패 — 점수 산정 제외",
+            "value":0,"value_unit":"—","change_pct":0,"history":[],"context":""}
 
-
-# ── ① Fed 순유동성 (핵심, 40점) ──────────────────────────────
-# 공식: 순유동성 = WALCL - RRP - TGA  (TradingView 등 시장 표준)
-# 역사적 기준:
-#   $6조+: 매우 풍부 (2021 QE 절정)  $5~6조: 풍부
-#   $4~5조: 보통 (2025~26년 현재)    $3~4조: 타이트
-#   $3조 미만: 경색 (2019 레포 위기)
-def score_net_liquidity(walcl_data, rrp_data, tga_data):
-    label = "Fed 순유동성 (WALCL − RRP − TGA)"
-    if walcl_data is None or rrp_data is None or tga_data is None:
-        return {
-            "label":label, "score":None, "max_score":40, "error":True,
-            "status":"⚠️ 데이터 부족 — 순유동성 계산 불가",
-            "value":0, "value_unit":"조 달러",
-            "walcl_t":0, "rrp_t":0, "tga_t":0,
-            "change_t":0, "change_pct":0, "history":[], "context":"",
-        }
-    walcl = walcl_data[0]["value"]/1e6
-    rrp   = rrp_data[0]["value"]/1e6
-    tga   = tga_data[0]["value"]/1e6
-    net   = round(walcl-rrp-tga, 2)
-
-    walcl_4w = (walcl_data[4]["value"] if len(walcl_data)>4 else walcl_data[-1]["value"])/1e6
-    rrp_4w   = (rrp_data[4]["value"]   if len(rrp_data)>4   else rrp_data[-1]["value"])/1e6
-    tga_4w   = (tga_data[4]["value"]   if len(tga_data)>4   else tga_data[-1]["value"])/1e6
-    net_4w   = round(walcl_4w-rrp_4w-tga_4w, 2)
-    change_t = round(net-net_4w, 2)
-    change_pct = round((net-net_4w)/abs(net_4w)*100, 2) if net_4w!=0 else 0
-
-    if net>=6.0:   level_s,level_d = 25,"순유동성 매우 풍부 ($6조+)"
-    elif net>=5.0: level_s,level_d = 20,"순유동성 풍부 ($5~6조)"
-    elif net>=4.0: level_s,level_d = 14,f"순유동성 보통 (${net}조)"
-    elif net>=3.0: level_s,level_d = 8, "순유동성 타이트 ($3~4조)"
-    else:          level_s,level_d = 2, "순유동성 경색 ($3조 미만)"
-
-    if change_t>=0.3:    dir_s,dir_d = 15,f"증가 ({change_t:+.2f}조) — 유동성 공급 가속"
-    elif change_t>=0.1:  dir_s,dir_d = 12,f"소폭 증가 ({change_t:+.2f}조)"
-    elif change_t>=-0.1: dir_s,dir_d = 8, "보합"
-    elif change_t>=-0.3: dir_s,dir_d = 4, f"소폭 감소 ({change_t:+.2f}조)"
-    else:                dir_s,dir_d = 0, f"감소 ({change_t:+.2f}조) — 유동성 회수"
-
-    return {
-        "label":label, "score":level_s+dir_s, "max_score":40, "error":False,
-        "status":f"{level_d} / {dir_d}",
-        "value":net, "value_unit":"조 달러",
-        "walcl_t":round(walcl,2), "rrp_t":round(rrp,3), "tga_t":round(tga,3),
-        "change_t":change_t, "change_pct":change_pct, "history":[],
-        "context":f"WALCL ${walcl:.2f}조 − RRP ${rrp:.3f}조 − TGA ${tga:.3f}조 = ${net}조",
-    }
-
-
-# ── ② MMF 방향성 (보조, 20점) ─────────────────────────────────
-# WRMFNS = 소매 MMF (M2 구성요소, 주간)
-# WIMFNS(기관) 2021.02 공식 폐기 확인 → 소매 × 2.54 전체 추정
-# ICI 2026.03: 전체 $7.86조, 소매 비율 39.4%
 MMF_RETAIL_RATIO = 0.394
 
+def score_net_liquidity(walcl_data, rrp_data, tga_data):
+    label="Fed 순유동성 (WALCL − RRP − TGA)"
+    if walcl_data is None or rrp_data is None or tga_data is None:
+        return {"label":label,"score":None,"max_score":40,"error":True,
+                "status":"⚠️ 데이터 부족 — 순유동성 계산 불가","value":0,"value_unit":"조 달러",
+                "walcl_t":0,"rrp_t":0,"tga_t":0,"change_t":0,"change_pct":0,"history":[],"context":""}
+    walcl=walcl_data[0]["value"]/1e6; rrp=rrp_data[0]["value"]/1e6; tga=tga_data[0]["value"]/1e6
+    net=round(walcl-rrp-tga,2)
+    walcl_4w=(walcl_data[4]["value"] if len(walcl_data)>4 else walcl_data[-1]["value"])/1e6
+    rrp_4w=(rrp_data[4]["value"] if len(rrp_data)>4 else rrp_data[-1]["value"])/1e6
+    tga_4w=(tga_data[4]["value"] if len(tga_data)>4 else tga_data[-1]["value"])/1e6
+    net_4w=round(walcl_4w-rrp_4w-tga_4w,2)
+    change_t=round(net-net_4w,2); change_pct=round((net-net_4w)/abs(net_4w)*100,2) if net_4w!=0 else 0
+    if net>=6.0:   level_s,level_d=25,"순유동성 매우 풍부 ($6조+)"
+    elif net>=5.0: level_s,level_d=20,"순유동성 풍부 ($5~6조)"
+    elif net>=4.0: level_s,level_d=14,f"순유동성 보통 (${net}조)"
+    elif net>=3.0: level_s,level_d=8,"순유동성 타이트 ($3~4조)"
+    else:          level_s,level_d=2,"순유동성 경색 ($3조 미만)"
+    if change_t>=0.3:    dir_s,dir_d=15,f"증가 ({change_t:+.2f}조) — 유동성 공급 가속"
+    elif change_t>=0.1:  dir_s,dir_d=12,f"소폭 증가 ({change_t:+.2f}조)"
+    elif change_t>=-0.1: dir_s,dir_d=8,"보합"
+    elif change_t>=-0.3: dir_s,dir_d=4,f"소폭 감소 ({change_t:+.2f}조)"
+    else:                dir_s,dir_d=0,f"감소 ({change_t:+.2f}조) — 유동성 회수"
+    return {"label":label,"score":level_s+dir_s,"max_score":40,"error":False,
+            "status":f"{level_d} / {dir_d}","value":net,"value_unit":"조 달러",
+            "walcl_t":round(walcl,2),"rrp_t":round(rrp,3),"tga_t":round(tga,3),
+            "change_t":change_t,"change_pct":change_pct,"history":[],
+            "context":f"WALCL ${walcl:.2f}조 − RRP ${rrp:.3f}조 − TGA ${tga:.3f}조 = ${net}조"}
+
 def score_mmf(data, is_cached=False):
-    label,fred_id = "MMF 총잔액 (소매 기반 전체 추정)","WRMFNS"
-    if data is None or len(data)<5:
-        return _err_ind(label, fred_id, 20, is_cached)
+    label,fred_id="MMF 총잔액 (소매 기반 전체 추정)","WRMFNS"
+    if data is None or len(data)<5: return _err_ind(label,fred_id,20,is_cached)
     latest=data[0]["value"]; prev4w=data[4]["value"] if len(data)>4 else data[-1]["value"]
     prev12w=data[12]["value"] if len(data)>12 else data[-1]["value"]
-    total_est_t=round(latest/MMF_RETAIL_RATIO/1000, 2)
-    retail_b=round(latest, 1)
-    change_4w=round((latest-prev4w)/prev4w*100, 2) if prev4w>0 else 0
-    change_12w=round((latest-prev12w)/prev12w*100, 2) if prev12w>0 else 0
-    if change_4w<-1.5:   score,status = 20,"MMF 빠른 감소 — 위험자산으로 자금 이동, 강한 매수 환경"
-    elif change_4w<-0.3: score,status = 16,"MMF 감소 전환 — 위험선호 회복, 매수 우호"
+    total_est_t=round(latest/MMF_RETAIL_RATIO/1000,2); retail_b=round(latest,1)
+    change_4w=round((latest-prev4w)/prev4w*100,2) if prev4w>0 else 0
+    change_12w=round((latest-prev12w)/prev12w*100,2) if prev12w>0 else 0
+    if change_4w<-1.5:   score,status=20,"MMF 빠른 감소 — 위험자산으로 자금 이동, 강한 매수 환경"
+    elif change_4w<-0.3: score,status=16,"MMF 감소 전환 — 위험선호 회복, 매수 우호"
     elif change_4w<=0.5:
-        if change_12w<-0.5:   score,status = 13,"MMF 보합 (중장기 감소 추세) — 완만한 위험선호 회복"
-        elif change_12w>1.0:  score,status = 6, "MMF 보합이나 중장기 증가 추세 — 위험회피 지속"
-        else:                 score,status = 10,"MMF 보합 — 대기 자금 유지, 중립"
-    elif change_4w<=2.0: score,status = 5,"MMF 증가 — 안전자산 선호, 위험회피 강화"
-    else:                score,status = 2,"MMF 급증 — 강한 위험회피, 공포 자금 대피 중"
-    return {
-        "label":label, "fred_id":fred_id, "score":score, "max_score":20,
-        "error":False, "is_cached":is_cached, "status":status,
-        "value":total_est_t, "value_unit":"조 달러 (추정)", "value_retail":retail_b,
-        "change_pct":change_4w,
-        "history":[{"date":d["date"],"value":round(d["value"]/MMF_RETAIL_RATIO/1000,2)} for d in data[:8]],
-        "context":(f"소매 실측: ${retail_b:.0f}B / 전체 추정: ~${total_est_t}조 "
-                   f"(ICI 기준 ~$7.86조) / 12주 추세: {change_12w:+.1f}%"),
-        "note":"기관 MMF(WIMFNS) 2021년 폐기 → 소매 기반 추정. 방향성 신호 기준.",
-    }
+        if change_12w<-0.5:   score,status=13,"MMF 보합 (중장기 감소 추세) — 완만한 위험선호 회복"
+        elif change_12w>1.0:  score,status=6,"MMF 보합이나 중장기 증가 추세 — 위험회피 지속"
+        else:                 score,status=10,"MMF 보합 — 대기 자금 유지, 중립"
+    elif change_4w<=2.0: score,status=5,"MMF 증가 — 안전자산 선호, 위험회피 강화"
+    else:                score,status=2,"MMF 급증 — 강한 위험회피, 공포 자금 대피 중"
+    return {"label":label,"fred_id":fred_id,"score":score,"max_score":20,
+            "error":False,"is_cached":is_cached,"status":status,
+            "value":total_est_t,"value_unit":"조 달러 (추정)","value_retail":retail_b,
+            "change_pct":change_4w,
+            "history":[{"date":d["date"],"value":round(d["value"]/MMF_RETAIL_RATIO/1000,2)} for d in data[:8]],
+            "context":(f"소매 실측: ${retail_b:.0f}B / 전체 추정: ~${total_est_t}조 / 12주 추세: {change_12w:+.1f}%"),
+            "note":"기관 MMF(WIMFNS) 2021년 폐기 → 소매 기반 추정. 방향성 신호 기준."}
 
-
-# ── ③~⑤ 세부 표시 전용 지표 (점수 없음) ──────────────────────
-TGA_SEASONAL_ADJ = {
-    1:-100, 2:-50,  3:0,    4:250, 5:100,
-    6:0,    7:-50,  8:-50,  9:100, 10:0,
-    11:-50, 12:-100,
-}
+TGA_SEASONAL_ADJ={1:-100,2:-50,3:0,4:250,5:100,6:0,7:-50,8:-50,9:100,10:0,11:-50,12:-100}
 
 def detail_walcl(data, is_cached=False):
-    label,fred_id = "연준 총자산 (WALCL)","WALCL"
-    if data is None or len(data)<5:
-        return _err_ind(label, fred_id, 0, is_cached)
+    label,fred_id="연준 총자산 (WALCL)","WALCL"
+    if data is None or len(data)<5: return _err_ind(label,fred_id,0,is_cached)
     latest=data[0]["value"]; prev4w=data[4]["value"] if len(data)>4 else data[-1]["value"]
     prev12w=data[12]["value"] if len(data)>12 else data[-1]["value"]
     chg4w=round((latest-prev4w)/prev4w*100,3) if prev4w else 0
     chg12w=round((latest-prev12w)/prev12w*100,3) if prev12w else 0
     mon_b=round((latest-prev4w)/1000,1); total_t=round(latest/1e6,2)
-    if chg4w>0.3:      st="QE — 연준 자산 증가, 유동성 공급"
-    elif chg4w>0:      st="소폭 증가 — 유동성 유지 (QT 종료 후 정상)"
-    elif mon_b>=-25:   st="완만한 감소 (월 $250억↓) — 시장 충격 제한적"
-    elif mon_b>=-60:   st="중간 QT (월 $250~600억) — 유동성 점진적 감소"
-    else:              st="강한 QT (월 $600억+) — 유동성 급속 회수"
-    return {
-        "label":label, "fred_id":fred_id, "score":None, "max_score":0,
-        "error":False, "is_cached":is_cached, "status":st,
-        "value":total_t, "value_unit":"조 달러", "change_pct":chg4w,
-        "monthly_change_b":mon_b,
-        "history":[{"date":d["date"],"value":round(d["value"]/1e6,2)} for d in data[:8]],
-        "context":f"4주: {chg4w:+.3f}% / 12주: {chg12w:+.3f}% / 월 변화: ${mon_b:+.0f}B",
-    }
+    if chg4w>0.3:    st="QE — 연준 자산 증가, 유동성 공급"
+    elif chg4w>0:    st="소폭 증가 — 유동성 유지 (QT 종료 후 정상)"
+    elif mon_b>=-25: st="완만한 감소 (월 $250억↓) — 시장 충격 제한적"
+    elif mon_b>=-60: st="중간 QT (월 $250~600억) — 유동성 점진적 감소"
+    else:            st="강한 QT (월 $600억+) — 유동성 급속 회수"
+    return {"label":label,"fred_id":fred_id,"score":None,"max_score":0,
+            "error":False,"is_cached":is_cached,"status":st,
+            "value":total_t,"value_unit":"조 달러","change_pct":chg4w,"monthly_change_b":mon_b,
+            "history":[{"date":d["date"],"value":round(d["value"]/1e6,2)} for d in data[:8]],
+            "context":f"4주: {chg4w:+.3f}% / 12주: {chg12w:+.3f}% / 월 변화: ${mon_b:+.0f}B"}
 
 def detail_rrp(data, is_cached=False):
-    label,fred_id = "역레포(RRP) 잔액","RRPONTSYD"
-    if data is None or len(data)<2:
-        return _err_ind(label, fred_id, 0, is_cached)
+    label,fred_id="역레포(RRP) 잔액","RRPONTSYD"
+    if data is None or len(data)<2: return _err_ind(label,fred_id,0,is_cached)
     latest=data[0]["value"]; prev4w=data[4]["value"] if len(data)>4 else data[-1]["value"]
     latest_b=round(latest/1000,1); chg_pct=round((latest-prev4w)/prev4w*100,2) if prev4w>0 else 0
     rising=latest>prev4w; depl=round((1-latest_b/2500)*100,1)
@@ -792,18 +993,15 @@ def detail_rrp(data, is_cached=False):
     elif latest_b>100: st="소진 진행 중 → 유입 지속" if not rising else "소진 단계에서 재증가 → 주의"
     elif latest_b>10:  st="거의 소진 — 추가 공급 여력 없음 (중립)"
     else:              st="소진 후 재증가 → 유동성 재흡수 경계" if rising else "완전 소진 — 지급준비금에 의존"
-    return {
-        "label":label, "fred_id":fred_id, "score":None, "max_score":0,
-        "error":False, "is_cached":is_cached, "status":st,
-        "value":latest_b, "value_unit":"십억 달러", "change_pct":chg_pct,
-        "history":[{"date":d["date"],"value":round(d["value"]/1000,1)} for d in data[:8]],
-        "context":f"피크($2.5조) 대비 {depl}% 소진 / 4주 변화: {chg_pct:+.1f}%",
-    }
+    return {"label":label,"fred_id":fred_id,"score":None,"max_score":0,
+            "error":False,"is_cached":is_cached,"status":st,
+            "value":latest_b,"value_unit":"십억 달러","change_pct":chg_pct,
+            "history":[{"date":d["date"],"value":round(d["value"]/1000,1)} for d in data[:8]],
+            "context":f"피크($2.5조) 대비 {depl}% 소진 / 4주 변화: {chg_pct:+.1f}%"}
 
 def detail_tga(data, is_cached=False):
-    label,fred_id = "TGA(재무부 계정) 잔액","WTREGEN"
-    if data is None or len(data)<2:
-        return _err_ind(label, fred_id, 0, is_cached)
+    label,fred_id="TGA(재무부 계정) 잔액","WTREGEN"
+    if data is None or len(data)<2: return _err_ind(label,fred_id,0,is_cached)
     latest=data[0]["value"]; prev4w=data[4]["value"] if len(data)>4 else data[-1]["value"]
     latest_b=round(latest/1000,1); chg_pct=round((latest-prev4w)/prev4w*100,2) if prev4w>0 else 0
     chg_b=round((latest-prev4w)/1000,1)
@@ -816,50 +1014,40 @@ def detail_tga(data, is_cached=False):
     else:            lv="🚨 위험 구간 ($1조+) — 심각한 유동성 압박"
     gap=800-latest_b
     ctx=f"$800B 임계점 ${abs(gap):.0f}B {'여유' if gap>0 else '초과 ⚠️'}"
-    return {
-        "label":label, "fred_id":fred_id, "score":None, "max_score":0,
-        "error":False, "is_cached":is_cached,
-        "status":f"{lv} / 4주 변화 {chg_b:+.0f}B{sadj_note}",
-        "value":latest_b, "value_unit":"십억 달러", "change_pct":chg_pct,
-        "seasonal_adj":sadj, "effective_b":eff_b,
-        "history":[{"date":d["date"],"value":round(d["value"]/1000,1)} for d in data[:8]],
-        "context":ctx,
-    }
+    return {"label":label,"fred_id":fred_id,"score":None,"max_score":0,
+            "error":False,"is_cached":is_cached,
+            "status":f"{lv} / 4주 변화 {chg_b:+.0f}B{sadj_note}",
+            "value":latest_b,"value_unit":"십억 달러","change_pct":chg_pct,
+            "seasonal_adj":sadj,"effective_b":eff_b,
+            "history":[{"date":d["date"],"value":round(d["value"]/1000,1)} for d in data[:8]],
+            "context":ctx}
 
-
-# ── 5단계 판정 ─────────────────────────────────────────────────
 def get_liquidity_signal(total_score: int) -> dict:
     if total_score>=75:
-        return {"stage":1,"signal":"적극매수","emoji":"🟢",
-                "color":"#15803d","bg_color":"#dcfce7","border_color":"#86efac",
+        return {"stage":1,"signal":"적극매수","emoji":"🟢","color":"#15803d","bg_color":"#dcfce7","border_color":"#86efac",
                 "description":"순유동성이 풍부하고 MMF 자금이 위험자산으로 이동 중입니다.",
                 "action":"스크리닝 신호를 적극 반영하세요. 마구스코어 65점+ 종목 분할 매수 고려.",
                 "step2_guide":"✅ 스크리닝 신호 적극 반영 — 분할 매수 진입 권장"}
     elif total_score>=55:
-        return {"stage":2,"signal":"매수우호","emoji":"🔵",
-                "color":"#1d4ed8","bg_color":"#dbeafe","border_color":"#93c5fd",
+        return {"stage":2,"signal":"매수우호","emoji":"🔵","color":"#1d4ed8","bg_color":"#dbeafe","border_color":"#93c5fd",
                 "description":"순유동성이 양호합니다. 시장 환경이 매수에 우호적입니다.",
                 "action":"스크리닝 결과를 참고하여 선별적으로 매수하세요.",
                 "step2_guide":"✅ 스크리닝 신호 참고 — 마구스코어 70점+ 종목 위주 선별 매수"}
     elif total_score>=38:
-        return {"stage":3,"signal":"중립관망","emoji":"🟡",
-                "color":"#b45309","bg_color":"#fef9c3","border_color":"#fde68a",
+        return {"stage":3,"signal":"중립관망","emoji":"🟡","color":"#b45309","bg_color":"#fef9c3","border_color":"#fde68a",
                 "description":"순유동성 방향이 불확실합니다. 긍정/부정 신호가 혼재합니다.",
                 "action":"신규 매수 자제. 기존 포지션 유지하며 방향 확인 후 판단하세요.",
                 "step2_guide":"⚠️ 스크리닝 참고만 — 신규 매수 자제, 기존 보유 종목 유지"}
     elif total_score>=20:
-        return {"stage":4,"signal":"매수축소","emoji":"🟠",
-                "color":"#c2410c","bg_color":"#ffedd5","border_color":"#fdba74",
+        return {"stage":4,"signal":"매수축소","emoji":"🟠","color":"#c2410c","bg_color":"#ffedd5","border_color":"#fdba74",
                 "description":"순유동성이 감소하고 있습니다. 위험 관리가 필요합니다.",
                 "action":"신규 매수 중단. 보유 종목 비중 축소 및 손절 기준 점검하세요.",
                 "step2_guide":"🚫 스크리닝 결과 무시 — 포지션 축소, 현금 비중 확대"}
     else:
-        return {"stage":5,"signal":"현금보유","emoji":"🔴",
-                "color":"#991b1b","bg_color":"#fee2e2","border_color":"#fca5a5",
+        return {"stage":5,"signal":"현금보유","emoji":"🔴","color":"#991b1b","bg_color":"#fee2e2","border_color":"#fca5a5",
                 "description":"순유동성이 심각하게 경색되어 있습니다.",
                 "action":"전량 현금 보유 권고. 스크리닝 결과와 무관하게 매수 금지.",
                 "step2_guide":"🔴 스크리닝 결과 무시 — 전량 현금 보유, 매수 금지"}
-
 
 # ══════════════════════════════════════════════════════════════
 # API 엔드포인트
@@ -867,13 +1055,13 @@ def get_liquidity_signal(total_score: int) -> dict:
 
 @app.get("/")
 def root():
-    return {"status": "MAGU STOCK API 실행 중"}
+    return {"status":"MAGU STOCK API 실행 중","version":"2.0"}
 
 @app.get("/api/market")
 def get_market_data():
     try:
-        tickers = {"gold":"GC=F","wti":"CL=F","usdkrw":"KRW=X","us10y":"^TNX",
-                   "vix":"^VIX","sp500":"^GSPC","nasdaq":"^IXIC","dow":"^DJI","russell":"^RUT"}
+        tickers={"gold":"GC=F","wti":"CL=F","usdkrw":"KRW=X","us10y":"^TNX",
+                 "vix":"^VIX","sp500":"^GSPC","nasdaq":"^IXIC","dow":"^DJI","russell":"^RUT"}
         result={}
         for key,symbol in tickers.items():
             try:
@@ -885,12 +1073,24 @@ def get_market_data():
         return result
     except: return {}
 
+def _market_label(market):
+    return {"nasdaq":"나스닥","sp500":"S&P500","kospi":"코스피","kosdaq":"코스닥","us":"미국 전체","kr":"한국 전체"}.get(market,market)
+
+def _currency(market):
+    return "KRW" if market in ("kospi","kosdaq","kr") else "USD"
+
 @app.get("/api/screen/{market}")
 def screen_stocks(market: str = "nasdaq"):
-    market_map = {"nasdaq":TICKERS_NASDAQ,"sp500":TICKERS_SP500,
-                  "kospi":TICKERS_KOSPI,"kosdaq":TICKERS_KOSDAQ,"us":TICKERS_US,"kr":TICKERS_KR}
+    """DB 캐시 우선 → 없으면 실시간 계산 (기존 방식)"""
+    cached = load_screening_from_db(market)
+    if cached:
+        updated_at = cached[0].get("screened_at","–") if cached else "–"
+        return {"market":market,"market_label":_market_label(market),"currency":_currency(market),
+                "updated_at":updated_at,"total_screened":len(cached),"results":cached,"from_cache":True}
+
+    market_map={"nasdaq":TICKERS_NASDAQ,"sp500":get_tickers_sp500(),
+                "kospi":TICKERS_KOSPI,"kosdaq":TICKERS_KOSDAQ,"us":TICKERS_US,"kr":TICKERS_KR}
     tickers=market_map.get(market,TICKERS_NASDAQ)
-    currency="KRW" if market in ("kospi","kosdaq","kr") else "USD"
     results=[]
     with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
         futures={executor.submit(fetch_single_stock,t,market):t for t in tickers}
@@ -899,9 +1099,25 @@ def screen_stocks(market: str = "nasdaq"):
             if r: results.append(r)
     results.sort(key=lambda x:x['total_score'],reverse=True)
     results=get_portfolio_weight(results)
-    labels={"nasdaq":"나스닥","sp500":"S&P500","kospi":"코스피","kosdaq":"코스닥","us":"미국 전체","kr":"한국 전체"}
-    return {"market":market,"market_label":labels.get(market,market),"currency":currency,
-            "updated_at":datetime.now().strftime("%Y-%m-%d %H:%M"),"total_screened":len(results),"results":results}
+    return {"market":market,"market_label":_market_label(market),"currency":_currency(market),
+            "updated_at":datetime.now().strftime("%Y-%m-%d %H:%M"),
+            "total_screened":len(results),"results":results,"from_cache":False}
+
+@app.post("/api/screen/run")
+def trigger_screening(background_tasks: BackgroundTasks):
+    """수동으로 전체 스크리닝 즉시 실행 (백그라운드)"""
+    background_tasks.add_task(run_full_screening_job)
+    return {"message":"스크리닝 시작됨. 나스닥200+S&P500+코스피200+코스닥150 약 10~15분 소요. /api/screen/status 로 확인하세요."}
+
+@app.get("/api/screen/status")
+def screening_status():
+    if not DATABASE_URL: return {"error":"DATABASE_URL 없음"}
+    try:
+        conn=get_conn(); cur=conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("SELECT market, COUNT(*) as cnt, MAX(screened_at) as last_run FROM screening_cache GROUP BY market ORDER BY market")
+        rows=cur.fetchall(); cur.close(); conn.close()
+        return {"status":[dict(r) for r in rows]}
+    except Exception as e: return {"error":str(e)}
 
 @app.get("/api/stock/{ticker}")
 def get_stock_score(ticker: str):
@@ -930,20 +1146,18 @@ def get_stock_score(ticker: str):
         if len(hist_daily)>=252:
             year_return=round((hist_daily['Close'].iloc[-1]/hist_daily['Close'].iloc[-252]-1)*100,1)
         name=KR_NAMES.get(ticker) or info.get('longName') or ticker
-        return {
-            "ticker":ticker,"name":name,"sector":info.get('sector') or '—',
-            "currency":info.get('currency','USD'),"price":round(current_price,2),
-            "change_pct":round(change_pct,2),"classic_score":classic,
-            "growth_score":growth,"modern_score":modern,"total_score":total,
-            "recommendation":get_recommendation(total,classic,growth,modern),
-            "detail":{"roe":round((info.get('returnOnEquity') or 0)*100,1),
-                      "debt_equity":round(info.get('debtToEquity') or 0,1),
-                      "eps_growth":round((info.get('earningsGrowth') or 0)*100,1),
-                      "peg":round(info.get('pegRatio') or 0,2),
-                      "rsi":rsi_val,"year_return":year_return,
-                      "analyst_rec":info.get('recommendationKey') or '—',
-                      "market_cap":info.get('marketCap') or 0}
-        }
+        return {"ticker":ticker,"name":name,"sector":info.get('sector') or '—',
+                "currency":info.get('currency','USD'),"price":round(current_price,2),
+                "change_pct":round(change_pct,2),"classic_score":classic,
+                "growth_score":growth,"modern_score":modern,"total_score":total,
+                "recommendation":get_recommendation(total,classic,growth,modern),
+                "detail":{"roe":round((info.get('returnOnEquity') or 0)*100,1),
+                          "debt_equity":round(info.get('debtToEquity') or 0,1),
+                          "eps_growth":round((info.get('earningsGrowth') or 0)*100,1),
+                          "peg":round(info.get('pegRatio') or 0,2),
+                          "rsi":rsi_val,"year_return":year_return,
+                          "analyst_rec":info.get('recommendationKey') or '—',
+                          "market_cap":info.get('marketCap') or 0}}
     except Exception as e: return {"error":f"조회 실패: {str(e)}"}
 
 def analyze_etf(etf_info: dict):
@@ -1020,6 +1234,21 @@ def get_smart_money():
 
 @app.get("/api/tenbagger")
 def get_tenbagger():
+    if DATABASE_URL:
+        try:
+            conn=get_conn(); cur=conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            cur.execute("SELECT * FROM tenbagger_cache ORDER BY total_score DESC")
+            rows=cur.fetchall(); cur.close(); conn.close()
+            if rows:
+                results=[]
+                for r in rows:
+                    d=dict(r)
+                    if d.get("screened_at"): d["screened_at"]=d["screened_at"].strftime("%Y-%m-%d %H:%M")
+                    results.append(d)
+                return {"updated_at":results[0].get("screened_at","–"),
+                        "total":len(results),"universe":f"나스닥 중소형 성장주 {len(TICKERS_TENBAGGER)}개",
+                        "results":results,"from_cache":True}
+        except: pass
     results=[]
     with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
         futures={executor.submit(fetch_tenbagger_stock,t):t for t in TICKERS_TENBAGGER}
@@ -1031,68 +1260,50 @@ def get_tenbagger():
     results.sort(key=lambda x:x['total_score'],reverse=True)
     return {"updated_at":datetime.now().strftime("%Y-%m-%d %H:%M"),
             "total":len(results),"universe":f"나스닥 중소형 성장주 {len(TICKERS_TENBAGGER)}개",
-            "results":results}
+            "results":results,"from_cache":False}
 
 @app.get("/api/liquidity")
 def get_liquidity():
-    """
-    유동성 종합 판단 API 최종판
-    점수: 순유동성 40점 + MMF 20점 = 60점 → 100점 환산
-    세부 지표(WALCL/RRP/TGA)는 UI 표시 전용 (개별 점수 없음)
-    """
     if not FRED_API_KEY:
         return {"error":"FRED_API_KEY 환경변수가 설정되지 않았습니다.",
                 "guide":"https://fred.stlouisfed.org/docs/api/api_key.html 에서 무료 발급 후 Railway 환경변수에 추가하세요.",
                 "updated_at":datetime.now().strftime("%Y-%m-%d %H:%M")}
-
-    series_map = {"walcl":"WALCL","rrp":"RRPONTSYD","tga":"WTREGEN","mmf":"WRMFNS"}
-    raw,is_cache = {},{}
+    series_map={"walcl":"WALCL","rrp":"RRPONTSYD","tga":"WTREGEN","mmf":"WRMFNS"}
+    raw,is_cache={},{}
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
         futures={executor.submit(fetch_fred_cached,sid,20):key for key,sid in series_map.items()}
         for f in concurrent.futures.as_completed(futures):
             key=futures[f]; data,cached=f.result()
             raw[key]=data; is_cache[key]=cached
-
-    net_liq = score_net_liquidity(raw.get("walcl"),raw.get("rrp"),raw.get("tga"))
-    mmf     = score_mmf(raw.get("mmf"),is_cache.get("mmf",False))
-    walcl_d = detail_walcl(raw.get("walcl"),is_cache.get("walcl",False))
-    rrp_d   = detail_rrp(raw.get("rrp"),is_cache.get("rrp",False))
-    tga_d   = detail_tga(raw.get("tga"),is_cache.get("tga",False))
-
+    net_liq=score_net_liquidity(raw.get("walcl"),raw.get("rrp"),raw.get("tga"))
+    mmf=score_mmf(raw.get("mmf"),is_cache.get("mmf",False))
+    walcl_d=detail_walcl(raw.get("walcl"),is_cache.get("walcl",False))
+    rrp_d=detail_rrp(raw.get("rrp"),is_cache.get("rrp",False))
+    tga_d=detail_tga(raw.get("tga"),is_cache.get("tga",False))
     scored=[i for i in [net_liq,mmf] if i.get("score") is not None]
     if not scored:
         return {"error":"모든 지표 데이터 수집 실패. FRED API 키 및 네트워크를 확인하세요.",
                 "updated_at":datetime.now().strftime("%Y-%m-%d %H:%M")}
-
-    raw_score=sum(i["score"] for i in scored)
-    raw_max=sum(i["max_score"] for i in scored)
+    raw_score=sum(i["score"] for i in scored); raw_max=sum(i["max_score"] for i in scored)
     total_score=round(raw_score/raw_max*100) if raw_max>0 else 0
     signal=get_liquidity_signal(total_score)
-
     for ind in [net_liq,mmf,walcl_d,rrp_d,tga_d]:
         if ind.get("score") is None and ind.get("error"):
             ind["score"]="N/A"; ind["status"]="⚠️ 데이터 없음"
-
     cached_list=[k.upper() for k,v in is_cache.items() if v]
     data_note=(f"⚠️ 캐시 데이터 사용 중: {', '.join(cached_list)}" if cached_list else "✅ 전체 지표 실시간 데이터")
-
-    return {
-        "updated_at":datetime.now().strftime("%Y-%m-%d %H:%M"),
-        "total_score":total_score,"max_score":100,"signal":signal,
-        "net_liquidity":net_liq,"mmf":mmf,
-        "indicators":[walcl_d,rrp_d,tga_d],
-        "data_quality":data_note,
-        "version":"최종판 — 순유동성(WALCL-RRP-TGA) + MMF",
-        "scoring_structure":{"순유동성 (40점)":"WALCL-RRP-TGA / 절대수준 25 + 방향성 15",
-                             "MMF (20점)":"소매 WRMFNS×2.54 추정 / 방향성 기준","합계":"60점 → 100점 환산"},
-        "sources":["TradingView: Fed Net Liquidity = WALCL-RRP-TGA",
-                   "뉴욕 연준 / BlackRock / Cleveland Fed 공식 문헌 2025",
-                   "ICI MMF 공식 데이터 (2026.03 $7.86조)",
-                   "Babypips: TGA $800B 임계점","McClellan Financial: RRP 소진 분석"],
-        "scoring_guide":{"75~100":"🟢 적극매수","55~74":"🔵 매수우호",
-                         "38~54":"🟡 중립관망","20~37":"🟠 매수축소","0~19":"🔴 현금보유"},
-    }
-
+    return {"updated_at":datetime.now().strftime("%Y-%m-%d %H:%M"),
+            "total_score":total_score,"max_score":100,"signal":signal,
+            "net_liquidity":net_liq,"mmf":mmf,"indicators":[walcl_d,rrp_d,tga_d],
+            "data_quality":data_note,"version":"최종판 — 순유동성(WALCL-RRP-TGA) + MMF",
+            "scoring_structure":{"순유동성 (40점)":"WALCL-RRP-TGA / 절대수준 25 + 방향성 15",
+                                 "MMF (20점)":"소매 WRMFNS×2.54 추정 / 방향성 기준","합계":"60점 → 100점 환산"},
+            "sources":["TradingView: Fed Net Liquidity = WALCL-RRP-TGA",
+                       "뉴욕 연준 / BlackRock / Cleveland Fed 공식 문헌 2025",
+                       "ICI MMF 공식 데이터 (2026.03 $7.86조)",
+                       "Babypips: TGA $800B 임계점","McClellan Financial: RRP 소진 분석"],
+            "scoring_guide":{"75~100":"🟢 적극매수","55~74":"🔵 매수우호",
+                             "38~54":"🟡 중립관망","20~37":"🟠 매수축소","0~19":"🔴 현금보유"}}
 
 def score_at_date(hist_daily, hist_weekly, info, cutoff_idx):
     d=hist_daily.iloc[:cutoff_idx]
@@ -1129,14 +1340,14 @@ def backtest_single(ticker, hold_days, score_threshold):
                 "return_pct":float(ret),"sp500_ret":float(sp_ret),
                 "classic_score":int(classic),"growth_score":int(growth),
                 "modern_score":int(total-classic-growth),"total_score":int(total),
-                "recommendation":get_recommendation(total,classic,growth,modern),
+                "recommendation":get_recommendation(total,classic,growth,0),
                 "win":bool(ret>0),
             })
         return signals
     except: return []
 
 @app.get("/api/backtest")
-def run_backtest(market: str = "us", hold_days: int = 30, score_threshold: int = 55):
+def run_backtest(market: str="us", hold_days: int=30, score_threshold: int=55):
     tickers=TICKERS_US[:50] if market=="us" else TICKERS_KR_BT
     all_signals=[]
     with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
@@ -1163,11 +1374,39 @@ def run_backtest(market: str = "us", hold_days: int = 30, score_threshold: int =
     modern_wins=[s for s in all_signals if s["modern_score"]>=20 and s["win"]]
     best_model=max([("Classic",len(classic_wins)),("Growth",len(growth_wins)),("Modern",len(modern_wins))],key=lambda x:x[1])[0]
     all_signals.sort(key=lambda x:x["return_pct"],reverse=True)
-    return {
-        "summary":{"total_signals":total,"win_rate":win_rate,"avg_return":avg_ret,
-                   "avg_sp500":avg_sp,"alpha":alpha,"hold_days":hold_days,
-                   "score_threshold":score_threshold,"best_model":best_model},
-        "band_stats":band_stats,
-        "period_returns":[{"days":d,"magu":avg_ret,"sp500":avg_sp} for d in [10,20,30,45,60,90]],
-        "signals":all_signals[:100],
-    }
+    return {"summary":{"total_signals":total,"win_rate":win_rate,"avg_return":avg_ret,
+                       "avg_sp500":avg_sp,"alpha":alpha,"hold_days":hold_days,
+                       "score_threshold":score_threshold,"best_model":best_model},
+            "band_stats":band_stats,
+            "period_returns":[{"days":d,"magu":avg_ret,"sp500":avg_sp} for d in [10,20,30,45,60,90]],
+            "signals":all_signals[:100]}
+
+# ══════════════════════════════════════════════════════════════
+# APScheduler — 매일 KST 04:00 자동 실행
+# ══════════════════════════════════════════════════════════════
+
+scheduler = BackgroundScheduler(timezone=pytz.utc)
+scheduler.add_job(
+    run_full_screening_job,
+    CronTrigger(hour=19, minute=0, timezone=pytz.utc),  # UTC 19:00 = KST 04:00
+    id="daily_screening",
+    replace_existing=True,
+    misfire_grace_time=3600
+)
+
+@app.on_event("startup")
+def on_startup():
+    if DATABASE_URL:
+        try:
+            init_db()
+            logger.info("DB 연결 및 초기화 완료")
+        except Exception as e:
+            logger.error(f"DB 초기화 실패: {e}")
+    else:
+        logger.warning("DATABASE_URL 없음 — 실시간 계산 모드로 동작")
+    scheduler.start()
+    logger.info("APScheduler 시작 — 매일 KST 04:00 전체 스크리닝 예약됨")
+
+@app.on_event("shutdown")
+def on_shutdown():
+    scheduler.shutdown()
