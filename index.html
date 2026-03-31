@@ -368,36 +368,42 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
     <div id="modern-page-content"><div class="empty" style="background:#fff;border-radius:12px;border:1px solid var(--border);padding:44px;">먼저 종합 현황에서 스크리닝을 실행해주세요</div></div>
   </div>
 
-  <!-- ───────── 백테스트 ───────── -->
+  <!-- ───────── 백테스트 (베스트픽 실적 추적) ───────── -->
   <div id="page-backtest" style="display:none;">
     <div class="topbar">
-      <div><div class="page-title">🧪 백테스트</div><div class="update-row">과거 신호 기준으로 실제 수익률을 검증합니다</div></div>
+      <div>
+        <div class="page-title">📌 베스트픽 트래커</div>
+        <div class="update-row">스크리닝 결과에서 매일 5종목을 선정하고 실제 수익률을 추적합니다</div>
+      </div>
       <div class="topbar-right">
-        <select id="bt-market" class="bt-select"><option value="us">🇺🇸 미국</option><option value="kr">🇰🇷 한국</option></select>
-        <select id="bt-hold" class="bt-select">
-          <option value="14">보유 기간: 14일</option><option value="30" selected>보유 기간: 30일</option>
-          <option value="60">보유 기간: 60일</option><option value="90">보유 기간: 90일</option>
+        <select id="bp-market" class="bt-select">
+          <option value="nasdaq">🇺🇸 나스닥</option>
+          <option value="sp500">🇺🇸 S&amp;P500</option>
         </select>
-        <select id="bt-score" class="bt-select">
-          <option value="40">최소 점수: 40점+</option><option value="55" selected>최소 점수: 55점+</option><option value="60">최소 점수: 60점+</option><option value="70">최소 점수: 70점+</option>
-        </select>
-        <button class="run-btn" id="bt-run-btn" onclick="runBacktest()">▶ 백테스트 실행</button>
+        <button class="run-btn" id="bp-save-btn" onclick="saveBestpick()">📌 오늘 베스트픽 기록</button>
+        <button class="run-btn" style="background:#6366f1;" onclick="loadBestpickHistory()">🔄 이력 새로고침</button>
       </div>
     </div>
-    <div class="bt-summary-grid">
-      <div class="bt-stat-card"><div class="bt-stat-label">📊 분석 종목 수</div><div class="bt-stat-val" id="bt-total">—</div></div>
-      <div class="bt-stat-card"><div class="bt-stat-label">🏆 승률</div><div class="bt-stat-val" id="bt-winrate">—</div></div>
-      <div class="bt-stat-card"><div class="bt-stat-label">📈 평균 수익률</div><div class="bt-stat-val" id="bt-avg">—</div></div>
-      <div class="bt-stat-card"><div class="bt-stat-label">🚀 최고 수익</div><div class="bt-stat-val up" id="bt-best">—</div></div>
-      <div class="bt-stat-card"><div class="bt-stat-label">📉 최저 수익</div><div class="bt-stat-val" id="bt-worst">—</div></div>
+
+    <!-- 전체 통계 -->
+    <div class="bt-summary-grid" id="bp-stats-grid">
+      <div class="bt-stat-card"><div class="bt-stat-label">📊 총 기록 수</div><div class="bt-stat-val" id="bp-total">—</div></div>
+      <div class="bt-stat-card"><div class="bt-stat-label">📈 평균 수익률</div><div class="bt-stat-val" id="bp-avg-ret">—</div></div>
+      <div class="bt-stat-card"><div class="bt-stat-label">🏆 승률</div><div class="bt-stat-val" id="bp-winrate">—</div></div>
+      <div class="bt-stat-card"><div class="bt-stat-label">📅 추적 기간</div><div class="bt-stat-val" id="bp-period">—</div></div>
     </div>
+
+    <!-- 안내 박스 -->
+    <div class="inv-note" style="margin-bottom:14px;">
+      💡 <b>사용법:</b> ① 스크리닝 탭에서 나스닥 스크리닝 실행 → ② 이 탭에서 <b>오늘 베스트픽 기록</b> 클릭 → ③ 매일 자동으로 수익률이 업데이트됩니다.<br>
+      같은 종목이 다음날 다시 선정되면 <b>연속선정 횟수</b>만 증가합니다 (중복 기록 없음). 데이터는 6개월간 보관됩니다.
+    </div>
+
+    <!-- 이력 테이블 -->
     <div class="card">
-      <div class="section-title">백테스트 결과 <span class="section-right" id="bt-updated"></span></div>
-      <div class="table-wrap">
-        <table class="stbl">
-          <thead><tr><th>종목</th><th>매수일</th><th>매도일</th><th>매수가</th><th>매도가</th><th>수익률</th><th>매수 시 점수</th><th>클래식</th><th>성장</th><th>모던</th><th>결과</th></tr></thead>
-          <tbody id="bt-table"><tr><td colspan="11" class="empty">▶ 백테스트 실행 버튼을 눌러주세요</td></tr></tbody>
-        </table>
+      <div class="section-title">베스트픽 이력 <span class="section-right" id="bp-updated"></span></div>
+      <div id="bp-history-wrap">
+        <div style="text-align:center;padding:40px;color:var(--sub);">🔄 이력 새로고침 버튼을 눌러주세요</div>
       </div>
     </div>
   </div>
@@ -836,48 +842,94 @@ function updateInvestWeight(data) {
   document.getElementById('fear-sub').textContent=`매수 신호 종목 ${buyCount}개 / 전체 ${total}개 기준`;
 }
 
-async function runBacktest() {
-  const btn=document.getElementById('bt-run-btn');
-  const market=document.getElementById('bt-market').value;
-  const holdDays=document.getElementById('bt-hold').value;
-  const minScore=document.getElementById('bt-score').value;
-  btn.disabled=true; btn.textContent='⏳ 분석 중...';
-  document.getElementById('bt-table').innerHTML=`<tr><td colspan="11"><div class="loading"><div class="spinner"></div>과거 데이터 분석 중... (30초~1분 소요)</div></td></tr>`;
-  ['bt-total','bt-winrate','bt-avg','bt-best','bt-worst'].forEach(id=>{document.getElementById(id).textContent='...';});
+async function saveBestpick() {
+  const btn = document.getElementById('bp-save-btn');
+  const market = document.getElementById('bp-market').value;
+  btn.disabled = true; btn.textContent = '⏳ 저장 중...';
   try {
-    const res=await fetch(`${API}/api/backtest?market=${market}&hold_days=${holdDays}&score_threshold=${minScore}`);
-    if(!res.ok) throw new Error('HTTP '+res.status);
-    const data=await res.json();
-    const s=data.summary;
-    document.getElementById('bt-total').textContent=s.total_signals+'개';
-    document.getElementById('bt-winrate').textContent=s.win_rate+'%';
-    const avgEl=document.getElementById('bt-avg');
-    avgEl.textContent=(s.avg_return>=0?'+':'')+s.avg_return+'%';
-    avgEl.className='bt-stat-val '+(s.avg_return>=0?'up':'dn');
-    const signals=data.signals||[];
-    const rets=signals.map(r=>r.return_pct);
-    const best=rets.length?Math.max(...rets):0;
-    const worst=rets.length?Math.min(...rets):0;
-    document.getElementById('bt-best').textContent=(best>=0?'+':'')+best+'%';
-    document.getElementById('bt-worst').textContent=worst+'%';
-    document.getElementById('bt-worst').className='bt-stat-val '+(worst>=0?'up':'dn');
-    document.getElementById('bt-updated').textContent='알파: '+s.alpha+'% / 최고 모델: '+s.best_model;
-    if(!signals.length){document.getElementById('bt-table').innerHTML=`<tr><td colspan="11" class="empty">해당 조건의 신호가 없습니다.</td></tr>`;}
-    else {
-      document.getElementById('bt-table').innerHTML=signals.map(r=>{
-        const retClass=r.return_pct>=0?'up':'dn';
-        const retSign=r.return_pct>=0?'▲':'▼';
-        const winBadge=r.win?'<span class="badge badge-sb">수익</span>':'<span class="badge badge-w" style="background:#fee2e2;color:#991b1b;">손실</span>';
-        return `<tr><td><div class="tname">${r.ticker}</div></td><td style="font-size:12px;color:var(--sub);">${r.signal_date}</td><td style="font-size:12px;color:var(--sub);">${r.sell_date||'—'}</td><td style="font-weight:600;">$${r.entry_price.toLocaleString()}</td><td style="font-weight:600;">$${r.exit_price.toLocaleString()}</td><td style="font-weight:800;" class="${retClass}">${retSign}${Math.abs(r.return_pct)}%</td>
-        <td><div style="display:flex;align-items:center;gap:6px;"><div style="width:60px;height:5px;background:#f1f5f9;border-radius:3px;overflow:hidden;"><div style="height:100%;background:linear-gradient(to right,#3b82f6,#06b6d4);width:${r.total_score}%;"></div></div><span style="font-weight:700;color:#1d4ed8;">${r.total_score}</span></div></td>
-        <td style="color:#3b82f6;font-weight:600;">${r.classic_score}</td><td style="color:#22c55e;font-weight:600;">${r.growth_score}</td><td style="color:#8b5cf6;font-weight:600;">${r.total_score-r.classic_score-r.growth_score}</td><td>${winBadge}</td></tr>`;
-      }).join('');
+    const res = await fetch(`${API}/api/bestpick/save?market=${market}`, {method:'POST'});
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    if (data.error) {
+      alert('❌ ' + data.error); return;
     }
+    const saved = data.saved || 0;
+    const skipped = data.skipped || 0;
+    const picks = data.picks || [];
+    let msg = `✅ 저장 완료!\n신규: ${saved}종목 / 중복 스킵: ${skipped}종목\n\n오늘의 베스트픽:\n`;
+    picks.forEach((p,i) => { msg += `${i+1}. ${p.name||p.ticker} (${p.sector||'—'}) — ${p.total_score}점\n`; });
+    alert(msg);
+    loadBestpickHistory();
   } catch(e) {
-    document.getElementById('bt-table').innerHTML=`<tr><td colspan="11" class="empty">❌ 서버 연결 실패</td></tr>`;
-    ['bt-total','bt-winrate','bt-avg','bt-best','bt-worst'].forEach(id=>{document.getElementById(id).textContent='—';});
+    alert('❌ 서버 연결 실패: ' + e.message);
   }
-  btn.disabled=false; btn.innerHTML='▶ 백테스트 실행';
+  btn.disabled = false; btn.textContent = '📌 오늘 베스트픽 기록';
+}
+
+async function loadBestpickHistory() {
+  document.getElementById('bp-history-wrap').innerHTML = '<div style="text-align:center;padding:30px;color:var(--sub);"><div class="spinner" style="margin:0 auto 8px;"></div>이력 불러오는 중...</div>';
+  try {
+    const res = await fetch(`${API}/api/bestpick/history`);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    if (data.error) {
+      document.getElementById('bp-history-wrap').innerHTML = `<div style="padding:20px;color:var(--red);">❌ ${data.error}</div>`;
+      return;
+    }
+
+    // 통계 업데이트
+    document.getElementById('bp-total').textContent = (data.total_records || 0) + '건';
+    const avgEl = document.getElementById('bp-avg-ret');
+    const avg = data.overall_avg_return;
+    avgEl.textContent = avg !== null && avg !== undefined ? (avg >= 0 ? '+' : '') + avg + '%' : '—';
+    avgEl.className = 'bt-stat-val ' + (avg >= 0 ? 'up' : 'dn');
+    document.getElementById('bp-winrate').textContent = data.overall_win_rate !== null ? data.overall_win_rate + '%' : '—';
+    const history = data.history || [];
+    document.getElementById('bp-period').textContent = history.length + '일치';
+    document.getElementById('bp-updated').textContent = data.updated_at || '';
+
+    if (!history.length) {
+      document.getElementById('bp-history-wrap').innerHTML = '<div style="text-align:center;padding:40px;color:var(--sub);">아직 기록된 베스트픽이 없습니다.<br>스크리닝 후 <b>오늘 베스트픽 기록</b>을 눌러주세요.</div>';
+      return;
+    }
+
+    let html = '';
+    history.forEach(day => {
+      const avgR = day.avg_return_latest;
+      const avgStr = avgR !== null && avgR !== undefined ? (avgR >= 0 ? '+' : '') + avgR + '%' : '추적중';
+      const avgClass = avgR >= 0 ? 'up' : (avgR < 0 ? 'dn' : '');
+      html += `<div style="margin-bottom:18px;">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;padding-bottom:6px;border-bottom:2px solid var(--border);">
+          <span style="font-size:14px;font-weight:800;color:var(--text);">📅 ${day.date}</span>
+          <span style="font-size:12px;color:var(--sub);">${day.count}종목</span>
+          <span style="font-size:13px;font-weight:700;" class="${avgClass}">현재 평균 ${avgStr}</span>
+        </div>
+        <div class="table-wrap"><table class="stbl">
+          <thead><tr>
+            <th>종목</th><th>섹터</th><th>점수</th><th>매수가</th>
+            <th>+1일</th><th>+7일</th><th>+30일</th><th>현재</th><th>연속선정</th>
+          </tr></thead><tbody>`;
+      day.picks.forEach(p => {
+        const fmt = (v) => v !== null && v !== undefined ? `<span class="${v>=0?'up':'dn'}">${v>=0?'+':''}${v}%</span>` : '<span style="color:var(--sub)">추적중</span>';
+        const consec = p.consecutive_count > 1 ? `<span style="background:#fef9c3;color:#854d0e;padding:2px 7px;border-radius:4px;font-size:11px;font-weight:700;">🔥 ${p.consecutive_count}일 연속</span>` : '—';
+        html += `<tr>
+          <td><div class="tname">${p.name||p.ticker}</div><div style="font-size:11px;color:var(--sub);">${p.ticker}</div></td>
+          <td style="font-size:12px;">${p.sector||'—'}</td>
+          <td><span style="font-weight:700;color:#1d4ed8;">${p.total_score}점</span></td>
+          <td style="font-weight:600;">$${(p.entry_price||0).toLocaleString()}</td>
+          <td>${fmt(p.return_1d)}</td>
+          <td>${fmt(p.return_7d)}</td>
+          <td>${fmt(p.return_30d)}</td>
+          <td>${fmt(p.return_latest)}</td>
+          <td>${consec}</td>
+        </tr>`;
+      });
+      html += `</tbody></table></div></div>`;
+    });
+    document.getElementById('bp-history-wrap').innerHTML = html;
+  } catch(e) {
+    document.getElementById('bp-history-wrap').innerHTML = `<div style="padding:20px;color:var(--red);">❌ 서버 연결 실패: ${e.message}</div>`;
+  }
 }
 
 async function searchStock() {
