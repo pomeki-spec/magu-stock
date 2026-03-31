@@ -104,6 +104,35 @@ def init_db():
             minervini_detail JSONB,
             screened_at      TIMESTAMP DEFAULT NOW()
         );
+
+        CREATE TABLE IF NOT EXISTS bestpick_records (
+            id                SERIAL PRIMARY KEY,
+            ticker            TEXT NOT NULL,
+            name              TEXT,
+            sector            TEXT,
+            entry_price       FLOAT NOT NULL,
+            total_score       INT,
+            classic_score     INT,
+            growth_score      INT,
+            modern_score      INT,
+            recommendation    TEXT,
+            consecutive_count INT DEFAULT 1,
+            picked_at         DATE NOT NULL DEFAULT CURRENT_DATE,
+            UNIQUE (ticker, picked_at)
+        );
+        CREATE INDEX IF NOT EXISTS idx_bp_picked_at ON bestpick_records(picked_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_bp_ticker    ON bestpick_records(ticker);
+
+        CREATE TABLE IF NOT EXISTS bestpick_prices (
+            id         SERIAL PRIMARY KEY,
+            record_id  INT NOT NULL REFERENCES bestpick_records(id) ON DELETE CASCADE,
+            ticker     TEXT NOT NULL,
+            price_date DATE NOT NULL,
+            price      FLOAT NOT NULL,
+            return_pct FLOAT,
+            UNIQUE (record_id, price_date)
+        );
+        CREATE INDEX IF NOT EXISTS idx_bpp_record ON bestpick_prices(record_id);
     """)
     conn.commit()
     cur.close()
@@ -115,7 +144,9 @@ def cleanup_old_data():
         conn = get_conn(); cur = conn.cursor()
         cur.execute("DELETE FROM screening_cache WHERE screened_at < NOW() - INTERVAL '30 days'")
         cur.execute("DELETE FROM tenbagger_cache WHERE screened_at < NOW() - INTERVAL '30 days'")
+        cur.execute("DELETE FROM bestpick_records WHERE picked_at < CURRENT_DATE - INTERVAL '180 days'")
         conn.commit(); cur.close(); conn.close()
+        logger.info("cleanup 완료")
     except Exception as e:
         logger.error(f"cleanup 오류: {e}")
 
@@ -1305,99 +1336,236 @@ def get_liquidity():
             "scoring_guide":{"75~100":"🟢 적극매수","55~74":"🔵 매수우호",
                              "38~54":"🟡 중립관망","20~37":"🟠 매수축소","0~19":"🔴 현금보유"}}
 
-def score_at_date(hist_daily, hist_weekly, info, cutoff_idx):
-    """과거 특정 시점 기준 점수 계산 — 기술적 지표만 사용 (재무 info는 현재값이라 제외)"""
-    d=hist_daily.iloc[:cutoff_idx]
-    w=hist_weekly[hist_weekly.index<=hist_daily.index[cutoff_idx-1]]
-    if len(d)<20: return None
-    # Classic: 순수 기술적 지표 (과거 재현 가능)
-    classic=calculate_classic_score(info,w,d)
-    # Growth: MA200, RSI만 사용 (과거 재현 가능한 것만)
-    growth=score_ma200(d)+score_rsi(d)
-    # Modern: RS, OBV만 사용 (애널리스트 의견은 과거값 없음)
-    modern=score_relative_strength(d)+score_obv_momentum(d)
-    return int(classic),int(growth),int(classic+growth+modern)
+# ══════════════════════════════════════════════════════════════
+# 베스트픽 백테스트 — 실제 추적 방식
+# ══════════════════════════════════════════════════════════════
 
-def backtest_single(ticker, hold_days, score_threshold):
+def select_bestpick_5(screening_results: list) -> list:
+    """총점 상위 + 섹터 분산: 섹터별 최고점 1개씩, 부족하면 총점 순으로 채움"""
+    candidates = [r for r in screening_results if r.get("recommendation") in ("Strong Buy", "Buy")]
+    if not candidates:
+        candidates = sorted(screening_results, key=lambda x: x["total_score"], reverse=True)
+
+    # 섹터별 최고점 1개씩 선택
+    seen_sectors = {}
+    for r in sorted(candidates, key=lambda x: x["total_score"], reverse=True):
+        sector = r.get("sector") or "Unknown"
+        if sector not in seen_sectors:
+            seen_sectors[sector] = r
+        if len(seen_sectors) >= 5:
+            break
+
+    picks = list(seen_sectors.values())
+
+    # 5개 미만이면 이미 선택된 종목 제외하고 총점 순으로 채움
+    if len(picks) < 5:
+        picked_tickers = {p["ticker"] for p in picks}
+        for r in sorted(candidates, key=lambda x: x["total_score"], reverse=True):
+            if r["ticker"] not in picked_tickers:
+                picks.append(r)
+                picked_tickers.add(r["ticker"])
+            if len(picks) >= 5:
+                break
+
+    return picks[:5]
+
+
+def save_bestpick_to_db(picks: list) -> dict:
+    """베스트픽 5종목을 DB에 저장. 중복 종목은 consecutive_count만 증가."""
+    if not picks or not DATABASE_URL:
+        return {"saved": 0, "skipped": 0, "error": "DB 없음"}
+    today = datetime.now(pytz.timezone("Asia/Seoul")).date()
+    saved = 0; skipped = 0
     try:
-        stock=yf.Ticker(ticker); info=stock.info
-        hist=stock.history(period="2y"); histw=stock.history(period="3y",interval="1wk")
-        if hist.empty or len(hist)<60:
-            logger.debug(f"[백테스트] {ticker} 데이터 부족 ({len(hist)}일)")
-            return []
-        # timezone 정규화
-        hist.index=hist.index.tz_localize(None) if hist.index.tzinfo else hist.index
-        histw.index=histw.index.tz_localize(None) if histw.index.tzinfo else histw.index
-        sp500=yf.Ticker("^GSPC").history(period="2y")
-        sp500.index=sp500.index.tz_localize(None) if sp500.index.tzinfo else sp500.index
-        signals=[]; step=20
-        for i in range(60,len(hist)-hold_days,step):
-            result=score_at_date(hist,histw,info,i)
-            if result is None: continue
-            classic,growth,total=result
-            if total<score_threshold: continue
-            entry_price=float(hist['Close'].iloc[i]); exit_price=float(hist['Close'].iloc[i+hold_days])
-            ret=round((exit_price/entry_price-1)*100,2)
-            entry_date=hist.index[i]; exit_date=hist.index[i+hold_days]
-            sp_slice=sp500[(sp500.index>=entry_date)&(sp500.index<=exit_date)]
-            sp_ret=0.0
-            if len(sp_slice)>=2: sp_ret=round(float((sp_slice['Close'].iloc[-1]/sp_slice['Close'].iloc[0]-1)*100),2)
-            name=KR_NAMES.get(ticker, info.get('longName', ticker))
-            signals.append({
-                "ticker":name,"signal_date":entry_date.strftime("%Y.%m.%d"),
-                "sell_date":exit_date.strftime("%Y.%m.%d"),
-                "entry_price":round(entry_price,2),"exit_price":round(exit_price,2),
-                "return_pct":float(ret),"sp500_ret":float(sp_ret),
-                "classic_score":int(classic),"growth_score":int(growth),
-                "modern_score":int(total-classic-growth),"total_score":int(total),
-                "recommendation":get_recommendation(total,classic,growth,0),
-                "win":bool(ret>0),
-            })
-        logger.info(f"[백테스트] {ticker}: {len(signals)}개 신호")
-        return signals
-    except Exception as e:
-        logger.warning(f"[백테스트] {ticker} 오류: {e}")
-        return []
+        conn = get_conn(); cur = conn.cursor()
+        for p in picks:
+            ticker = p["ticker"]
+            # 오늘 이미 기록됐는지 확인
+            cur.execute("SELECT id FROM bestpick_records WHERE ticker=%s AND picked_at=%s", (ticker, today))
+            if cur.fetchone():
+                skipped += 1
+                continue
+            # 연속 선정 횟수 계산 (어제 기록이 있으면 +1)
+            cur.execute("""
+                SELECT consecutive_count FROM bestpick_records
+                WHERE ticker=%s AND picked_at = %s - INTERVAL '1 day'
+            """, (ticker, today))
+            row = cur.fetchone()
+            consecutive = (row[0] + 1) if row else 1
 
-@app.get("/api/backtest")
-def run_backtest(market: str="us", hold_days: int=30, score_threshold: int=40):
-    tickers=TICKERS_US[:50] if market=="us" else TICKERS_KR_BT
-    all_signals=[]
-    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-        futures={executor.submit(backtest_single,t,hold_days,score_threshold):t for t in tickers}
-        for f in concurrent.futures.as_completed(futures,timeout=180):
+            cur.execute("""
+                INSERT INTO bestpick_records
+                    (ticker, name, sector, entry_price, total_score,
+                     classic_score, growth_score, modern_score,
+                     recommendation, consecutive_count, picked_at)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                RETURNING id
+            """, (
+                ticker, p.get("name", ticker), p.get("sector", "Unknown"),
+                p.get("price", 0), p.get("total_score", 0),
+                p.get("classic_score", 0), p.get("growth_score", 0),
+                p.get("modern_score", 0), p.get("recommendation", ""),
+                consecutive, today
+            ))
+            record_id = cur.fetchone()[0]
+            # 매수 당일 가격도 bestpick_prices에 기록
+            cur.execute("""
+                INSERT INTO bestpick_prices (record_id, ticker, price_date, price, return_pct)
+                VALUES (%s,%s,%s,%s,%s)
+                ON CONFLICT DO NOTHING
+            """, (record_id, ticker, today, p.get("price", 0), 0.0))
+            saved += 1
+        conn.commit(); cur.close(); conn.close()
+        logger.info(f"베스트픽 저장: {saved}개 신규, {skipped}개 중복 스킵")
+        return {"saved": saved, "skipped": skipped}
+    except Exception as e:
+        logger.error(f"베스트픽 저장 오류: {e}")
+        return {"saved": 0, "skipped": 0, "error": str(e)}
+
+
+def update_bestpick_prices_job():
+    """매일 장 마감 후 보유 중인 베스트픽 종목들의 현재가 업데이트"""
+    if not DATABASE_URL: return
+    try:
+        conn = get_conn(); cur = conn.cursor()
+        # 아직 6개월 이내 기록된 모든 레코드의 ticker + entry_price 조회
+        cur.execute("""
+            SELECT id, ticker, entry_price FROM bestpick_records
+            WHERE picked_at >= CURRENT_DATE - INTERVAL '180 days'
+        """)
+        records = cur.fetchall()
+        if not records:
+            cur.close(); conn.close(); return
+
+        today = datetime.now(pytz.timezone("Asia/Seoul")).date()
+        tickers = list({r[1] for r in records})
+
+        # yfinance로 현재가 일괄 조회
+        prices = {}
+        for ticker in tickers:
             try:
-                all_signals.extend(f.result(timeout=30))
-            except Exception as e:
-                logger.warning(f"[백테스트] future 오류: {e}")
-    if not all_signals:
-        return {"summary":{"total_signals":0,"win_rate":0.0,"avg_return":0.0,"avg_sp500":0.0,
-                           "alpha":0.0,"hold_days":hold_days,"score_threshold":score_threshold,"best_model":"—"},
-                "band_stats":[],"period_returns":[],"signals":[],
-                "error":f"신호 없음 (시장:{market}, 보유:{hold_days}일, 최소점수:{score_threshold})"}
-    total=len(all_signals); wins=sum(1 for s in all_signals if s["win"])
-    win_rate=round(wins/total*100,1)
-    avg_ret=round(sum(s["return_pct"] for s in all_signals)/total,2)
-    avg_sp=round(sum(s["sp500_ret"] for s in all_signals)/total,2)
-    alpha=round(avg_ret-avg_sp,2)
-    bands=[{"label":"70점 이상","min":70,"max":100},{"label":"65~69점","min":65,"max":69},
-           {"label":"55~64점","min":55,"max":64},{"label":"40~54점","min":40,"max":54}]
-    band_stats=[]
-    for b in bands:
-        filtered=[s for s in all_signals if b["min"]<=s["total_score"]<=b["max"]]
-        wr=round(sum(1 for s in filtered if s["win"])/len(filtered)*100,1) if filtered else 0.0
-        band_stats.append({"label":b["label"],"win_rate":wr,"count":len(filtered)})
-    classic_wins=[s for s in all_signals if s["classic_score"]>=15 and s["win"]]
-    growth_wins=[s for s in all_signals if s["growth_score"]>=10 and s["win"]]
-    modern_wins=[s for s in all_signals if s["modern_score"]>=10 and s["win"]]
-    best_model=max([("Classic",len(classic_wins)),("Growth",len(growth_wins)),("Modern",len(modern_wins))],key=lambda x:x[1])[0]
-    all_signals.sort(key=lambda x:x["return_pct"],reverse=True)
-    return {"summary":{"total_signals":total,"win_rate":win_rate,"avg_return":avg_ret,
-                       "avg_sp500":avg_sp,"alpha":alpha,"hold_days":hold_days,
-                       "score_threshold":score_threshold,"best_model":best_model},
-            "band_stats":band_stats,
-            "period_returns":[{"days":d,"magu":avg_ret,"sp500":avg_sp} for d in [10,20,30,45,60,90]],
-            "signals":all_signals[:100]}
+                hist = yf.Ticker(ticker).history(period="2d")
+                if not hist.empty:
+                    prices[ticker] = float(hist["Close"].iloc[-1])
+            except: pass
+
+        for record_id, ticker, entry_price in records:
+            current = prices.get(ticker)
+            if current is None: continue
+            ret = round((current / entry_price - 1) * 100, 2) if entry_price else 0
+            cur.execute("""
+                INSERT INTO bestpick_prices (record_id, ticker, price_date, price, return_pct)
+                VALUES (%s,%s,%s,%s,%s)
+                ON CONFLICT (record_id, price_date) DO UPDATE SET price=EXCLUDED.price, return_pct=EXCLUDED.return_pct
+            """, (record_id, ticker, today, current, ret))
+
+        conn.commit(); cur.close(); conn.close()
+        logger.info(f"베스트픽 가격 업데이트 완료: {len(records)}건")
+    except Exception as e:
+        logger.error(f"베스트픽 가격 업데이트 오류: {e}")
+
+
+@app.post("/api/bestpick/save")
+def save_bestpick(market: str = "nasdaq"):
+    """스크리닝 결과에서 베스트픽 5종목을 즉시 선정 후 DB 저장"""
+    cached = load_screening_from_db(market)
+    if not cached:
+        return {"error": "스크리닝 결과가 없습니다. 먼저 스크리닝을 실행하세요."}
+    picks = select_bestpick_5(cached)
+    result = save_bestpick_to_db(picks)
+    return {
+        "picks": [{"ticker": p["ticker"], "name": p.get("name"), "sector": p.get("sector"),
+                   "total_score": p.get("total_score"), "price": p.get("price"),
+                   "recommendation": p.get("recommendation")} for p in picks],
+        **result
+    }
+
+
+@app.get("/api/bestpick/history")
+def get_bestpick_history():
+    """베스트픽 전체 이력 + 현재까지 수익률 추적"""
+    if not DATABASE_URL:
+        return {"error": "DATABASE_URL 없음"}
+    try:
+        conn = get_conn(); cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("""
+            SELECT
+                r.id, r.ticker, r.name, r.sector,
+                r.entry_price, r.total_score, r.classic_score, r.growth_score, r.modern_score,
+                r.recommendation, r.consecutive_count,
+                r.picked_at::text AS picked_at,
+                -- 다음날 (T+1)
+                p1.price        AS price_1d,
+                p1.return_pct   AS return_1d,
+                -- 일주일 뒤 (T+5 거래일 ≈ 7일)
+                p7.price        AS price_7d,
+                p7.return_pct   AS return_7d,
+                -- 한달 뒤 (T+21 거래일 ≈ 30일)
+                p30.price       AS price_30d,
+                p30.return_pct  AS return_30d,
+                -- 최신 가격
+                pl.price        AS price_latest,
+                pl.return_pct   AS return_latest,
+                pl.price_date::text AS latest_date
+            FROM bestpick_records r
+            LEFT JOIN bestpick_prices p1
+                ON p1.record_id = r.id
+                AND p1.price_date = r.picked_at + INTERVAL '1 day'
+            LEFT JOIN bestpick_prices p7
+                ON p7.record_id = r.id
+                AND p7.price_date = r.picked_at + INTERVAL '7 days'
+            LEFT JOIN bestpick_prices p30
+                ON p30.record_id = r.id
+                AND p30.price_date = r.picked_at + INTERVAL '30 days'
+            LEFT JOIN LATERAL (
+                SELECT price, return_pct, price_date
+                FROM bestpick_prices
+                WHERE record_id = r.id
+                ORDER BY price_date DESC LIMIT 1
+            ) pl ON TRUE
+            WHERE r.picked_at >= CURRENT_DATE - INTERVAL '180 days'
+            ORDER BY r.picked_at DESC, r.total_score DESC
+        """)
+        rows = [dict(r) for r in cur.fetchall()]
+
+        # 날짜별 그룹핑
+        from collections import defaultdict
+        grouped = defaultdict(list)
+        for row in rows:
+            grouped[row["picked_at"]].append(row)
+
+        # 날짜별 평균 수익률 계산
+        summary_by_date = []
+        for date, items in sorted(grouped.items(), reverse=True):
+            avg_latest = None
+            valid = [i["return_latest"] for i in items if i["return_latest"] is not None]
+            if valid:
+                avg_latest = round(sum(valid) / len(valid), 2)
+            summary_by_date.append({
+                "date": date,
+                "count": len(items),
+                "avg_return_latest": avg_latest,
+                "picks": items
+            })
+
+        # 전체 통계
+        all_returns = [r["return_latest"] for r in rows if r["return_latest"] is not None]
+        overall_avg = round(sum(all_returns) / len(all_returns), 2) if all_returns else None
+        win_count = sum(1 for r in all_returns if r > 0)
+        win_rate = round(win_count / len(all_returns) * 100, 1) if all_returns else None
+
+        cur.close(); conn.close()
+        return {
+            "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+            "total_records": len(rows),
+            "overall_avg_return": overall_avg,
+            "overall_win_rate": win_rate,
+            "history": summary_by_date
+        }
+    except Exception as e:
+        logger.error(f"베스트픽 이력 조회 오류: {e}")
+        return {"error": str(e)}
+
 
 # ══════════════════════════════════════════════════════════════
 # APScheduler — 매일 KST 04:00 자동 실행
@@ -1408,6 +1576,14 @@ scheduler.add_job(
     run_full_screening_job,
     CronTrigger(hour=19, minute=0, timezone=pytz.utc),  # UTC 19:00 = KST 04:00
     id="daily_screening",
+    replace_existing=True,
+    misfire_grace_time=3600
+)
+# 매일 KST 08:00 (UTC 23:00) — 전날 장 마감 후 베스트픽 가격 업데이트
+scheduler.add_job(
+    update_bestpick_prices_job,
+    CronTrigger(hour=23, minute=0, timezone=pytz.utc),
+    id="daily_bestpick_price",
     replace_existing=True,
     misfire_grace_time=3600
 )
