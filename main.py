@@ -6,6 +6,8 @@ import ta
 import pandas as pd
 from datetime import datetime, timedelta
 import concurrent.futures
+import os
+import requests
 
 app = FastAPI()
 
@@ -28,7 +30,6 @@ app.add_middleware(
 # 종목 풀 — 4개 시장 완전 독립
 # ══════════════════════════════════════════════════════════════
 
-# ── 나스닥 180개 (기술·성장 중심) ──
 TICKERS_NASDAQ = list(dict.fromkeys([
     "AAPL","MSFT","NVDA","AMZN","META","GOOGL","TSLA","AVGO","COST","NFLX",
     "TMUS","AMD","ADBE","TXN","QCOM","INTU","AMAT","AMGN","ISRG","MU",
@@ -50,7 +51,6 @@ TICKERS_NASDAQ = list(dict.fromkeys([
     "CWAN","ALKT","RBRK","AEHR","EVTC","RSKD","IDCC","AEIS","NRDS","GFAI",
 ]))[:180]
 
-# ── S&P500 180개 (가치·배당·전통 대형주) ──
 TICKERS_SP500 = list(dict.fromkeys([
     "BRK-B","JPM","V","UNH","XOM","JNJ","WMT","MA","PG","HD",
     "CVX","MRK","ABBV","BAC","KO","LLY","TMO","MCD","CRM","ACN",
@@ -72,7 +72,6 @@ TICKERS_SP500 = list(dict.fromkeys([
     "HIG","HON","HPQ","HSY","HUM","ICE","IFF","IP","IPG","IRM",
 ]))[:180]
 
-# ── 코스피 180개 ──
 TICKERS_KOSPI = list(dict.fromkeys([
     "005930.KS","000660.KS","005380.KS","000270.KS","051910.KS",
     "006400.KS","035420.KS","035720.KS","028260.KS","105560.KS",
@@ -112,32 +111,23 @@ TICKERS_KOSPI = list(dict.fromkeys([
     "032560.KS","033530.KS","034730.KS","036570.KS","037560.KS",
 ]))[:180]
 
-# ── 코스닥 — yfinance 실제 작동 검증 종목 ──
 TICKERS_KOSDAQ = list(dict.fromkeys([
-    # 에코프로 계열
     "247540.KQ","086520.KQ",
-    # 셀트리온 계열
     "068760.KQ","091990.KQ",
-    # 바이오·제약
     "196170.KQ","096530.KQ","145020.KQ","009420.KQ","048410.KQ",
     "237690.KQ","088290.KQ","058850.KQ","039200.KQ","031370.KQ",
-    # 반도체·IT 소재
     "039030.KQ","357780.KQ","084370.KQ","064760.KQ","095340.KQ",
     "022100.KQ","058970.KQ","214150.KQ","151910.KQ","042700.KQ",
     "078070.KQ","036540.KQ","114840.KQ","101490.KQ","126340.KQ",
     "112610.KQ","140860.KQ","323280.KQ","232140.KQ","065510.KQ",
-    # 엔터·게임·미디어
     "035900.KQ","041510.KQ","122870.KQ","263750.KQ","293490.KQ",
     "112040.KQ","036570.KQ","067160.KQ","095660.KQ","066430.KQ",
-    # 기타 성장주
     "241560.KQ","179900.KQ","950130.KQ","082270.KQ","091120.KQ",
     "070300.KQ","086040.KQ","039440.KQ","053160.KQ","191410.KQ",
     "228760.KQ","251970.KQ","256840.KQ","319400.KQ","298540.KQ",
     "204840.KQ","036830.KQ","357120.KQ","048910.KQ","060310.KQ",
 ]))
 
-
-# ── 하위 호환용 (백테스트 등 기존 코드) ──
 TICKERS_US = list(dict.fromkeys(TICKERS_NASDAQ + TICKERS_SP500))
 TICKERS_KR = list(dict.fromkeys(TICKERS_KOSPI + TICKERS_KOSDAQ))
 
@@ -217,19 +207,10 @@ SECTOR_TO_ETF = {
 }
 
 # ══════════════════════════════════════════════════════════════
-# 점수 계산 함수 — 실전 투자 기준
+# 점수 계산 함수
 # ══════════════════════════════════════════════════════════════
 
-# ──────────────────────────────────────────────────────
-# CLASSIC 모델 (30점) — 알렉산더 엘더 3중 스크린
-# 원칙: 주봉 추세(조류) → 일봉 눌림목(파도) → 진입 시점
-# ──────────────────────────────────────────────────────
-
 def score_ema_slope(hist_weekly):
-    """
-    1단계 조류: 주봉 EMA26 기울기 강도 (0~10점)
-    상승 기울기가 클수록 강한 조류 = 높은 점수
-    """
     try:
         if len(hist_weekly) < 30:
             return 0
@@ -247,16 +228,11 @@ def score_ema_slope(hist_weekly):
         elif avg >= 0.2:  return 6
         elif avg >= 0.05: return 4
         elif avg >= 0.0:  return 2
-        else:             return 0   # 하락 추세 → 매수 불가
+        else:             return 0
     except:
         return 0
 
 def score_stochastic(hist_daily):
-    """
-    2단계 파도: 일봉 스토캐스틱 (0~10점)
-    엘더 원칙: 상승 추세 속 과매도(20~40) = 최적 눌림목 매수 타이밍
-    ※ 단, 1단계(EMA)가 상승일 때만 의미 있음 — calculate_classic_score에서 연동
-    """
     try:
         if len(hist_daily) < 14:
             return 0
@@ -266,61 +242,43 @@ def score_stochastic(hist_daily):
         if denom.iloc[-1] == 0:
             return 0
         k = float(100 * (hist_daily['Close'].iloc[-1] - ll.iloc[-1]) / denom.iloc[-1])
-        if 20 <= k <= 40:    return 10  # 이상적 눌림목
-        elif 40 < k <= 50:   return 8   # 눌림목 직후 회복
-        elif 15 <= k < 20:   return 7   # 과매도 진입
-        elif 50 < k <= 65:   return 5   # 추세 상승 중
-        elif 10 <= k < 15:   return 4   # 극단 과매도 (하락 위험)
-        elif 65 < k <= 80:   return 3   # 과매수 주의
-        elif k > 80:         return 1   # 과매수 경고
-        else:                return 2   # k < 10, 극단 과매도
+        if 20 <= k <= 40:    return 10
+        elif 40 < k <= 50:   return 8
+        elif 15 <= k < 20:   return 7
+        elif 50 < k <= 65:   return 5
+        elif 10 <= k < 15:   return 4
+        elif 65 < k <= 80:   return 3
+        elif k > 80:         return 1
+        else:                return 2
     except:
         return 0
 
 def score_breakout(hist_daily):
-    """
-    3단계 진입: 전일 고가 돌파 (0~10점)
-    엘더 원칙: 전일 고가 + 1틱에 매수 주문 = 추세 재개 확인
-    """
     try:
         if len(hist_daily) < 3:
             return 0
-        prev_high  = float(hist_daily['High'].iloc[-2])   # 전일 고가
-        latest     = float(hist_daily['Close'].iloc[-1])
+        prev_high = float(hist_daily['High'].iloc[-2])
+        latest    = float(hist_daily['Close'].iloc[-1])
         ratio = latest / prev_high
-        if ratio >= 1.01:    return 10  # 전일 고가 1% 이상 돌파
-        elif ratio >= 1.002: return 8   # 전일 고가 소폭 돌파
-        elif ratio >= 0.998: return 6   # 전일 고가 근접
-        elif ratio >= 0.99:  return 4   # 전일 고가 약간 아래
-        elif ratio >= 0.97:  return 2   # 눌림목
-        else:                return 0   # 하락
+        if ratio >= 1.01:    return 10
+        elif ratio >= 1.002: return 8
+        elif ratio >= 0.998: return 6
+        elif ratio >= 0.99:  return 4
+        elif ratio >= 0.97:  return 2
+        else:                return 0
     except:
         return 0
 
 def calculate_classic_score(info, hist_weekly, hist_daily):
-    """
-    엘더 3중 스크린 핵심 원칙 반영:
-    - EMA(조류)가 하락이면 2단계/3단계 점수 절반으로 감점
-      (하락 추세에서 눌림목 매수는 엘더가 금지)
-    """
     s1 = score_ema_slope(hist_weekly)
     s2 = score_stochastic(hist_daily)
     s3 = score_breakout(hist_daily)
-
-    # ★ 엘더 원칙: 조류(EMA)가 하락이면 파도/진입 점수 50% 감점
     if s1 == 0:
         s2 = s2 // 2
         s3 = s3 // 2
-
     return s1 + s2 + s3
 
-
-# ──────────────────────────────────────────────────────
-# GROWTH 모델 (40점) — 퀀트 펀더멘털
-# ──────────────────────────────────────────────────────
-
 def score_roe(roe):
-    """ROE (자기자본이익률) — 0~10점. S&P500 평균 15~20% 기준"""
     if roe >= 0.30:    return 10
     elif roe >= 0.20:  return 8
     elif roe >= 0.15:  return 6
@@ -329,7 +287,6 @@ def score_roe(roe):
     else:              return 0
 
 def score_debt(debt_equity):
-    """부채비율 — 0~5점. 낮을수록 재무 안정"""
     if debt_equity <= 0:     return 5
     elif debt_equity <= 30:  return 5
     elif debt_equity <= 60:  return 4
@@ -339,25 +296,12 @@ def score_debt(debt_equity):
     else:                    return 0
 
 def score_eps_growth(info):
-    """
-    EPS 성장 가속화 — 0~10점
-    ★ 수정: 연간 earningsGrowth 단독 사용 → 분기 가속화 반영
-    - earningsQuarterlyGrowth: 최근 분기 YoY 성장률 (더 선행적)
-    - earningsGrowth: TTM 연간 성장률 (후행)
-    - 분기가 연간보다 높으면 "가속화" = 추가 점수
-    """
     quarterly = info.get('earningsQuarterlyGrowth', None)
     annual    = info.get('earningsGrowth', None)
-
-    # 둘 다 없으면 0점
     if quarterly is None and annual is None:
         return 0
-
-    # 분기 데이터 우선 사용
     primary = quarterly if quarterly is not None else annual
     primary = primary if primary is not None else 0
-
-    # 기본 점수
     if primary >= 0.40:    base = 10
     elif primary >= 0.25:  base = 8
     elif primary >= 0.15:  base = 6
@@ -365,21 +309,14 @@ def score_eps_growth(info):
     elif primary >= 0.05:  base = 2
     elif primary > 0:      base = 1
     else:                  base = 0
-
-    # ★ 가속화 보너스: 분기 > 연간이면 +1점 (추세 개선)
     if quarterly is not None and annual is not None:
         if quarterly > annual + 0.05:
             base = min(base + 1, 10)
-
     return base
 
 def score_peg(peg):
-    """
-    PEG 비율 — 0~5점
-    없거나 음수/비정상이면 중립 2점 (페널티 없음)
-    """
     if peg is None or peg <= 0 or peg >= 50:
-        return 2   # 데이터 불신뢰 → 중립
+        return 2
     elif peg <= 0.8:  return 5
     elif peg <= 1.0:  return 4
     elif peg <= 1.5:  return 3
@@ -388,7 +325,6 @@ def score_peg(peg):
     else:             return 0
 
 def score_ma200(hist_daily):
-    """200일 이동평균 대비 위치 — 0~5점"""
     try:
         if len(hist_daily) < 200:
             return 0
@@ -405,7 +341,6 @@ def score_ma200(hist_daily):
         return 0
 
 def score_rsi(hist_daily):
-    """RSI(14) — 0~5점. 50~65 이상적 구간"""
     try:
         if len(hist_daily) < 14:
             return 0
@@ -428,13 +363,7 @@ def calculate_growth_score(info, hist_daily):
     s6 = score_rsi(hist_daily)
     return s1 + s2 + s3 + s4 + s5 + s6
 
-
-# ──────────────────────────────────────────────────────
-# MODERN 모델 (30점) — AI & 심리
-# ──────────────────────────────────────────────────────
-
 def score_analyst(rec):
-    """애널리스트 추천 — 0~10점. 데이터 없으면 0점"""
     if not rec:
         return 0
     mapping = {
@@ -447,19 +376,13 @@ def score_analyst(rec):
     return mapping.get(rec.lower(), 0)
 
 def score_relative_strength(hist_daily):
-    """
-    상대 강도 — 0~10점
-    S&P500 연평균(10%) 대비 초과수익률로 측정
-    """
     try:
         n = min(len(hist_daily) - 1, 252)
         if n < 60:
             return 0
         stock_ret = float((hist_daily['Close'].iloc[-1] / hist_daily['Close'].iloc[-n] - 1) * 100)
-        # 기간 비율로 연환산 기준 조정
-        spy_adj = 10.0 * (n / 252)
-        excess  = stock_ret - spy_adj
-
+        spy_adj   = 10.0 * (n / 252)
+        excess    = stock_ret - spy_adj
         if excess >= 30:    return 10
         elif excess >= 20:  return 8
         elif excess >= 10:  return 6
@@ -470,20 +393,11 @@ def score_relative_strength(hist_daily):
         return 0
 
 def score_obv_momentum(hist_daily):
-    """
-    OBV(On-Balance Volume) 모멘텀 — 0~10점
-    ★ 수정: 단순 거래량 비율 → OBV 방향성으로 변경
-    OBV: 가격 상승일 거래량 +, 하락일 거래량 -
-    → 진짜 매수세인지 매도세인지 구분 가능
-    """
     try:
         if len(hist_daily) < 20:
             return 0
-
         close  = hist_daily['Close']
         volume = hist_daily['Volume']
-
-        # OBV 계산
         obv = [0]
         for i in range(1, len(close)):
             if close.iloc[i] > close.iloc[i-1]:
@@ -492,66 +406,40 @@ def score_obv_momentum(hist_daily):
                 obv.append(obv[-1] - volume.iloc[i])
             else:
                 obv.append(obv[-1])
-
         obv_series = pd.Series(obv, index=close.index)
-
-        # 최근 20일 OBV 추세 (기울기)
-        obv_20  = obv_series.iloc[-20:]
-        obv_ma5 = obv_series.iloc[-5:].mean()
-        obv_ma20 = obv_series.iloc[-20:].mean()
-
-        # OBV가 20일 평균 위 = 매수세 우위
-        # OBV 기울기 = 최근 5일 평균 vs 20일 평균
+        obv_ma5    = obv_series.iloc[-5:].mean()
+        obv_ma20   = obv_series.iloc[-20:].mean()
         if obv_ma20 == 0:
             return 0
-
-        ratio = obv_ma5 / obv_ma20
-        # OBV 방향성 추가: 최근 5일 vs 이전 5~10일
-        obv_prev5 = obv_series.iloc[-10:-5].mean()
-        obv_curr5 = obv_series.iloc[-5:].mean()
-        rising = obv_curr5 > obv_prev5  # OBV 상승 중
-
-        if ratio >= 1.3 and rising:    return 10  # 강한 매수세 유입
+        ratio      = obv_ma5 / obv_ma20
+        obv_prev5  = obv_series.iloc[-10:-5].mean()
+        obv_curr5  = obv_series.iloc[-5:].mean()
+        rising     = obv_curr5 > obv_prev5
+        if ratio >= 1.3 and rising:    return 10
         elif ratio >= 1.1 and rising:  return 8
-        elif ratio >= 1.0 and rising:  return 6   # OBV 평균 위 + 상승
-        elif ratio >= 1.0:             return 4   # OBV 평균 위지만 정체
-        elif ratio >= 0.9:             return 2   # 약한 매도세
-        else:                          return 0   # 매도세 우위
+        elif ratio >= 1.0 and rising:  return 6
+        elif ratio >= 1.0:             return 4
+        elif ratio >= 0.9:             return 2
+        else:                          return 0
     except:
         return 0
 
 def calculate_modern_score(info, hist_daily):
     rec = info.get('recommendationKey', '') or ''
-    s1 = score_analyst(rec)
-    s2 = score_relative_strength(hist_daily)
-    s3 = score_obv_momentum(hist_daily)
+    s1  = score_analyst(rec)
+    s2  = score_relative_strength(hist_daily)
+    s3  = score_obv_momentum(hist_daily)
     return s1 + s2 + s3
 
-
-# ──────────────────────────────────────────────────────
-# 추천 등급 — 모델별 최소 통과 기준 적용
-# ──────────────────────────────────────────────────────
-
 def get_recommendation(total_score, classic=None, growth=None, modern=None):
-    """
-    ★ 핵심 수정: 단순 합산 점수 → 모델별 최소 기준 통과 여부 병행 적용
-    원래 기획 의도: 3가지 모두 일정 수준 이상일 때 매수
-
-    최소 통과 기준:
-      Classic ≥ 10/30 (33%) — 최소한 추세가 붕괴되지 않아야
-      Growth  ≥ 15/40 (37%) — 최소한 펀더멘털이 있어야
-      Modern  ≥  8/30 (27%) — 최소한 시장 관심이 있어야
-    """
-    # 최소 기준 미달 시 강제 Watch
     if classic is not None and growth is not None and modern is not None:
         if classic < 10 or growth < 15 or modern < 8:
             if total_score >= 70:
-                return "Hold"     # 합산은 높아도 한 모델 미달 → Hold로 강등
+                return "Hold"
             elif total_score >= 55:
-                return "Watch"    # Buy도 Watch로 강등
+                return "Watch"
             else:
                 return "Watch"
-
     if total_score >= 70:    return "Strong Buy"
     elif total_score >= 55:  return "Buy"
     elif total_score >= 40:  return "Hold"
@@ -567,18 +455,15 @@ def get_portfolio_weight(results):
             r['weight'] = 0
     return results
 
-
 def fetch_single_stock(ticker, market):
     try:
-        stock      = yf.Ticker(ticker)
-        info       = stock.info
-
+        stock       = yf.Ticker(ticker)
+        info        = stock.info
         hist_daily  = stock.history(period="1y")
         hist_weekly = stock.history(period="2y", interval="1wk")
         if hist_daily.empty or len(hist_daily) < 20:
             return None
 
-        # 각 모델 단계별 점수 분리 계산
         c_ema   = score_ema_slope(hist_weekly)
         c_stoch = score_stochastic(hist_daily)
         c_break = score_breakout(hist_daily)
@@ -625,7 +510,6 @@ def fetch_single_stock(ticker, market):
             "rsi":            rsi_val,
             "roe":            round((info.get('returnOnEquity', 0) or 0) * 100, 1),
             "peg":            round(info.get('pegRatio', 0) or 0, 2),
-            # 단계별 점수 (UI 조건 충족 표시용)
             "c_ema":    c_ema,   "c_stoch": c_stoch, "c_break": c_break,
             "g_roe":    g_roe,   "g_debt":  g_debt,  "g_eps":   g_eps,
             "g_peg":    g_peg,   "g_ma200": g_ma200, "g_rsi":   g_rsi,
@@ -635,32 +519,24 @@ def fetch_single_stock(ticker, market):
         return None
 
 # ══════════════════════════════════════════════════════════════
-# ★ 텐배거 스크리너 — 피터 린치 + 오닐 CANSLIM + 미너비니 SEPA
+# 텐배거 스크리너
 # ══════════════════════════════════════════════════════════════
 
 def score_lynch(info, hist_daily):
-    """
-    피터 린치 스타일 — 소형 고성장 저평가 (35점 만점)
-    핵심: PEG < 1, 소형주, EPS 폭발 성장, 이익 성장 지속성
-    """
     score = 0
     detail = {}
-
-    # 1. PEG 비율 (낮을수록 저평가 성장주) — 15점
     peg = info.get('pegRatio', 999) or 999
-    if peg <= 0:
-        peg_score = 0
-    elif peg <= 0.5:  peg_score = 15
-    elif peg <= 0.75: peg_score = 12
-    elif peg <= 1.0:  peg_score = 9
-    elif peg <= 1.5:  peg_score = 5
-    elif peg <= 2.0:  peg_score = 2
-    else:             peg_score = 0
+    if peg <= 0:          peg_score = 0
+    elif peg <= 0.5:      peg_score = 15
+    elif peg <= 0.75:     peg_score = 12
+    elif peg <= 1.0:      peg_score = 9
+    elif peg <= 1.5:      peg_score = 5
+    elif peg <= 2.0:      peg_score = 2
+    else:                 peg_score = 0
     score += peg_score
     detail['peg'] = round(peg if peg != 999 else 0, 2)
     detail['peg_score'] = peg_score
 
-    # 2. EPS 성장률 (폭발적 성장) — 10점
     eps_growth = info.get('earningsGrowth', 0) or 0
     if eps_growth >= 0.50:   eps_score = 10
     elif eps_growth >= 0.35: eps_score = 8
@@ -669,32 +545,24 @@ def score_lynch(info, hist_daily):
     else:                    eps_score = 0
     score += eps_score
     detail['eps_growth'] = round(eps_growth * 100, 1)
-    detail['eps_score'] = eps_score
+    detail['eps_score']  = eps_score
 
-    # 3. 시가총액 (소형주 선호) — 10점
-    mcap = info.get('marketCap', 0) or 0
-    mcap_b = mcap / 1e9  # 십억 달러
+    mcap   = info.get('marketCap', 0) or 0
+    mcap_b = mcap / 1e9
     if mcap_b <= 0:        mcap_score = 0
-    elif mcap_b <= 0.3:    mcap_score = 10  # 마이크로캡
-    elif mcap_b <= 2.0:    mcap_score = 8   # 소형주
-    elif mcap_b <= 10.0:   mcap_score = 5   # 중형주
-    elif mcap_b <= 50.0:   mcap_score = 2   # 대형주
-    else:                  mcap_score = 0   # 초대형 — 린치 스타일엔 불리
+    elif mcap_b <= 0.3:    mcap_score = 10
+    elif mcap_b <= 2.0:    mcap_score = 8
+    elif mcap_b <= 10.0:   mcap_score = 5
+    elif mcap_b <= 50.0:   mcap_score = 2
+    else:                  mcap_score = 0
     score += mcap_score
     detail['market_cap_b'] = round(mcap_b, 1)
-    detail['mcap_score'] = mcap_score
-
+    detail['mcap_score']   = mcap_score
     return score, detail
 
 def score_oneil(info, hist_daily, hist_weekly):
-    """
-    윌리엄 오닐 CANSLIM — 실적 + 신고가 돌파 + 거래량 폭증 (35점 만점)
-    C: Current EPS  A: Annual EPS  N: New High  S: Supply/Volume  L: Leader
-    """
     score = 0
     detail = {}
-
-    # C — 분기 EPS 성장 (최근 실적 급등) — 10점
     eps_growth = info.get('earningsGrowth', 0) or 0
     quarterly  = info.get('earningsQuarterlyGrowth', 0) or 0
     c_val = max(eps_growth, quarterly)
@@ -707,15 +575,14 @@ def score_oneil(info, hist_daily, hist_weekly):
     detail['quarterly_eps_growth'] = round(c_val * 100, 1)
     detail['c_score'] = c_score
 
-    # N — 52주 신고가 돌파 여부 (New High) — 10점
     try:
         if len(hist_daily) >= 252:
-            high_52w   = float(hist_daily['High'].rolling(252).max().iloc[-1])
-            current    = float(hist_daily['Close'].iloc[-1])
-            from_high  = (current / high_52w - 1) * 100
+            high_52w  = float(hist_daily['High'].rolling(252).max().iloc[-1])
+            current   = float(hist_daily['Close'].iloc[-1])
+            from_high = (current / high_52w - 1) * 100
             detail['from_52w_high'] = round(from_high, 1)
-            if from_high >= 0:      n_score = 10  # 신고가 돌파!
-            elif from_high >= -3:   n_score = 8   # 신고가 바로 아래
+            if from_high >= 0:      n_score = 10
+            elif from_high >= -3:   n_score = 8
             elif from_high >= -8:   n_score = 5
             elif from_high >= -15:  n_score = 2
             else:                   n_score = 0
@@ -728,11 +595,10 @@ def score_oneil(info, hist_daily, hist_weekly):
     score += n_score
     detail['n_score'] = n_score
 
-    # S — 거래량 급증 (Supply & Demand) — 10점
     try:
         if len(hist_daily) >= 50:
-            avg_50d  = float(hist_daily['Volume'].rolling(50).mean().iloc[-1])
-            recent_5 = float(hist_daily['Volume'].iloc[-5:].mean())
+            avg_50d   = float(hist_daily['Volume'].rolling(50).mean().iloc[-1])
+            recent_5  = float(hist_daily['Volume'].iloc[-5:].mean())
             vol_ratio = recent_5 / avg_50d if avg_50d > 0 else 1.0
             detail['vol_ratio_50d'] = round(vol_ratio, 2)
             if vol_ratio >= 2.5:    s_score = 10
@@ -749,7 +615,6 @@ def score_oneil(info, hist_daily, hist_weekly):
     score += s_score
     detail['s_score'] = s_score
 
-    # L — 상대 강도 (Leader vs Laggard): 섹터 내 RS — 5점
     try:
         rec = info.get('recommendationKey', '') or ''
         if rec in ['strong_buy']:  l_score = 5
@@ -759,22 +624,14 @@ def score_oneil(info, hist_daily, hist_weekly):
         l_score = 0
     score += l_score
     detail['l_score'] = l_score
-
     return score, detail
 
 def score_minervini(info, hist_daily):
-    """
-    마크 미너비니 SEPA — 추세 템플릿 (30점 만점)
-    Specific Entry Point Analysis: 이동평균 정렬 + 52주 범위 위치
-    """
     score = 0
     detail = {}
-
     try:
-        close = hist_daily['Close']
+        close   = hist_daily['Close']
         current = float(close.iloc[-1])
-
-        # 1. 주가 > 150MA AND 주가 > 200MA — 8점
         ma150 = ma200 = None
         if len(hist_daily) >= 200:
             ma150 = float(close.rolling(150).mean().iloc[-1])
@@ -783,7 +640,6 @@ def score_minervini(info, hist_daily):
             detail['ma200'] = round(ma200, 2)
             above_both = (current > ma150) and (current > ma200)
             if above_both:
-                # 얼마나 위에 있는지도 점수화
                 avg_ma = (ma150 + ma200) / 2
                 ratio  = current / avg_ma
                 if ratio >= 1.15:   cond1 = 8
@@ -799,7 +655,6 @@ def score_minervini(info, hist_daily):
         score += cond1
         detail['above_ma_score'] = cond1
 
-        # 2. 150MA > 200MA (단기 > 장기 = 골든 크로스 구조) — 7점
         if ma150 and ma200:
             if ma150 > ma200:
                 ratio_ma = ma150 / ma200
@@ -813,7 +668,6 @@ def score_minervini(info, hist_daily):
         score += cond2
         detail['ma_cross_score'] = cond2
 
-        # 3. 200MA가 최근 상승 추세 (1개월 전 대비) — 7점
         if len(hist_daily) >= 220:
             ma200_1m_ago = float(close.rolling(200).mean().iloc[-22])
             if ma200 and ma200 > ma200_1m_ago:
@@ -829,7 +683,6 @@ def score_minervini(info, hist_daily):
         score += cond3
         detail['ma200_slope_score'] = cond3
 
-        # 4. 52주 저점 대비 30% 이상 상승 (강한 바닥 탈출) — 8점
         if len(hist_daily) >= 252:
             low_52w  = float(hist_daily['Low'].rolling(252).min().iloc[-1])
             from_low = (current / low_52w - 1) * 100
@@ -844,124 +697,230 @@ def score_minervini(info, hist_daily):
             detail['from_52w_low'] = 0
         score += cond4
         detail['from_low_score'] = cond4
-
     except:
         detail = {'above_ma_score':0,'ma_cross_score':0,'ma200_slope_score':0,'from_low_score':0}
-
     return score, detail
 
 def fetch_tenbagger_stock(ticker):
-    """텐배거 스크리너 — 단일 종목 분석"""
     try:
-        stock       = yf.Ticker(ticker)
-        info        = stock.info
-        hist_daily  = stock.history(period="1y")
-        hist_weekly = stock.history(period="2y", interval="1wk")
-
+        stock        = yf.Ticker(ticker)
+        info         = stock.info
+        hist_daily   = stock.history(period="1y")
+        hist_weekly  = stock.history(period="2y", interval="1wk")
         if hist_daily.empty or len(hist_daily) < 60:
             return None
-
         price_check = info.get('regularMarketPrice') or info.get('currentPrice') or info.get('previousClose')
         if not price_check:
             return None
 
-        lynch_score,    lynch_detail    = score_lynch(info, hist_daily)
-        oneil_score,    oneil_detail    = score_oneil(info, hist_daily, hist_weekly)
+        lynch_score,     lynch_detail     = score_lynch(info, hist_daily)
+        oneil_score,     oneil_detail     = score_oneil(info, hist_daily, hist_weekly)
         minervini_score, minervini_detail = score_minervini(info, hist_daily)
-
         total = lynch_score + oneil_score + minervini_score
 
         current_price = float(hist_daily['Close'].iloc[-1])
         prev_price    = float(hist_daily['Close'].iloc[-2])
         change_pct    = (current_price / prev_price - 1) * 100
 
-        # 텐배거 등급
         if total >= 75:   grade = "🔥 최상위"
         elif total >= 60: grade = "⭐ 유망"
         elif total >= 45: grade = "👀 관심"
         else:             grade = "💤 미해당"
 
-        name   = info.get('longName', ticker)
-        sector = info.get('sector', 'Unknown')
-        mcap   = info.get('marketCap', 0) or 0
-
+        mcap = info.get('marketCap', 0) or 0
         return {
-            "ticker":          ticker,
-            "name":            name,
-            "sector":          sector,
-            "market_cap_b":    round(mcap / 1e9, 1),
-            "price":           round(current_price, 2),
-            "change_pct":      round(change_pct, 2),
-            "lynch_score":     lynch_score,
-            "oneil_score":     oneil_score,
-            "minervini_score": minervini_score,
-            "total_score":     total,
-            "grade":           grade,
-            "lynch_detail":    lynch_detail,
-            "oneil_detail":    oneil_detail,
-            "minervini_detail":minervini_detail,
+            "ticker":           ticker,
+            "name":             info.get('longName', ticker),
+            "sector":           info.get('sector', 'Unknown'),
+            "market_cap_b":     round(mcap / 1e9, 1),
+            "price":            round(current_price, 2),
+            "change_pct":       round(change_pct, 2),
+            "lynch_score":      lynch_score,
+            "oneil_score":      oneil_score,
+            "minervini_score":  minervini_score,
+            "total_score":      total,
+            "grade":            grade,
+            "lynch_detail":     lynch_detail,
+            "oneil_detail":     oneil_detail,
+            "minervini_detail": minervini_detail,
         }
     except:
         return None
 
-# ══════════════════════════════════════════════════════════════
-# ★ 텐배거 전용 종목 풀 — 나스닥 중소형 성장주
-#   기존 TICKERS_US(대형주)와 완전 분리. 시총 기준 $10B 이하 위주.
-#   섹터: AI/SaaS/바이오/핀테크/클린에너지/우주/소비 성장주
-# ══════════════════════════════════════════════════════════════
-TICKERS_TENBAGGER = [
-    # AI · 데이터 · 클라우드
+TICKERS_TENBAGGER = list(dict.fromkeys([
     "PLTR","AI","SOUN","BBAI","RBRK","CWAN","ALKT","AEIS",
-    # 반도체 중소형
     "AMBA","LSCC","SITM","ONTO","ACLS","ICHR","KLIC","MTSI",
-    # SaaS · 핀테크
     "AFRM","UPST","BILL","TOST","GTLB","DDOG","ZS","DUOL",
     "HIMS","RDDT","APP","SMAR","ASAN","MNDY","RELY","BRZE",
-    # 바이오
     "RXRX","BEAM","CRSP","ARWR","KYMR","VKTX","NVCR","INSM",
-    # 클린에너지 · 우주
     "FSLR","ENPH","ARRY","RKLB","ASTS","JOBY","ACHR",
-    # 소비 성장
     "CELH","BROS","CAVA","WING","FRPT","YETI",
-]
-
-# 중복 제거
-TICKERS_TENBAGGER = list(dict.fromkeys(TICKERS_TENBAGGER))
-
-
-@app.get("/api/tenbagger")
-def get_tenbagger():
-    """
-    텐배거 스크리너 — 나스닥 중소형 전용 (기존 스크리너와 완전 독립)
-    피터 린치 + 오닐 CANSLIM + 미너비니 SEPA 종합
-    """
-    results = []
-    # 과부하 방지: max_workers=8, 타임아웃 관리
-    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
-        futures = {executor.submit(fetch_tenbagger_stock, t): t for t in TICKERS_TENBAGGER}
-        for f in concurrent.futures.as_completed(futures, timeout=180):
-            try:
-                r = f.result(timeout=20)
-                if r:
-                    results.append(r)
-            except Exception:
-                continue
-
-    results.sort(key=lambda x: x['total_score'], reverse=True)
-    return {
-        "updated_at":  datetime.now().strftime("%Y-%m-%d %H:%M"),
-        "total":       len(results),
-        "universe":    f"나스닥 중소형 성장주 {len(TICKERS_TENBAGGER)}개",
-        "results":     results,
-        "scoring": {
-            "lynch":     "35점 — 피터 린치: PEG + EPS성장 + 시총(소형선호)",
-            "oneil":     "35점 — 오닐 CANSLIM: 분기EPS + 52주신고가 + 거래량급증 + RS",
-            "minervini": "30점 — 미너비니 SEPA: 150/200MA정렬 + MA기울기 + 52주저점탈출",
-        }
-    }
+]))
 
 # ══════════════════════════════════════════════════════════════
-# 기존 API 엔드포인트 (유지)
+# ★ 유동성 모듈 — FRED API 기반
+# ══════════════════════════════════════════════════════════════
+
+FRED_API_KEY = os.environ.get("FRED_API_KEY", "")
+FRED_BASE    = "https://api.stlouisfed.org/fred/series/observations"
+
+def fetch_fred(series_id: str, limit: int = 20) -> list:
+    if not FRED_API_KEY:
+        return []
+    try:
+        params = {
+            "series_id":        series_id,
+            "api_key":          FRED_API_KEY,
+            "file_type":        "json",
+            "sort_order":       "desc",
+            "limit":            limit,
+            "observation_start": (datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d"),
+        }
+        resp = requests.get(FRED_BASE, params=params, timeout=10)
+        if resp.status_code != 200:
+            return []
+        data = resp.json().get("observations", [])
+        result = []
+        for obs in data:
+            if obs["value"] != ".":
+                result.append({"date": obs["date"], "value": float(obs["value"])})
+        return result
+    except:
+        return []
+
+def score_fed_balance(data: list) -> dict:
+    label   = "연준 총자산"
+    fred_id = "WALCL"
+    if len(data) < 2:
+        return {"label":label,"fred_id":fred_id,"score":12,"status":"데이터 없음",
+                "value":0,"value_unit":"조 달러","change_pct":0,"history":[]}
+    latest = data[0]["value"]
+    prev4w = data[4]["value"] if len(data) > 4 else data[-1]["value"]
+    change_pct = round((latest - prev4w) / prev4w * 100, 3) if prev4w else 0
+    if change_pct >= 1.0:      score, status = 25, "강한 QE — 유동성 최대 공급"
+    elif change_pct >= 0.3:    score, status = 20, "QE 진행 — 유동성 공급 중"
+    elif change_pct >= 0.0:    score, status = 15, "보합 — 유동성 유지"
+    elif change_pct >= -0.3:   score, status = 10, "소폭 QT — 유동성 소폭 감소"
+    elif change_pct >= -1.0:   score, status = 5,  "QT 진행 — 유동성 회수 중"
+    else:                      score, status = 0,  "강한 QT — 유동성 급속 회수"
+    return {
+        "label": label, "fred_id": fred_id, "score": score, "max_score": 25,
+        "status": status, "value": round(latest / 1e6, 2), "value_unit": "조 달러",
+        "change_pct": change_pct,
+        "history": [{"date": d["date"], "value": round(d["value"] / 1e6, 2)} for d in data[:8]],
+    }
+
+def score_rrp(data: list) -> dict:
+    label   = "역레포(RRP) 잔액"
+    fred_id = "RRPONTSYD"
+    if len(data) < 2:
+        return {"label":label,"fred_id":fred_id,"score":12,"status":"데이터 없음",
+                "value":0,"value_unit":"조 달러","change_pct":0,"history":[]}
+    latest = data[0]["value"]
+    prev4w = data[4]["value"] if len(data) > 4 else data[-1]["value"]
+    change_pct = round((latest - prev4w) / prev4w * 100, 2) if prev4w else 0
+    if change_pct <= -30:      score, status = 25, "RRP 급감 — 대규모 유동성 시장 유입"
+    elif change_pct <= -10:    score, status = 20, "RRP 감소 — 유동성 시장 유입 중"
+    elif change_pct <= 0:      score, status = 15, "RRP 보합/소폭 감소 — 중립"
+    elif change_pct <= 10:     score, status = 10, "RRP 소폭 증가 — 유동성 소폭 흡수"
+    elif change_pct <= 30:     score, status = 5,  "RRP 증가 — 유동성 흡수 중"
+    else:                      score, status = 0,  "RRP 급증 — 유동성 대규모 흡수"
+    if latest < 50000:
+        score = min(score + 3, 25)
+        status += " (RRP 거의 소진)"
+    return {
+        "label": label, "fred_id": fred_id, "score": score, "max_score": 25,
+        "status": status, "value": round(latest / 1e6, 3), "value_unit": "조 달러",
+        "change_pct": change_pct,
+        "history": [{"date": d["date"], "value": round(d["value"] / 1e6, 3)} for d in data[:8]],
+    }
+
+def score_tga(data: list) -> dict:
+    label   = "TGA(재무부 계정) 잔액"
+    fred_id = "WTREGEN"
+    if len(data) < 2:
+        return {"label":label,"fred_id":fred_id,"score":12,"status":"데이터 없음",
+                "value":0,"value_unit":"조 달러","change_pct":0,"history":[]}
+    latest = data[0]["value"]
+    prev4w = data[4]["value"] if len(data) > 4 else data[-1]["value"]
+    change_pct = round((latest - prev4w) / prev4w * 100, 2) if prev4w else 0
+    if change_pct <= -20:      score, status = 25, "TGA 급감 — 정부 대규모 지출, 유동성 공급"
+    elif change_pct <= -5:     score, status = 20, "TGA 감소 — 정부 지출, 유동성 유입"
+    elif change_pct <= 5:      score, status = 13, "TGA 보합 — 중립"
+    elif change_pct <= 20:     score, status = 7,  "TGA 증가 — 세금 흡수, 유동성 축소"
+    else:                      score, status = 0,  "TGA 급증 — 대규모 채권 발행, 유동성 흡수"
+    return {
+        "label": label, "fred_id": fred_id, "score": score, "max_score": 25,
+        "status": status, "value": round(latest / 1e6, 3), "value_unit": "조 달러",
+        "change_pct": change_pct,
+        "history": [{"date": d["date"], "value": round(d["value"] / 1e6, 3)} for d in data[:8]],
+    }
+
+def score_mmf(data: list) -> dict:
+    label   = "MMF 총잔액"
+    fred_id = "WRMFNS"
+    if len(data) < 2:
+        return {"label":label,"fred_id":fred_id,"score":12,"status":"데이터 없음",
+                "value":0,"value_unit":"조 달러","change_pct":0,"history":[]}
+    latest = data[0]["value"]
+    prev4w = data[4]["value"] if len(data) > 4 else data[-1]["value"]
+    change_pct = round((latest - prev4w) / prev4w * 100, 2) if prev4w else 0
+    if change_pct <= -2.0:     score, status = 25, "MMF 급감 — 위험자산 선호, 자금 유입"
+    elif change_pct <= -0.5:   score, status = 20, "MMF 감소 — 위험선호 전환 중"
+    elif change_pct <= 0.5:    score, status = 13, "MMF 보합 — 관망 중립"
+    elif change_pct <= 2.0:    score, status = 7,  "MMF 증가 — 안전자산 선호"
+    else:                      score, status = 0,  "MMF 급증 — 강한 위험회피, 자금 이탈"
+    return {
+        "label": label, "fred_id": fred_id, "score": score, "max_score": 25,
+        "status": status, "value": round(latest / 1000, 2), "value_unit": "조 달러",
+        "change_pct": change_pct,
+        "history": [{"date": d["date"], "value": round(d["value"] / 1000, 2)} for d in data[:8]],
+    }
+
+def get_liquidity_signal(total_score: int) -> dict:
+    if total_score >= 80:
+        return {
+            "stage": 1, "signal": "적극매수", "emoji": "🟢",
+            "color": "#15803d", "bg_color": "#dcfce7", "border_color": "#86efac",
+            "description": "유동성이 최대로 공급되고 있습니다. 시장에 돈이 넘칩니다.",
+            "action": "STEP 2 스크리닝 결과를 적극 반영하세요. 마구스코어 65점+ 종목 매수 고려.",
+            "step2_guide": "✅ 스크리닝 신호 적극 반영 — 분할 매수 진입",
+        }
+    elif total_score >= 60:
+        return {
+            "stage": 2, "signal": "매수우호", "emoji": "🔵",
+            "color": "#1d4ed8", "bg_color": "#dbeafe", "border_color": "#93c5fd",
+            "description": "유동성이 양호합니다. 시장 환경이 매수에 우호적입니다.",
+            "action": "STEP 2 스크리닝 결과를 참고하여 선별적으로 매수하세요.",
+            "step2_guide": "✅ 스크리닝 신호 참고 — 마구스코어 70점+ 종목 위주로 선별 매수",
+        }
+    elif total_score >= 40:
+        return {
+            "stage": 3, "signal": "중립관망", "emoji": "🟡",
+            "color": "#b45309", "bg_color": "#fef9c3", "border_color": "#fde68a",
+            "description": "유동성 방향이 불확실합니다. 추세 확인이 필요합니다.",
+            "action": "신규 매수 자제. 기존 포지션 유지하며 방향 확인 후 판단하세요.",
+            "step2_guide": "⚠️ 스크리닝 참고만 — 신규 매수 자제, 기존 보유 종목 유지",
+        }
+    elif total_score >= 20:
+        return {
+            "stage": 4, "signal": "매수축소", "emoji": "🟠",
+            "color": "#c2410c", "bg_color": "#ffedd5", "border_color": "#fdba74",
+            "description": "유동성이 감소하고 있습니다. 위험 관리가 필요합니다.",
+            "action": "신규 매수 중단. 보유 종목 비중 축소 및 손절 기준 점검하세요.",
+            "step2_guide": "🚫 스크리닝 결과 무시 — 포지션 축소, 현금 비중 확대",
+        }
+    else:
+        return {
+            "stage": 5, "signal": "현금보유", "emoji": "🔴",
+            "color": "#991b1b", "bg_color": "#fee2e2", "border_color": "#fca5a5",
+            "description": "유동성이 심각하게 경색되어 있습니다. 시장 위험이 높습니다.",
+            "action": "전량 현금 보유 권고. 스크리닝 결과와 무관하게 매수 금지.",
+            "step2_guide": "🔴 스크리닝 결과 무시 — 전량 현금 보유, 매수 금지",
+        }
+
+# ══════════════════════════════════════════════════════════════
+# API 엔드포인트
 # ══════════════════════════════════════════════════════════════
 
 @app.get("/")
@@ -994,9 +953,6 @@ def get_market_data():
 
 @app.get("/api/screen/{market}")
 def screen_stocks(market: str = "nasdaq"):
-    """
-    market: nasdaq / sp500 / kospi / kosdaq / us / kr
-    """
     market_map = {
         "nasdaq": TICKERS_NASDAQ,
         "sp500":  TICKERS_SP500,
@@ -1039,13 +995,11 @@ def get_stock_score(ticker: str):
         price_check = info.get('regularMarketPrice') or info.get('currentPrice') or info.get('previousClose')
         if not info or not price_check:
             return {"error": f"종목을 찾을 수 없습니다: {ticker}"}
-
         hist_daily  = stock.history(period="1y")
         hist_weekly = stock.history(period="2y", interval="1wk")
         if hist_daily.empty or len(hist_daily) < 20:
             return {"error": "데이터가 부족합니다"}
 
-        # 각 모델 단계별 점수 분리 계산
         c_ema   = score_ema_slope(hist_weekly)
         c_stoch = score_stochastic(hist_daily)
         c_break = score_breakout(hist_daily)
@@ -1078,7 +1032,6 @@ def get_stock_score(ticker: str):
             year_return = round((hist_daily['Close'].iloc[-1] / hist_daily['Close'].iloc[-252] - 1) * 100, 1)
 
         name = KR_NAMES.get(ticker) or info.get('longName') or ticker
-
         return {
             "ticker":         ticker,
             "name":           name,
@@ -1113,7 +1066,6 @@ def analyze_etf(etf_info: dict):
         hist = t.history(period="6mo")
         if hist.empty or len(hist) < 60:
             return None
-
         price    = float(hist['Close'].iloc[-1])
         price_1d = float(hist['Close'].iloc[-2]) if len(hist) >= 2 else price
         price_1w = float(hist['Close'].iloc[-6]) if len(hist) >= 6 else price
@@ -1121,67 +1073,51 @@ def analyze_etf(etf_info: dict):
         price_3m = float(hist['Close'].iloc[-66]) if len(hist) >= 66 else price
         price_6m = float(hist['Close'].iloc[-132]) if len(hist) >= 132 else price
         price_1y = float(hist['Close'].iloc[0])
-
-        ret_1d = round((price / price_1d - 1) * 100, 2)
-        ret_1w = round((price / price_1w - 1) * 100, 2)
-        ret_1m = round((price / price_1m - 1) * 100, 2)
-        ret_3m = round((price / price_3m - 1) * 100, 2)
-        ret_6m = round((price / price_6m - 1) * 100, 2)
-        ret_1y = round((price / price_1y - 1) * 100, 2)
-
+        ret_1d = round((price/price_1d-1)*100,2)
+        ret_1w = round((price/price_1w-1)*100,2)
+        ret_1m = round((price/price_1m-1)*100,2)
+        ret_3m = round((price/price_3m-1)*100,2)
+        ret_6m = round((price/price_6m-1)*100,2)
+        ret_1y = round((price/price_1y-1)*100,2)
         vol_5d    = float(hist['Volume'].iloc[-5:].mean())
         vol_20d   = float(hist['Volume'].iloc[-20:].mean())
-        vol_ratio = round(vol_5d / vol_20d, 2) if vol_20d > 0 else 1.0
-
+        vol_ratio = round(vol_5d/vol_20d,2) if vol_20d>0 else 1.0
         rsi_val = 0.0
         if len(hist) >= 14:
-            rsi_val = round(float(ta.momentum.RSIIndicator(hist['Close'], window=14).rsi().iloc[-1]), 1)
-
-        high_52w = float(hist['High'].max())
-        from_high = round((price / high_52w - 1) * 100, 1)
-        inst_pct  = round(float(info.get('heldPercentInstitutions') or 0) * 100, 1)
-
+            rsi_val = round(float(ta.momentum.RSIIndicator(hist['Close'],window=14).rsi().iloc[-1]),1)
+        high_52w  = float(hist['High'].max())
+        from_high = round((price/high_52w-1)*100,1)
+        inst_pct  = round(float(info.get('heldPercentInstitutions') or 0)*100,1)
         sc = 0
-        if ret_1m > 5:    sc += 3
-        elif ret_1m > 2:  sc += 2
-        elif ret_1m > 0:  sc += 1
-        elif ret_1m < -5: sc -= 3
-        elif ret_1m < -2: sc -= 2
-        elif ret_1m < 0:  sc -= 1
-        if ret_3m > 10:   sc += 2
-        elif ret_3m > 3:  sc += 1
-        elif ret_3m < -10:sc -= 2
-        elif ret_3m < -3: sc -= 1
-        if vol_ratio > 1.3:   sc += 2
-        elif vol_ratio > 1.1: sc += 1
-        elif vol_ratio < 0.7: sc -= 2
-        elif vol_ratio < 0.9: sc -= 1
-        if rsi_val > 60:  sc += 1
-        elif rsi_val < 40:sc -= 1
-
-        if sc >= 5:        trend, trend_score = "강한유입",  10
-        elif sc >= 3:      trend, trend_score = "유입",       5
-        elif sc >= 1:      trend, trend_score = "소폭유입",   3
-        elif sc >= -1:     trend, trend_score = "중립",       0
-        elif sc >= -3:     trend, trend_score = "소폭유출",  -3
-        elif sc >= -5:     trend, trend_score = "유출",      -5
-        else:              trend, trend_score = "강한유출", -10
-
+        if ret_1m>5:sc+=3
+        elif ret_1m>2:sc+=2
+        elif ret_1m>0:sc+=1
+        elif ret_1m<-5:sc-=3
+        elif ret_1m<-2:sc-=2
+        elif ret_1m<0:sc-=1
+        if ret_3m>10:sc+=2
+        elif ret_3m>3:sc+=1
+        elif ret_3m<-10:sc-=2
+        elif ret_3m<-3:sc-=1
+        if vol_ratio>1.3:sc+=2
+        elif vol_ratio>1.1:sc+=1
+        elif vol_ratio<0.7:sc-=2
+        elif vol_ratio<0.9:sc-=1
+        if rsi_val>60:sc+=1
+        elif rsi_val<40:sc-=1
+        if sc>=5:        trend,trend_score="강한유입",10
+        elif sc>=3:      trend,trend_score="유입",5
+        elif sc>=1:      trend,trend_score="소폭유입",3
+        elif sc>=-1:     trend,trend_score="중립",0
+        elif sc>=-3:     trend,trend_score="소폭유출",-3
+        elif sc>=-5:     trend,trend_score="유출",-5
+        else:            trend,trend_score="강한유출",-10
         return {
-            "ticker":      ticker,
-            "name":        etf_info["name"],
-            "name_en":     etf_info["name_en"],
-            "emoji":       etf_info["emoji"],
-            "price":       round(price, 2),
-            "ret_1d":      ret_1d, "ret_1w": ret_1w, "ret_1m": ret_1m,
-            "ret_3m":      ret_3m, "ret_6m": ret_6m, "ret_1y": ret_1y,
-            "vol_ratio":   vol_ratio,
-            "rsi":         rsi_val,
-            "from_52w_high": from_high,
-            "inst_pct":    inst_pct,
-            "trend":       trend,
-            "trend_score": trend_score,
-            "momentum_score": sc,
+            "ticker":ticker,"name":etf_info["name"],"name_en":etf_info["name_en"],"emoji":etf_info["emoji"],
+            "price":round(price,2),"ret_1d":ret_1d,"ret_1w":ret_1w,"ret_1m":ret_1m,
+            "ret_3m":ret_3m,"ret_6m":ret_6m,"ret_1y":ret_1y,
+            "vol_ratio":vol_ratio,"rsi":rsi_val,"from_52w_high":from_high,
+            "inst_pct":inst_pct,"trend":trend,"trend_score":trend_score,"momentum_score":sc,
         }
     except:
         return None
@@ -1201,17 +1137,80 @@ def get_smart_money():
         for r in results:
             r["rel_strength"] = round(r["ret_1m"] - avg_ret_1m, 2)
     try:
-        spy      = yf.Ticker("SPY").history(period="3mo")
-        spy_ret_1m = round(float((spy['Close'].iloc[-1] / spy['Close'].iloc[-22] - 1) * 100), 2) if len(spy) >= 22 else 0
-        spy_ret_3m = round(float((spy['Close'].iloc[-1] / spy['Close'].iloc[0] - 1) * 100), 2)
+        spy        = yf.Ticker("SPY").history(period="3mo")
+        spy_ret_1m = round(float((spy['Close'].iloc[-1]/spy['Close'].iloc[-22]-1)*100),2) if len(spy)>=22 else 0
+        spy_ret_3m = round(float((spy['Close'].iloc[-1]/spy['Close'].iloc[0]-1)*100),2)
     except:
         spy_ret_1m = spy_ret_3m = 0
     return {
         "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
-        "spy_ret_1m": spy_ret_1m,
-        "spy_ret_3m": spy_ret_3m,
-        "sectors":    results,
+        "spy_ret_1m": spy_ret_1m, "spy_ret_3m": spy_ret_3m,
+        "sectors": results, "total": len(results),
+    }
+
+@app.get("/api/tenbagger")
+def get_tenbagger():
+    results = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+        futures = {executor.submit(fetch_tenbagger_stock, t): t for t in TICKERS_TENBAGGER}
+        for f in concurrent.futures.as_completed(futures, timeout=180):
+            try:
+                r = f.result(timeout=20)
+                if r:
+                    results.append(r)
+            except:
+                continue
+    results.sort(key=lambda x: x['total_score'], reverse=True)
+    return {
+        "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
         "total":      len(results),
+        "universe":   f"나스닥 중소형 성장주 {len(TICKERS_TENBAGGER)}개",
+        "results":    results,
+    }
+
+@app.get("/api/liquidity")
+def get_liquidity():
+    if not FRED_API_KEY:
+        return {
+            "error":      "FRED_API_KEY 환경변수가 설정되지 않았습니다.",
+            "guide":      "https://fred.stlouisfed.org/docs/api/api_key.html 에서 무료 발급 후 Railway 환경변수에 추가하세요.",
+            "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        }
+    series_map = {
+        "walcl": "WALCL",
+        "rrp":   "RRPONTSYD",
+        "tga":   "WTREGEN",
+        "mmf":   "WRMFNS",
+    }
+    raw = {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+        futures = {executor.submit(fetch_fred, sid, 20): key for key, sid in series_map.items()}
+        for f in concurrent.futures.as_completed(futures):
+            key    = futures[f]
+            raw[key] = f.result()
+
+    s_walcl = score_fed_balance(raw.get("walcl", []))
+    s_rrp   = score_rrp(raw.get("rrp", []))
+    s_tga   = score_tga(raw.get("tga", []))
+    s_mmf   = score_mmf(raw.get("mmf", []))
+
+    indicators  = [s_walcl, s_rrp, s_tga, s_mmf]
+    total_score = sum(i["score"] for i in indicators)
+    signal      = get_liquidity_signal(total_score)
+
+    return {
+        "updated_at":  datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "total_score": total_score,
+        "max_score":   100,
+        "signal":      signal,
+        "indicators":  indicators,
+        "scoring_guide": {
+            "80~100": "🟢 적극매수 — 유동성 최대",
+            "60~79":  "🔵 매수우호 — 유동성 양호",
+            "40~59":  "🟡 중립관망 — 방향 불확실",
+            "20~39":  "🟠 매수축소 — 유동성 감소",
+            "0~19":   "🔴 현금보유 — 유동성 경색",
+        },
     }
 
 def score_at_date(hist_daily, hist_weekly, info, cutoff_idx):
@@ -1242,30 +1241,30 @@ def backtest_single(ticker, hold_days, score_threshold):
             classic, growth, total = result
             if total < score_threshold:
                 continue
-            entry_price  = float(hist['Close'].iloc[i])
-            exit_price   = float(hist['Close'].iloc[i + hold_days])
-            ret          = round((exit_price / entry_price - 1) * 100, 2)
-            entry_date   = hist.index[i]
-            exit_date    = hist.index[i + hold_days]
-            sp_slice     = sp500[(sp500.index >= entry_date) & (sp500.index <= exit_date)]
-            sp_ret       = 0.0
+            entry_price = float(hist['Close'].iloc[i])
+            exit_price  = float(hist['Close'].iloc[i + hold_days])
+            ret         = round((exit_price / entry_price - 1) * 100, 2)
+            entry_date  = hist.index[i]
+            exit_date   = hist.index[i + hold_days]
+            sp_slice    = sp500[(sp500.index >= entry_date) & (sp500.index <= exit_date)]
+            sp_ret = 0.0
             if len(sp_slice) >= 2:
-                sp_ret = round(float((sp_slice['Close'].iloc[-1] / sp_slice['Close'].iloc[0] - 1) * 100), 2)
+                sp_ret = round(float((sp_slice['Close'].iloc[-1]/sp_slice['Close'].iloc[0]-1)*100),2)
             name = KR_NAMES.get(ticker, ticker)
             signals.append({
-                "ticker":         name,
-                "signal_date":    entry_date.strftime("%Y.%m.%d"),
-                "sell_date":      exit_date.strftime("%Y.%m.%d"),
-                "entry_price":    round(entry_price, 2),
-                "exit_price":     round(exit_price, 2),
-                "return_pct":     float(ret),
-                "sp500_ret":      float(sp_ret),
-                "classic_score":  int(classic),
-                "growth_score":   int(growth),
-                "modern_score":   int(total - classic - growth),
-                "total_score":    int(total),
-                "recommendation": get_recommendation(total, classic, growth, modern),
-                "win":            bool(ret > 0),
+                "ticker":        name,
+                "signal_date":   entry_date.strftime("%Y.%m.%d"),
+                "sell_date":     exit_date.strftime("%Y.%m.%d"),
+                "entry_price":   round(entry_price, 2),
+                "exit_price":    round(exit_price, 2),
+                "return_pct":    float(ret),
+                "sp500_ret":     float(sp_ret),
+                "classic_score": int(classic),
+                "growth_score":  int(growth),
+                "modern_score":  int(total - classic - growth),
+                "total_score":   int(total),
+                "recommendation":get_recommendation(total, classic, growth, modern),
+                "win":           bool(ret > 0),
             })
         return signals
     except:
@@ -1279,22 +1278,19 @@ def run_backtest(market: str = "us", hold_days: int = 30, score_threshold: int =
         futures = {executor.submit(backtest_single, t, hold_days, score_threshold): t for t in tickers}
         for f in concurrent.futures.as_completed(futures):
             all_signals.extend(f.result())
-
     if not all_signals:
         return {
-            "summary": {"total_signals":0,"win_rate":0.0,"avg_return":0.0,
-                        "avg_sp500":0.0,"alpha":0.0,"hold_days":hold_days,
-                        "score_threshold":score_threshold,"best_model":"—"},
+            "summary":{"total_signals":0,"win_rate":0.0,"avg_return":0.0,
+                       "avg_sp500":0.0,"alpha":0.0,"hold_days":hold_days,
+                       "score_threshold":score_threshold,"best_model":"—"},
             "band_stats":[],"period_returns":[],"signals":[],"error":"신호 없음"
         }
-
     total    = len(all_signals)
     wins     = sum(1 for s in all_signals if s["win"])
-    win_rate = round(wins / total * 100, 1)
-    avg_ret  = round(sum(s["return_pct"] for s in all_signals) / total, 2)
-    avg_sp   = round(sum(s["sp500_ret"]  for s in all_signals) / total, 2)
-    alpha    = round(avg_ret - avg_sp, 2)
-
+    win_rate = round(wins/total*100,1)
+    avg_ret  = round(sum(s["return_pct"] for s in all_signals)/total,2)
+    avg_sp   = round(sum(s["sp500_ret"]  for s in all_signals)/total,2)
+    alpha    = round(avg_ret-avg_sp,2)
     bands = [
         {"label":"70점 이상","min":70,"max":100},
         {"label":"65~69점","min":65,"max":69},
@@ -1303,25 +1299,22 @@ def run_backtest(market: str = "us", hold_days: int = 30, score_threshold: int =
     ]
     band_stats = []
     for b in bands:
-        filtered = [s for s in all_signals if b["min"] <= s["total_score"] <= b["max"]]
-        wr = round(sum(1 for s in filtered if s["win"]) / len(filtered) * 100, 1) if filtered else 0.0
+        filtered = [s for s in all_signals if b["min"]<=s["total_score"]<=b["max"]]
+        wr = round(sum(1 for s in filtered if s["win"])/len(filtered)*100,1) if filtered else 0.0
         band_stats.append({"label":b["label"],"win_rate":wr,"count":len(filtered)})
-
-    classic_wins = [s for s in all_signals if s["classic_score"] >= 20 and s["win"]]
-    growth_wins  = [s for s in all_signals if s["growth_score"]  >= 30 and s["win"]]
-    modern_wins  = [s for s in all_signals if s["modern_score"]  >= 20 and s["win"]]
+    classic_wins = [s for s in all_signals if s["classic_score"]>=20 and s["win"]]
+    growth_wins  = [s for s in all_signals if s["growth_score"]>=30  and s["win"]]
+    modern_wins  = [s for s in all_signals if s["modern_score"]>=20  and s["win"]]
     best_model   = max(
         [("Classic",len(classic_wins)),("Growth",len(growth_wins)),("Modern",len(modern_wins))],
         key=lambda x: x[1]
     )[0]
-
     all_signals.sort(key=lambda x: x["return_pct"], reverse=True)
     return {
-        "summary": {
+        "summary":{
             "total_signals":total,"win_rate":win_rate,
             "avg_return":avg_ret,"avg_sp500":avg_sp,"alpha":alpha,
-            "hold_days":hold_days,"score_threshold":score_threshold,
-            "best_model":best_model,
+            "hold_days":hold_days,"score_threshold":score_threshold,"best_model":best_model,
         },
         "band_stats":    band_stats,
         "period_returns":[{"days":d,"magu":avg_ret,"sp500":avg_sp} for d in [10,20,30,45,60,90]],
