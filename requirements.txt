@@ -4,3 +4,9 @@ yfinance
 pandas
 ta
 requests
+psycopg2-binary
+apscheduler
+pytz
+lxml
+html5lib
+beautifulsoup4
