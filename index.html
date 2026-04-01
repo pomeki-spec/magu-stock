@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>MAGU STOCK — 멀티모델 주식 스크리너</title>
+<title>WISEMAC STOCK — 멀티모델 주식 스크리너</title>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@400;500;600;700;800&display=swap');
 *{box-sizing:border-box;margin:0;padding:0;}
@@ -23,6 +23,9 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
 .nav-item{display:flex;align-items:center;gap:10px;padding:11px 18px;cursor:pointer;color:rgba(255,255,255,.45);font-size:13px;font-weight:500;border-left:3px solid transparent;transition:all .15s;}
 .nav-item:hover{background:rgba(255,255,255,.05);color:rgba(255,255,255,.8);}
 .nav-item.active{background:rgba(59,130,246,.15);color:#fff;border-left-color:var(--blue);}
+.nav-item-main{background:rgba(255,255,255,.07);border-left:3px solid rgba(255,255,255,.25);margin:6px 10px;border-radius:8px;padding:12px 14px !important;}
+.nav-item-main:hover{background:rgba(255,255,255,.13) !important;}
+.nav-item-main.active{background:rgba(59,130,246,.25) !important;border-left-color:var(--blue) !important;}
 .nav-icon{font-size:15px;width:18px;text-align:center;}
 .nav-label{font-size:13px;font-weight:600;}
 .nav-sub{font-size:10px;color:rgba(255,255,255,.25);margin-top:2px;}
@@ -115,13 +118,24 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
 
 <div class="sidebar">
   <div class="logo-area">
-    <div><span class="logo-name">MAGU STOCK</span><span class="logo-badge">MVP</span></div>
+    <div><span class="logo-name">WISEMAC STOCK</span><span class="logo-badge">MVP</span></div>
     <div class="logo-sub">멀티모델 주식 스크리너</div>
   </div>
   <nav class="nav">
-    <div class="nav-item active" id="nav-dashboard" onclick="showPage('dashboard')">
+    <div class="nav-item active" id="nav-liquidity" onclick="showPage('liquidity')">
+      <span class="nav-icon">💧</span>
+      <div><div class="nav-label">유동성 판단</div><div class="nav-sub">STEP 1 · 매매 환경</div></div>
+    </div>
+    <div class="nav-item" id="nav-smartmoney" onclick="showPage('smartmoney')">
+      <span class="nav-icon">🏦</span>
+      <div><div class="nav-label">스마트머니</div><div class="nav-sub">섹터 자금 흐름</div></div>
+    </div>
+    <div class="nav-item nav-item-main" id="nav-dashboard" onclick="showPage('dashboard')">
       <span class="nav-icon">📊</span>
-      <div><div class="nav-label">주식 종합 현황</div><div class="nav-sub">홈 대시보드</div></div>
+      <div>
+        <div class="nav-label" style="color:#fff;">주식 종합 현황</div>
+        <div class="nav-sub">홈 대시보드</div>
+      </div>
     </div>
     <div class="nav-item" id="nav-classic" onclick="showPage('classic')">
       <span class="nav-icon">📉</span>
@@ -140,16 +154,8 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
       <div><div class="nav-label">텐배거</div><div class="nav-sub">린치·오닐·미너비니</div></div>
     </div>
     <div class="nav-item" id="nav-backtest" onclick="showPage('backtest')">
-      <span class="nav-icon">🧪</span>
-      <div><div class="nav-label">백테스트</div><div class="nav-sub">과거 신호 검증</div></div>
-    </div>
-    <div class="nav-item" id="nav-smartmoney" onclick="showPage('smartmoney')">
-      <span class="nav-icon">🏦</span>
-      <div><div class="nav-label">스마트머니</div><div class="nav-sub">섹터 자금 흐름</div></div>
-    </div>
-    <div class="nav-item" id="nav-liquidity" onclick="showPage('liquidity')">
-      <span class="nav-icon">💧</span>
-      <div><div class="nav-label">유동성 판단</div><div class="nav-sub">STEP 1 · 매매 환경</div></div>
+      <span class="nav-icon">📌</span>
+      <div><div class="nav-label">베스트픽 트래커</div><div class="nav-sub">실제 수익률 추적</div></div>
     </div>
   </nav>
   <div class="sidebar-footer">
@@ -176,7 +182,7 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
 <div class="main">
 
   <!-- ───────── 주식 종합 현황 ───────── -->
-  <div id="page-dashboard">
+  <div id="page-dashboard" style="display:none;">
     <div class="topbar">
       <div>
         <div class="page-title">📊 주식 종합 현황</div>
@@ -502,7 +508,7 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
   </div>
 
   <!-- ───────── 💧 유동성 판단 ───────── -->
-  <div id="page-liquidity" style="display:none;">
+  <div id="page-liquidity">
     <div class="topbar">
       <div>
         <div class="page-title">💧 유동성 판단</div>
