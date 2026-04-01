@@ -611,51 +611,45 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
 
     <div style="font-size:11px;color:var(--sub);text-align:right;" id="liq-updated"></div>
 
-    <!-- FRED 공식 차트 -->
-    <div id="liq-fred-charts" style="display:none;margin-top:20px;">
-      <div class="card" style="margin-bottom:14px;">
-        <div class="section-title">📈 FRED 공식 차트
-          <span class="section-right">St. Louis Fed 실시간 데이터 · 무료 공개 차트</span>
+    <!-- FRED 데이터 차트 (API 데이터로 직접 렌더링) -->
+    <div id="liq-fred-charts" style="display:none;margin-top:16px;">
+      <div class="card">
+        <div class="section-title">📈 FRED 데이터 차트
+          <span class="section-right">백엔드 FRED API 데이터 기반 · 분석 버튼 클릭 시 자동 갱신</span>
         </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
 
-        <div style="margin-bottom:22px;">
-          <div style="font-size:13px;font-weight:700;margin-bottom:4px;">🏛 연준 총자산 (WALCL) — QE/QT 방향</div>
-          <div style="font-size:12px;color:var(--sub);margin-bottom:8px;">증가 = QE(유동성 공급) · 감소 = QT(유동성 회수) · 스윙 투자자가 가장 먼저 봐야 할 지표</div>
-          <iframe src="https://fred.stlouisfed.org/graph/#id=WALCL"
-            scrolling="no" frameborder="0"
-            style="overflow:hidden;width:100%;height:370px;border-radius:8px;border:1px solid var(--border);"
-            allowtransparency="true" loading="lazy"></iframe>
+          <!-- WALCL -->
+          <div>
+            <div style="font-size:12px;font-weight:700;margin-bottom:2px;">🏛 연준 총자산 (WALCL)</div>
+            <div style="font-size:11px;color:var(--sub);margin-bottom:8px;">증가=QE(유동성 공급) · 감소=QT(유동성 회수)</div>
+            <canvas id="chart-walcl" height="140"></canvas>
+          </div>
+
+          <!-- RRP -->
+          <div>
+            <div style="font-size:12px;font-weight:700;margin-bottom:2px;">💵 역레포 RRP (RRPONTSYD)</div>
+            <div style="font-size:11px;color:var(--sub);margin-bottom:8px;">감소=유동성 공급 완료 · 완전소진=버퍼 소멸</div>
+            <canvas id="chart-rrp" height="140"></canvas>
+          </div>
+
+          <!-- TGA -->
+          <div>
+            <div style="font-size:12px;font-weight:700;margin-bottom:2px;">🏦 TGA 재무부 계정 (WTREGEN)</div>
+            <div style="font-size:11px;color:var(--sub);margin-bottom:8px;">감소=정부지출로 유동성 공급 · $800B 초과 주의</div>
+            <canvas id="chart-tga" height="140"></canvas>
+          </div>
+
+          <!-- MMF -->
+          <div>
+            <div style="font-size:12px;font-weight:700;margin-bottom:2px;">💰 MMF 소매 잔액 (WRMFNS)</div>
+            <div style="font-size:11px;color:var(--sub);margin-bottom:8px;">감소=주식으로 이동 신호 · 증가=안전자산 선호</div>
+            <canvas id="chart-mmf" height="140"></canvas>
+          </div>
+
         </div>
-
-        <div style="margin-bottom:22px;">
-          <div style="font-size:13px;font-weight:700;margin-bottom:4px;">💵 역레포 RRP (RRPONTSYD) — 시중 여유자금</div>
-          <div style="font-size:12px;color:var(--sub);margin-bottom:8px;">감소 = 머니마켓→시중 유동성 유입 · 현재 완전 소진 상태 → RRP 버퍼 소멸</div>
-          <iframe src="https://fred.stlouisfed.org/graph/#id=RRPONTSYD"
-            scrolling="no" frameborder="0"
-            style="overflow:hidden;width:100%;height:370px;border-radius:8px;border:1px solid var(--border);"
-            allowtransparency="true" loading="lazy"></iframe>
-        </div>
-
-        <div style="margin-bottom:22px;">
-          <div style="font-size:13px;font-weight:700;margin-bottom:4px;">🏦 TGA 재무부 계정 (WTREGEN) — 정부 지출 여력</div>
-          <div style="font-size:12px;color:var(--sub);margin-bottom:8px;">감소 = 정부 지출 → 시중 유동성 공급 · $800B 초과 시 유동성 압박 경고</div>
-          <iframe src="https://fred.stlouisfed.org/graph/#id=WTREGEN"
-            scrolling="no" frameborder="0"
-            style="overflow:hidden;width:100%;height:370px;border-radius:8px;border:1px solid var(--border);"
-            allowtransparency="true" loading="lazy"></iframe>
-        </div>
-
-        <div style="margin-bottom:6px;">
-          <div style="font-size:13px;font-weight:700;margin-bottom:4px;">💰 MMF 소매 잔액 (WRMFNS) — 대기 자금</div>
-          <div style="font-size:12px;color:var(--sub);margin-bottom:8px;">감소 = 대기 자금 → 위험자산(주식) 이동 신호 · 증가 = 안전자산 선호</div>
-          <iframe src="https://fred.stlouisfed.org/graph/#id=WRMFNS"
-            scrolling="no" frameborder="0"
-            style="overflow:hidden;width:100%;height:370px;border-radius:8px;border:1px solid var(--border);"
-            allowtransparency="true" loading="lazy"></iframe>
-        </div>
-
-        <div style="margin-top:10px;padding:10px 14px;background:#eff6ff;border-radius:8px;font-size:12px;color:#1d4ed8;">
-          💡 차트는 FRED(St. Louis Fed) 공식 서버에서 직접 로딩됩니다. 추가 비용 없음 · 항상 최신 데이터
+        <div style="margin-top:12px;padding:8px 14px;background:#eff6ff;border-radius:8px;font-size:11px;color:#1d4ed8;">
+          💡 FRED API로 수집된 실제 데이터를 시각화합니다. 차트를 통해 추세 방향을 직관적으로 확인하세요.
         </div>
       </div>
     </div>
@@ -1285,9 +1279,132 @@ function renderLiquidity(data) {
   document.getElementById('liq-status').style.background=signal.bg_color;
   document.getElementById('liq-status').style.color=signal.color;
   document.getElementById('liq-updated').textContent=`마지막 업데이트: ${data.updated_at} · FRED (연준) 공식 데이터`;
-  // FRED 공식 차트 펼치기
-  document.getElementById('liq-fred-charts').style.display='block';
+
+  // FRED 차트 렌더링
+  document.getElementById('liq-fred-charts').style.display = 'block';
+  renderFredCharts(data);
+}
+
+// Chart.js 인스턴스 저장 (재렌더링 시 destroy)
+const _fredCharts = {};
+
+function renderFredCharts(data) {
+  const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  const gridColor = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.07)';
+  const textColor = isDark ? '#9ca3af' : '#6b7280';
+
+  function drawChart(canvasId, history, label, color, unit, threshold) {
+    if (!history || history.length === 0) return;
+    const sorted = [...history].reverse(); // 오래된 것 → 최신 순
+    const labels = sorted.map(d => d.date.slice(0,7)); // YYYY-MM
+    const values = sorted.map(d => d.value);
+
+    if (_fredCharts[canvasId]) {
+      _fredCharts[canvasId].destroy();
+    }
+    const ctx = document.getElementById(canvasId);
+    if (!ctx) return;
+
+    const chartConfig = {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [{
+          label,
+          data: values,
+          borderColor: color,
+          backgroundColor: color + '18',
+          borderWidth: 2,
+          pointRadius: 0,
+          pointHoverRadius: 4,
+          fill: true,
+          tension: 0.3,
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: true,
+        interaction: { intersect: false, mode: 'index' },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: ctx => `${ctx.parsed.y.toFixed(2)} ${unit}`
+            }
+          }
+        },
+        scales: {
+          x: {
+            ticks: { color: textColor, font: { size: 10 }, maxTicksLimit: 6 },
+            grid: { color: gridColor }
+          },
+          y: {
+            ticks: { color: textColor, font: { size: 10 }, maxTicksLimit: 5,
+              callback: v => v.toFixed(1) + ' ' + unit },
+            grid: { color: gridColor },
+            // 임계선 (TGA $800B 등)
+            ...(threshold ? {
+              afterDataLimits: (axis) => {
+                axis.max = Math.max(axis.max, threshold * 1.05);
+              }
+            } : {})
+          }
+        },
+        ...(threshold ? {
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              callbacks: {
+                label: ctx => `${ctx.parsed.y.toFixed(2)} ${unit}`
+              }
+            },
+            annotation: undefined
+          }
+        } : {})
+      }
+    };
+
+    // TGA 임계선 표시 (간단히 데이터셋으로 추가)
+    if (threshold) {
+      chartConfig.data.datasets.push({
+        label: '임계점',
+        data: labels.map(() => threshold),
+        borderColor: '#ef4444',
+        borderWidth: 1.5,
+        borderDash: [5, 4],
+        pointRadius: 0,
+        fill: false,
+        tension: 0,
+      });
+    }
+
+    _fredCharts[canvasId] = new Chart(ctx, chartConfig);
+  }
+
+  // WALCL — indicators에서 추출 (detail_walcl)
+  const walclInd = (data.indicators||[]).find(i => i.fred_id === 'WALCL');
+  if (walclInd && walclInd.history) {
+    drawChart('chart-walcl', walclInd.history, 'WALCL', '#3b82f6', '조달러');
+  }
+
+  // RRP — indicators에서 추출
+  const rrpInd = (data.indicators||[]).find(i => i.fred_id === 'RRPONTSYD');
+  if (rrpInd && rrpInd.history) {
+    drawChart('chart-rrp', rrpInd.history, 'RRP', '#8b5cf6', 'B$');
+  }
+
+  // TGA — indicators에서 추출, 800B 임계선 추가
+  const tgaInd = (data.indicators||[]).find(i => i.fred_id === 'WTREGEN');
+  if (tgaInd && tgaInd.history) {
+    drawChart('chart-tga', tgaInd.history, 'TGA', '#f59e0b', 'B$', 800);
+  }
+
+  // MMF — data.mmf에서 추출
+  if (data.mmf && data.mmf.history) {
+    drawChart('chart-mmf', data.mmf.history, 'MMF', '#22c55e', '조달러');
+  }
 }
 </script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 </body>
 </html>
