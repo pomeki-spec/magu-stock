@@ -1467,11 +1467,38 @@ def update_bestpick_prices_job():
 
 @app.post("/api/bestpick/save")
 def save_bestpick(market: str = "nasdaq"):
-    """스크리닝 결과에서 베스트픽 5종목을 즉시 선정 후 DB 저장"""
-    cached = load_screening_from_db(market)
-    if not cached:
-        return {"error": "스크리닝 결과가 없습니다. 먼저 스크리닝을 실행하세요."}
-    picks = select_bestpick_5(cached)
+    """스크리닝 결과에서 베스트픽 5종목을 즉시 선정 후 DB 저장
+    DB 캐시가 없으면 실시간 스크리닝으로 fallback"""
+    # 1) DB 캐시 우선 조회
+    candidates = load_screening_from_db(market)
+
+    # 2) DB 캐시 없으면 실시간 스크리닝 (나스닥 상위 50개만 빠르게)
+    if not candidates:
+        logger.info(f"[베스트픽] DB 캐시 없음 → 실시간 스크리닝 ({market})")
+        market_map = {
+            "nasdaq": TICKERS_NASDAQ[:50],
+            "sp500":  TICKERS_SP500_FALLBACK[:50],
+            "kospi":  TICKERS_KOSPI[:50],
+            "kosdaq": TICKERS_KOSDAQ[:50],
+        }
+        tickers = market_map.get(market, TICKERS_NASDAQ[:50])
+        results = []
+        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+            futures = {executor.submit(fetch_single_stock, t, market): t for t in tickers}
+            for f in concurrent.futures.as_completed(futures, timeout=120):
+                try:
+                    r = f.result(timeout=20)
+                    if r: results.append(r)
+                except Exception as e:
+                    logger.warning(f"[베스트픽 실시간] 오류: {e}")
+        if not results:
+            return {"error": "스크리닝 결과를 가져올 수 없습니다. 잠시 후 다시 시도해 주세요."}
+        results.sort(key=lambda x: x["total_score"], reverse=True)
+        candidates = get_portfolio_weight(results)
+        # DB에도 저장 (다음번엔 캐시 사용)
+        save_screening_to_db(candidates)
+
+    picks = select_bestpick_5(candidates)
     result = save_bestpick_to_db(picks)
     return {
         "picks": [{"ticker": p["ticker"], "name": p.get("name"), "sector": p.get("sector"),
