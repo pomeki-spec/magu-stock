@@ -989,7 +989,7 @@ def score_mmf(data, is_cached=False):
             "error":False,"is_cached":is_cached,"status":status,
             "value":total_est_t,"value_unit":"조 달러 (추정)","value_retail":retail_b,
             "change_pct":change_4w,
-            "history":[{"date":d["date"],"value":round(d["value"]/MMF_RETAIL_RATIO/1000,2)} for d in data[:8]],
+            "history":[{"date":d["date"],"value":round(d["value"]/MMF_RETAIL_RATIO/1000,2)} for d in data[:52]],
             "context":(f"소매 실측: ${retail_b:.0f}B / 전체 추정: ~${total_est_t}조 / 12주 추세: {change_12w:+.1f}%"),
             "note":"기관 MMF(WIMFNS) 2021년 폐기 → 소매 기반 추정. 방향성 신호 기준."}
 
@@ -1011,34 +1011,24 @@ def detail_walcl(data, is_cached=False):
     return {"label":label,"fred_id":fred_id,"score":None,"max_score":0,
             "error":False,"is_cached":is_cached,"status":st,
             "value":total_t,"value_unit":"조 달러","change_pct":chg4w,"monthly_change_b":mon_b,
-            "history":[{"date":d["date"],"value":round(d["value"]/1e6,2)} for d in data[:8]],
+            "history":[{"date":d["date"],"value":round(d["value"]/1e6,2)} for d in data[:52]],
             "context":f"4주: {chg4w:+.3f}% / 12주: {chg12w:+.3f}% / 월 변화: ${mon_b:+.0f}B"}
 
 def detail_rrp(data, is_cached=False):
     label,fred_id="역레포(RRP) 잔액","RRPONTSYD"
     if data is None or len(data)<2: return _err_ind(label,fred_id,0,is_cached)
-    latest=data[0]["value"]
-    # RRP는 일별 데이터 → 4주 전 = index 20
-    prev4w=data[20]["value"] if len(data)>20 else data[-1]["value"]
-    latest_b=round(latest/1000,1)
-    # RRP $10B 미만 = 사실상 완전 소진 → 변화율 계산 무의미 (분모≈0, 수천% 왜곡)
-    if latest_b <= 10:
-        chg_pct = 0
-        st = "완전 소진 — RRP 버퍼 소멸. 지급준비금에 의존하는 단계."
-        ctx = "피크($2.5조) 대비 100% 소진 — 잔액 $0, 변화율 표시 불가"
-    else:
-        chg_pct = round((latest-prev4w)/prev4w*100,2) if prev4w>0 else 0
-        rising = latest>prev4w
-        depl = round((1-latest_b/2500)*100,1)
-        if latest_b>500:   st="감소 중 → 유동성 유입 (버퍼 충분)" if not rising else "증가 중 → 유동성 흡수"
-        elif latest_b>100: st="소진 진행 중 → 유입 지속" if not rising else "소진 단계에서 재증가 → 주의"
-        else:              st="거의 소진 — 추가 공급 여력 없음 (중립)"
-        ctx = f"피크($2.5조) 대비 {depl}% 소진 / 4주 변화: {chg_pct:+.1f}%"
+    latest=data[0]["value"]; prev4w=data[4]["value"] if len(data)>4 else data[-1]["value"]
+    latest_b=round(latest/1000,1); chg_pct=round((latest-prev4w)/prev4w*100,2) if prev4w>0 else 0
+    rising=latest>prev4w; depl=round((1-latest_b/2500)*100,1)
+    if latest_b>500:   st="감소 중 → 유동성 유입 (버퍼 충분)" if not rising else "증가 중 → 유동성 흡수"
+    elif latest_b>100: st="소진 진행 중 → 유입 지속" if not rising else "소진 단계에서 재증가 → 주의"
+    elif latest_b>10:  st="거의 소진 — 추가 공급 여력 없음 (중립)"
+    else:              st="소진 후 재증가 → 유동성 재흡수 경계" if rising else "완전 소진 — 지급준비금에 의존"
     return {"label":label,"fred_id":fred_id,"score":None,"max_score":0,
             "error":False,"is_cached":is_cached,"status":st,
             "value":latest_b,"value_unit":"십억 달러","change_pct":chg_pct,
-            "history":[{"date":d["date"],"value":round(d["value"]/1000,1)} for d in data[:8]],
-            "context":ctx}
+            "history":[{"date":d["date"],"value":round(d["value"]/1000,1)} for d in data[:260:5]],
+            "context":f"피크($2.5조) 대비 {depl}% 소진 / 4주 변화: {chg_pct:+.1f}%"}
 
 def detail_tga(data, is_cached=False):
     label,fred_id="TGA(재무부 계정) 잔액","WTREGEN"
@@ -1060,7 +1050,7 @@ def detail_tga(data, is_cached=False):
             "status":f"{lv} / 4주 변화 {chg_b:+.0f}B{sadj_note}",
             "value":latest_b,"value_unit":"십억 달러","change_pct":chg_pct,
             "seasonal_adj":sadj,"effective_b":eff_b,
-            "history":[{"date":d["date"],"value":round(d["value"]/1000,1)} for d in data[:8]],
+            "history":[{"date":d["date"],"value":round(d["value"]/1000,1)} for d in data[:52]],
             "context":ctx}
 
 def get_liquidity_signal(total_score: int) -> dict:
@@ -1310,10 +1300,11 @@ def get_liquidity():
                 "guide":"https://fred.stlouisfed.org/docs/api/api_key.html 에서 무료 발급 후 Railway 환경변수에 추가하세요.",
                 "updated_at":datetime.now().strftime("%Y-%m-%d %H:%M")}
     series_map={"walcl":"WALCL","rrp":"RRPONTSYD","tga":"WTREGEN","mmf":"WRMFNS"}
+    # 차트 시각화용: WALCL/TGA/MMF 주별 52개(1년), RRP 일별 260개(1년)
+    limit_map={"walcl":52,"rrp":260,"tga":52,"mmf":52}
     raw,is_cache={},{}
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
-        futures={executor.submit(fetch_fred_cached, sid, 30 if key=="rrp" else 20): key
-                 for key,sid in series_map.items()}
+        futures={executor.submit(fetch_fred_cached,sid,limit_map[key]):key for key,sid in series_map.items()}
         for f in concurrent.futures.as_completed(futures):
             key=futures[f]; data,cached=f.result()
             raw[key]=data; is_cache[key]=cached
