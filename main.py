@@ -1271,15 +1271,15 @@ def get_stock_score(ticker: str):
 def analyze_etf(etf_info: dict):
     ticker=etf_info["ticker"]
     try:
-        t=yf.Ticker(ticker); info=t.info; hist=t.history(period="6mo")
+        t=yf.Ticker(ticker); info=t.info; hist=t.history(period="2y")
         if hist.empty or len(hist)<60: return None
         price=float(hist['Close'].iloc[-1])
-        p1d=float(hist['Close'].iloc[-2]) if len(hist)>=2 else price
-        p1w=float(hist['Close'].iloc[-6]) if len(hist)>=6 else price
-        p1m=float(hist['Close'].iloc[-22]) if len(hist)>=22 else price
-        p3m=float(hist['Close'].iloc[-66]) if len(hist)>=66 else price
-        p6m=float(hist['Close'].iloc[-132]) if len(hist)>=132 else price
-        p1y=float(hist['Close'].iloc[0])
+        p1d=float(hist['Close'].iloc[-2])  if len(hist)>=2   else price
+        p1w=float(hist['Close'].iloc[-6])  if len(hist)>=6   else price
+        p1m=float(hist['Close'].iloc[-22]) if len(hist)>=22  else price
+        p3m=float(hist['Close'].iloc[-66]) if len(hist)>=66  else price
+        p6m=float(hist['Close'].iloc[-132])if len(hist)>=132 else price
+        p1y=float(hist['Close'].iloc[-252])if len(hist)>=252 else float(hist['Close'].iloc[0])
         r1d=round((price/p1d-1)*100,2); r1w=round((price/p1w-1)*100,2)
         r1m=round((price/p1m-1)*100,2); r3m=round((price/p3m-1)*100,2)
         r6m=round((price/p6m-1)*100,2); r1y=round((price/p1y-1)*100,2)
@@ -1287,7 +1287,8 @@ def analyze_etf(etf_info: dict):
         vol_ratio=round(vol5d/vol20d,2) if vol20d>0 else 1.0
         rsi_val=0.0
         if len(hist)>=14: rsi_val=round(float(ta.momentum.RSIIndicator(hist['Close'],window=14).rsi().iloc[-1]),1)
-        high_52w=float(hist['High'].max()); from_high=round((price/high_52w-1)*100,1)
+        high_52w=float(hist['High'].iloc[-252:].max()) if len(hist)>=252 else float(hist['High'].max())
+        from_high=round((price/high_52w-1)*100,1)
         inst_pct=round(float(info.get('heldPercentInstitutions') or 0)*100,1)
         sc=0
         if r1m>5:sc+=3
