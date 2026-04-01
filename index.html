@@ -1246,33 +1246,55 @@ function renderLiquidity(data) {
     if(i===signal.stage){el.style.background=signal.bg_color;el.style.borderColor=signal.color;el.style.transform='scale(1.04)';el.style.boxShadow=`0 4px 14px ${signal.color}44`;}
     else{el.style.background='#f8fafc';el.style.borderColor='#e2e8f0';el.style.transform='';el.style.boxShadow='';}
   }
-  const icons=['🏛','💵','🏦','💰'];
-  const indicators=data.indicators||[];
-  document.getElementById('liq-indicators').innerHTML=indicators.map((ind,i)=>{
-    const scoreColor=ind.score>=20?'#15803d':ind.score>=13?'#1d4ed8':ind.score>=7?'#b45309':'#991b1b';
-    const changeTxt=ind.change_pct>=0?`<span style="color:#ef4444;font-weight:700;">▲ +${ind.change_pct}%</span>`:`<span style="color:#3b82f6;font-weight:700;">▼ ${ind.change_pct}%</span>`;
-    const hist=(ind.history||[]).slice(0,6).reverse();
-    const histMax=Math.max(...hist.map(h=>h.value),1);
-    const histBars=hist.map(h=>{
-      const pct=Math.round((h.value/histMax)*100);
-      return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;"><div style="width:100%;background:#e2e8f0;border-radius:2px;height:32px;display:flex;align-items:flex-end;overflow:hidden;"><div style="width:100%;background:${scoreColor};opacity:.6;border-radius:2px 2px 0 0;height:${pct}%;"></div></div><div style="font-size:9px;color:var(--sub);writing-mode:vertical-rl;transform:rotate(180deg);white-space:nowrap;">${h.date.slice(5)}</div></div>`;
-    }).join('');
+  // 카드 구성: 순유동성(40점) + MMF(20점) + RRP(참고) + TGA(참고)
+  // WALCL은 순유동성 카드 안에 포함되어 있으므로 별도 카드 없음
+  const allInds = [
+    data.net_liquidity,
+    data.mmf,
+    ...(data.indicators||[]).filter(ind => ind.fred_id==='RRPONTSYD' || ind.fred_id==='WTREGEN')
+  ].filter(Boolean);
+
+  document.getElementById('liq-indicators').innerHTML = allInds.map(ind => {
+    const hasScore = ind.score !== null && ind.score !== undefined && ind.score !== 'N/A' && !isNaN(Number(ind.score));
+    const scoreNum = hasScore ? Number(ind.score) : null;
+    const maxScore = ind.max_score || 0;
+    const scoreColor = !hasScore ? '#94a3b8'
+      : scoreNum >= maxScore*0.7 ? '#15803d'
+      : scoreNum >= maxScore*0.45 ? '#1d4ed8'
+      : scoreNum >= maxScore*0.25 ? '#b45309' : '#991b1b';
+    const changePct = ind.change_pct ?? 0;
+    // RRP 완전소진 시 변화율 표시 안 함
+    const isRrpDepleted = ind.fred_id === 'RRPONTSYD' && (ind.value === 0 || ind.value <= 10);
+    const changeTxt = isRrpDepleted
+      ? '<span style="color:#94a3b8;">잔액 $0 — 변화율 미표시</span>'
+      : changePct >= 0
+        ? `<span style="color:#ef4444;font-weight:700;">▲ +${changePct}%</span>`
+        : `<span style="color:#3b82f6;font-weight:700;">▼ ${changePct}%</span>`;
+    const ctx = ind.context ? `<div style="font-size:11px;color:var(--sub);margin-top:4px;">${ind.context}</div>` : '';
+    const scoreDisplay = hasScore
+      ? `<div style="font-size:22px;font-weight:800;color:${scoreColor};">${scoreNum}<span style="font-size:13px;color:var(--sub);">/${maxScore}</span></div>`
+      : `<div style="font-size:12px;font-weight:600;color:#94a3b8;margin-top:4px;">참고지표</div>`;
+    const barWidth = hasScore && maxScore > 0 ? Math.round(scoreNum/maxScore*100) : 0;
     return `<div class="card">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;">
-        <div><div class="section-title" style="margin-bottom:4px;">${icons[i]} ${ind.label}</div><div style="font-size:11px;color:var(--sub);">${ind.fred_id} · 4주 변화율 기준</div></div>
-        <div style="text-align:right;"><div style="font-size:11px;color:var(--sub);margin-bottom:3px;">점수</div><div style="font-size:22px;font-weight:800;color:${scoreColor};">${ind.score}<span style="font-size:13px;color:var(--sub);">/${ind.max_score}</span></div></div>
+        <div>
+          <div class="section-title" style="margin-bottom:4px;">${ind.label}</div>
+          <div style="font-size:11px;color:var(--sub);">${ind.fred_id||''}${ind.fred_id?' · ':''} 4주 변화율 기준</div>
+        </div>
+        <div style="text-align:right;">
+          <div style="font-size:11px;color:var(--sub);margin-bottom:3px;">점수</div>
+          ${scoreDisplay}
+        </div>
       </div>
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-        <div><div style="font-size:24px;font-weight:800;">${ind.value}<span style="font-size:13px;color:var(--sub);margin-left:4px;">${ind.value_unit}</span></div><div style="font-size:12px;margin-top:3px;">4주 변화: ${changeTxt}</div></div>
+      <div style="margin-bottom:10px;">
+        <div style="font-size:24px;font-weight:800;">${ind.value??'—'}<span style="font-size:13px;color:var(--sub);margin-left:4px;">${ind.value_unit||''}</span></div>
+        <div style="font-size:12px;margin-top:3px;">4주 변화: ${changeTxt}</div>
+        ${ctx}
       </div>
       <div style="padding:7px 12px;background:${scoreColor}18;border-left:3px solid ${scoreColor};border-radius:4px;margin-bottom:12px;">
-        <div style="font-size:12px;font-weight:700;color:${scoreColor};">${ind.status}</div>
+        <div style="font-size:12px;font-weight:700;color:${scoreColor};">${ind.status||''}</div>
       </div>
-      <div style="margin-bottom:12px;">
-        <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--sub);margin-bottom:4px;"><span>0</span><span>${ind.max_score}점</span></div>
-        <div style="height:7px;background:#e2e8f0;border-radius:4px;overflow:hidden;"><div style="height:100%;background:${scoreColor};border-radius:4px;width:${Math.round(ind.score/ind.max_score*100)}%;transition:width .8s ease;"></div></div>
-      </div>
-      ${hist.length>0?`<div style="font-size:10px;color:var(--sub);margin-bottom:6px;font-weight:600;">최근 추이</div><div style="display:flex;gap:3px;height:50px;align-items:flex-end;">${histBars}</div>`:''}
+      ${hasScore ? '<div style="margin-bottom:12px;"><div style="display:flex;justify-content:space-between;font-size:10px;color:var(--sub);margin-bottom:4px;"><span>0</span><span>'+maxScore+'점</span></div><div style="height:7px;background:#e2e8f0;border-radius:4px;overflow:hidden;"><div style="height:100%;background:'+scoreColor+';border-radius:4px;width:'+barWidth+'%;transition:width .8s ease;"></div></div></div>' : ''}
     </div>`;
   }).join('');
   document.getElementById('liq-status').textContent=signal.signal;
