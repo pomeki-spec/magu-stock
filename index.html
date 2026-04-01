@@ -623,28 +623,28 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
           <div>
             <div style="font-size:12px;font-weight:700;margin-bottom:2px;">🏛 연준 총자산 (WALCL)</div>
             <div style="font-size:11px;color:var(--sub);margin-bottom:8px;">증가=QE(유동성 공급) · 감소=QT(유동성 회수)</div>
-            <canvas id="chart-walcl" height="140"></canvas>
+            <div style="position:relative;width:100%;height:200px;"><canvas id="chart-walcl"></canvas></div>
           </div>
 
           <!-- RRP -->
           <div>
             <div style="font-size:12px;font-weight:700;margin-bottom:2px;">💵 역레포 RRP (RRPONTSYD)</div>
             <div style="font-size:11px;color:var(--sub);margin-bottom:8px;">감소=유동성 공급 완료 · 완전소진=버퍼 소멸</div>
-            <canvas id="chart-rrp" height="140"></canvas>
+            <div style="position:relative;width:100%;height:200px;"><canvas id="chart-rrp"></canvas></div>
           </div>
 
           <!-- TGA -->
           <div>
             <div style="font-size:12px;font-weight:700;margin-bottom:2px;">🏦 TGA 재무부 계정 (WTREGEN)</div>
             <div style="font-size:11px;color:var(--sub);margin-bottom:8px;">감소=정부지출로 유동성 공급 · $800B 초과 주의</div>
-            <canvas id="chart-tga" height="140"></canvas>
+            <div style="position:relative;width:100%;height:200px;"><canvas id="chart-tga"></canvas></div>
           </div>
 
           <!-- MMF -->
           <div>
             <div style="font-size:12px;font-weight:700;margin-bottom:2px;">💰 MMF 소매 잔액 (WRMFNS)</div>
             <div style="font-size:11px;color:var(--sub);margin-bottom:8px;">감소=주식으로 이동 신호 · 증가=안전자산 선호</div>
-            <canvas id="chart-mmf" height="140"></canvas>
+            <div style="position:relative;width:100%;height:200px;"><canvas id="chart-mmf"></canvas></div>
           </div>
 
         </div>
@@ -1310,6 +1310,11 @@ function renderLiquidity(data) {
 // Chart.js 인스턴스 저장 (재렌더링 시 destroy)
 const _fredCharts = {};
 
+// 창 크기 변경 시 차트 자동 리사이즈
+window.addEventListener('resize', () => {
+  Object.values(_fredCharts).forEach(chart => { if (chart) chart.resize(); });
+});
+
 function renderFredCharts(data) {
   const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
   const gridColor = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.07)';
@@ -1345,7 +1350,7 @@ function renderFredCharts(data) {
       },
       options: {
         responsive: true,
-        maintainAspectRatio: true,
+        maintainAspectRatio: false,
         interaction: { intersect: false, mode: 'index' },
         plugins: {
           legend: { display: false },
