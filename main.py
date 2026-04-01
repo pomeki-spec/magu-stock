@@ -916,9 +916,10 @@ _liquidity_cache: dict = {}
 def fetch_fred(series_id: str, limit: int = 20):
     if not FRED_API_KEY: return None
     try:
+        # 5년 차트 지원을 위해 observation_start를 2200일(6년)로 설정
         params = {"series_id":series_id,"api_key":FRED_API_KEY,"file_type":"json",
                   "sort_order":"desc","limit":limit,
-                  "observation_start":(datetime.now()-timedelta(days=400)).strftime("%Y-%m-%d")}
+                  "observation_start":(datetime.now()-timedelta(days=2200)).strftime("%Y-%m-%d")}
         resp = requests.get(FRED_BASE, params=params, timeout=10)
         if resp.status_code != 200: return None
         result = [{"date":obs["date"],"value":float(obs["value"])}
