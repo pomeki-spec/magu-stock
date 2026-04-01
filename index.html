@@ -226,11 +226,15 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
 
     <div class="card" style="margin-bottom:14px;">
       <div class="section-title">🔍 종목 점수 조회 <span class="section-right">티커 입력 후 Enter (미국: AAPL / 한국: 005930.KS)</span></div>
-      <div style="display:flex;gap:8px;align-items:center;">
-        <input id="stock-search-input" type="text" placeholder="티커 입력 (예: AAPL, TSLA, 005930.KS, 000660.KS)"
-          style="flex:1;padding:11px 15px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;outline:none;font-family:inherit;transition:border-color .15s;"
-          onkeydown="if(event.key==='Enter') searchStock()"
-          onfocus="this.style.borderColor='#3b82f6'" onblur="this.style.borderColor='var(--border)'">
+      <div style="display:flex;gap:8px;align-items:center;position:relative;">
+        <div style="flex:1;position:relative;">
+          <input id="stock-search-input" type="text" placeholder="티커 또는 한국어 종목명 입력 (예: AAPL, 삼성전자, 005930.KS)"
+            style="width:100%;padding:11px 15px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;outline:none;font-family:inherit;transition:border-color .15s;"
+            onkeydown="handleSearchKeydown(event)"
+            oninput="onSearchInput(this.value)"
+            onfocus="this.style.borderColor='#3b82f6'" onblur="setTimeout(()=>hideDropdown(),200)">
+          <div id="search-dropdown" style="display:none;position:absolute;top:100%;left:0;right:0;background:#fff;border:1.5px solid #3b82f6;border-top:none;border-radius:0 0 8px 8px;z-index:100;box-shadow:0 4px 16px rgba(0,0,0,.1);max-height:280px;overflow-y:auto;"></div>
+        </div>
         <button class="run-btn" onclick="searchStock()" id="search-btn">🔍 조회</button>
       </div>
       <div id="stock-search-result" style="margin-top:14px;display:none;"></div>
@@ -1073,8 +1077,81 @@ async function loadBestpickHistory() {
   }
 }
 
+let _searchDebounce=null;
+let _dropdownSelected=-1;
+let _dropdownItems=[];
+
+function hideDropdown(){
+  document.getElementById('search-dropdown').style.display='none';
+  _dropdownSelected=-1;
+}
+
+async function onSearchInput(val){
+  clearTimeout(_searchDebounce);
+  const v=val.trim();
+  if(!v){hideDropdown();return;}
+  // 티커 형식(영문+숫자, 또는 숫자.KS/KQ)이면 드롭다운 안 띄움
+  if(/^[A-Za-z0-9\-\.]+$/.test(v)&&!/[\uAC00-\uD7A3]/.test(v)){hideDropdown();return;}
+  _searchDebounce=setTimeout(async()=>{
+    try{
+      const res=await fetch(`${API}/api/stock/search?q=${encodeURIComponent(v)}`);
+      const data=await res.json();
+      const items=data.candidates||[];
+      _dropdownItems=items;
+      _dropdownSelected=-1;
+      const dd=document.getElementById('search-dropdown');
+      if(!items.length){dd.style.display='none';return;}
+      dd.innerHTML=items.map((c,i)=>`
+        <div class="dd-item" data-idx="${i}" onmousedown="selectDropdown(${i})"
+          style="padding:10px 15px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border);font-size:13px;">
+          <span style="font-weight:700;">${c.name}</span>
+          <span style="color:var(--sub);font-size:11px;font-weight:600;">${c.ticker}</span>
+        </div>`).join('');
+      dd.style.display='block';
+      // hover 스타일
+      dd.querySelectorAll('.dd-item').forEach(el=>{
+        el.onmouseover=()=>{dd.querySelectorAll('.dd-item').forEach(e=>e.style.background='');el.style.background='#eff6ff';};
+        el.onmouseout=()=>{el.style.background='';};
+      });
+    }catch(e){}
+  },200);
+}
+
+function selectDropdown(idx){
+  if(idx<0||idx>=_dropdownItems.length)return;
+  const c=_dropdownItems[idx];
+  document.getElementById('stock-search-input').value=c.ticker;
+  hideDropdown();
+  searchStock();
+}
+
+function handleSearchKeydown(event){
+  const dd=document.getElementById('search-dropdown');
+  const items=dd.querySelectorAll('.dd-item');
+  if(dd.style.display!=='none'&&items.length){
+    if(event.key==='ArrowDown'){
+      event.preventDefault();
+      _dropdownSelected=Math.min(_dropdownSelected+1,items.length-1);
+      items.forEach((el,i)=>el.style.background=i===_dropdownSelected?'#eff6ff':'');
+      return;
+    }
+    if(event.key==='ArrowUp'){
+      event.preventDefault();
+      _dropdownSelected=Math.max(_dropdownSelected-1,-1);
+      items.forEach((el,i)=>el.style.background=i===_dropdownSelected?'#eff6ff':'');
+      return;
+    }
+    if(event.key==='Enter'){
+      if(_dropdownSelected>=0){selectDropdown(_dropdownSelected);return;}
+    }
+    if(event.key==='Escape'){hideDropdown();return;}
+  }
+  if(event.key==='Enter') searchStock();
+}
+
 async function searchStock() {
   const input=document.getElementById('stock-search-input');
+  hideDropdown();
   const ticker=input.value.trim().toUpperCase();
   if(!ticker) return;
   const btn=document.getElementById('search-btn');
