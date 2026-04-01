@@ -1018,19 +1018,27 @@ def detail_rrp(data, is_cached=False):
     label,fred_id="역레포(RRP) 잔액","RRPONTSYD"
     if data is None or len(data)<2: return _err_ind(label,fred_id,0,is_cached)
     latest=data[0]["value"]
-    # RRP는 일별 데이터 → 4주 전 = index 20 (WALCL 주별과 다름)
+    # RRP는 일별 데이터 → 4주 전 = index 20
     prev4w=data[20]["value"] if len(data)>20 else data[-1]["value"]
-    latest_b=round(latest/1000,1); chg_pct=round((latest-prev4w)/prev4w*100,2) if prev4w>0 else 0
-    rising=latest>prev4w; depl=round((1-latest_b/2500)*100,1)
-    if latest_b>500:   st="감소 중 → 유동성 유입 (버퍼 충분)" if not rising else "증가 중 → 유동성 흡수"
-    elif latest_b>100: st="소진 진행 중 → 유입 지속" if not rising else "소진 단계에서 재증가 → 주의"
-    elif latest_b>10:  st="거의 소진 — 추가 공급 여력 없음 (중립)"
-    else:              st="소진 후 재증가 → 유동성 재흡수 경계" if rising else "완전 소진 — 지급준비금에 의존"
+    latest_b=round(latest/1000,1)
+    # RRP $10B 미만 = 사실상 완전 소진 → 변화율 계산 무의미 (분모≈0, 수천% 왜곡)
+    if latest_b <= 10:
+        chg_pct = 0
+        st = "완전 소진 — RRP 버퍼 소멸. 지급준비금에 의존하는 단계."
+        ctx = "피크($2.5조) 대비 100% 소진 — 잔액 $0, 변화율 표시 불가"
+    else:
+        chg_pct = round((latest-prev4w)/prev4w*100,2) if prev4w>0 else 0
+        rising = latest>prev4w
+        depl = round((1-latest_b/2500)*100,1)
+        if latest_b>500:   st="감소 중 → 유동성 유입 (버퍼 충분)" if not rising else "증가 중 → 유동성 흡수"
+        elif latest_b>100: st="소진 진행 중 → 유입 지속" if not rising else "소진 단계에서 재증가 → 주의"
+        else:              st="거의 소진 — 추가 공급 여력 없음 (중립)"
+        ctx = f"피크($2.5조) 대비 {depl}% 소진 / 4주 변화: {chg_pct:+.1f}%"
     return {"label":label,"fred_id":fred_id,"score":None,"max_score":0,
             "error":False,"is_cached":is_cached,"status":st,
             "value":latest_b,"value_unit":"십억 달러","change_pct":chg_pct,
             "history":[{"date":d["date"],"value":round(d["value"]/1000,1)} for d in data[:8]],
-            "context":f"피크($2.5조) 대비 {depl}% 소진 / 4주 변화: {chg_pct:+.1f}%"}
+            "context":ctx}
 
 def detail_tga(data, is_cached=False):
     label,fred_id="TGA(재무부 계정) 잔액","WTREGEN"
