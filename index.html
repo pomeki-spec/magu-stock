@@ -111,9 +111,10 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
 .bt-stat-label{font-size:11px;color:var(--sub);margin-bottom:7px;font-weight:600;}
 .bt-stat-val{font-size:24px;font-weight:800;}
 .bt-select{padding:7px 12px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;border:1px solid var(--border);background:#fff;color:var(--text);outline:none;}
-.fred-chart-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+.fred-chart-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;min-width:0;}
 @media(max-width:900px){.fred-chart-grid{grid-template-columns:1fr;}}
-.fred-chart-wrap{position:relative;width:100%;height:200px;}
+.fred-chart-grid>div{min-width:0;overflow:hidden;}
+.fred-chart-wrap{position:relative;width:100%;height:200px;min-width:0;}
 .sm-toggle-box{display:flex;align-items:center;gap:10px;padding:14px 18px;background:linear-gradient(135deg,#f0fdf4,#dcfce7);border:1px solid #86efac;border-radius:12px;margin-bottom:14px;}
 </style>
 </head>
@@ -1313,10 +1314,19 @@ function renderLiquidity(data) {
 // Chart.js 인스턴스 저장 (재렌더링 시 destroy)
 const _fredCharts = {};
 
-// 창 크기 변경 시 차트 자동 리사이즈
-window.addEventListener('resize', () => {
-  Object.values(_fredCharts).forEach(chart => { if (chart) chart.resize(); });
-});
+// ResizeObserver로 각 차트 컨테이너 직접 감시 → 크기 변경 시 즉시 리사이즈
+function observeChartResize() {
+  if (typeof ResizeObserver === 'undefined') return;
+  const ro = new ResizeObserver(() => {
+    Object.values(_fredCharts).forEach(chart => {
+      if (chart) { chart.resize(); }
+    });
+  });
+  ['chart-walcl','chart-rrp','chart-tga','chart-mmf'].forEach(id => {
+    const wrap = document.getElementById(id)?.parentElement;
+    if (wrap) ro.observe(wrap);
+  });
+}
 
 function renderFredCharts(data) {
   const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
@@ -1433,6 +1443,8 @@ function renderFredCharts(data) {
   if (data.mmf && data.mmf.history) {
     drawChart('chart-mmf', data.mmf.history, 'MMF', '#22c55e', '조달러');
   }
+  // 차트 생성 완료 후 ResizeObserver 등록
+  observeChartResize();
 }
 </script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
