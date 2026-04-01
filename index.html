@@ -1188,10 +1188,10 @@ async function loadSmartMoney() {
     const outflow=_smSectorData.filter(s=>['강한유출','유출','소폭유출'].includes(s.trend));
     const ratio=inflow.length/_smSectorData.length;
     let jEmoji,jTitle,jDesc,jBg,jBorder;
-    if(ratio>=0.7){jEmoji='🚀';jTitle='광범위 상승장 — 대부분 섹터에 자금 유입';jDesc='리스크 온 환경. 스크리닝 신호를 적극 반영하세요.';jBg='#f0fdf4';jBorder='#86efac';}
-    else if(ratio>=0.5){jEmoji='📈';jTitle='부분 강세 — 주도 섹터 중심 상승';jDesc='선별적 접근 필요. 유입 섹터 종목을 우선 고려하세요.';jBg='#eff6ff';jBorder='#93c5fd';}
-    else if(ratio>=0.35){jEmoji='🌊';jTitle='혼조세 — 섹터 로테이션 진행 중';jDesc='섹터 간 자금 이동이 활발합니다. 주도 섹터 파악 후 진입하세요.';jBg='#fefce8';jBorder='#fde047';}
-    else{jEmoji='🛡';jTitle='방어적 장세 — 유출 섹터 우세';jDesc='리스크 오프 신호. 방어주·현금 비중을 높이는 것을 고려하세요.';jBg='#fff1f2';jBorder='#fca5a5';}
+    if(ratio>=0.7){jEmoji='🚀';jTitle='광범위 상승장 — 대부분 섹터에 자금 유입';jDesc='리스크 온 환경. 스크리닝 신호를 적극 반영하세요. (1개월+3개월 수익률+거래량 종합 판단)';jBg='#f0fdf4';jBorder='#86efac';}
+    else if(ratio>=0.5){jEmoji='📈';jTitle='부분 강세 — 주도 섹터 중심 상승';jDesc='선별적 접근 필요. 유입 섹터 종목을 우선 고려하세요. (1개월+3개월 수익률+거래량 종합 판단)';jBg='#eff6ff';jBorder='#93c5fd';}
+    else if(ratio>=0.35){jEmoji='🌊';jTitle='혼조세 — 섹터 로테이션 진행 중';jDesc='섹터 간 자금 이동이 활발합니다. 주도 섹터 파악 후 진입하세요. (1개월+3개월 수익률+거래량 종합 판단)';jBg='#fefce8';jBorder='#fde047';}
+    else{jEmoji='🛡';jTitle='방어적 장세 — 유출 섹터 우세';jDesc='리스크 오프 신호. 방어주·현금 비중을 높이는 것을 고려하세요. (1개월+3개월 수익률+거래량 종합 판단)';jBg='#fff1f2';jBorder='#fca5a5';}
     const bySorted=[..._smSectorData].sort((a,b)=>b.ret_1m-a.ret_1m);
     document.getElementById('sm-judge-card').style.display='block';
     document.getElementById('sm-judge-card').style.background=jBg;
@@ -1208,7 +1208,8 @@ async function loadSmartMoney() {
     // 상세 테이블
     const trendStyle={'강한유입':'background:#14532d;color:#86efac;','유입':'background:#dcfce7;color:#15803d;','소폭유입':'background:#f0fdf4;color:#16a34a;','중립':'background:#f1f5f9;color:#64748b;','소폭유출':'background:#fff1f2;color:#9f1239;','유출':'background:#fee2e2;color:#991b1b;','강한유출':'background:#7f1d1d;color:#fca5a5;'};
     const trendIcon2={'강한유입':'▲▲▲','유입':'▲▲','소폭유입':'▲','중립':'➡','소폭유출':'▼','유출':'▼▼','강한유출':'▼▼▼'};
-    document.getElementById('sm-etf-tbody').innerHTML=_smSectorData.map(s=>{
+    const tblSorted=[..._smSectorData].sort((a,b)=>b.momentum_score-a.momentum_score);
+    document.getElementById('sm-etf-tbody').innerHTML=tblSorted.map(s=>{
       const rc=(v)=>{const cls=v>=0?'up':'dn';const sign=v>=0?'+':'';return `<td style="font-weight:600;text-align:right;" class="${cls}">${sign}${v}%</td>`;};
       const vc=s.vol_ratio>1.2?'#22c55e':s.vol_ratio<0.8?'#ef4444':'var(--sub)';
       const bc=s.trend_score>0?'#22c55e':s.trend_score<0?'#ef4444':'#94a3b8';
