@@ -1227,6 +1227,26 @@ def screening_status():
         return {"status":[dict(r) for r in rows]}
     except Exception as e: return {"error":str(e)}
 
+@app.get("/api/stock/search")
+def search_stock_by_name(q: str = ""):
+    """한국어 종목명 부분 검색 → 후보 목록 반환"""
+    q = q.strip()
+    if not q:
+        return {"candidates": []}
+    q_lower = q.lower()
+    candidates = []
+    for ticker, name in KR_NAMES.items():
+        if q_lower in name.lower() or q_lower in ticker.lower():
+            candidates.append({"ticker": ticker, "name": name})
+    # 정렬: 정확히 일치하는 이름 우선, 그 다음 시작 일치, 그 다음 포함
+    def sort_key(c):
+        n = c["name"].lower()
+        if n == q_lower: return 0
+        if n.startswith(q_lower): return 1
+        return 2
+    candidates.sort(key=sort_key)
+    return {"candidates": candidates[:10]}  # 최대 10개
+
 @app.get("/api/stock/{ticker}")
 def get_stock_score(ticker: str):
     ticker=ticker.upper().strip()
