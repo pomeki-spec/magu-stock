@@ -645,16 +645,20 @@ def load_screening_from_db(market: str):
     if not DATABASE_URL: return None
     try:
         conn = get_conn(); cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        # 25시간 이내 데이터만 사용 (새벽 스크리닝 실패 시 오래된 캐시 방지)
+        freshness = "AND screened_at > NOW() - INTERVAL '25 hours'"
         if market in ("nasdaq","sp500","kospi","kosdaq"):
-            cur.execute("SELECT * FROM screening_cache WHERE market=%s ORDER BY total_score DESC", (market,))
+            cur.execute(f"SELECT * FROM screening_cache WHERE market=%s {freshness} ORDER BY total_score DESC", (market,))
         elif market == "us":
-            cur.execute("SELECT * FROM screening_cache WHERE market IN ('nasdaq','sp500') ORDER BY total_score DESC")
+            cur.execute(f"SELECT * FROM screening_cache WHERE market IN ('nasdaq','sp500') {freshness} ORDER BY total_score DESC")
         elif market == "kr":
-            cur.execute("SELECT * FROM screening_cache WHERE market IN ('kospi','kosdaq') ORDER BY total_score DESC")
+            cur.execute(f"SELECT * FROM screening_cache WHERE market IN ('kospi','kosdaq') {freshness} ORDER BY total_score DESC")
         else:
-            cur.execute("SELECT * FROM screening_cache ORDER BY total_score DESC")
+            cur.execute(f"SELECT * FROM screening_cache WHERE 1=1 {freshness} ORDER BY total_score DESC")
         rows = cur.fetchall(); cur.close(); conn.close()
-        if not rows: return None
+        if not rows:
+            logger.info(f"DB 캐시 없음 또는 만료 ({market}) → 실시간 계산")
+            return None
         results = []
         for r in rows:
             d = dict(r)
@@ -722,9 +726,14 @@ def run_full_screening_job():
         results = []
         with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
             futures = {executor.submit(fetch_single_stock, t, market): t for t in tickers}
-            for f in concurrent.futures.as_completed(futures):
-                r = f.result()
-                if r: results.append(r)
+            for f in concurrent.futures.as_completed(futures, timeout=300):
+                try:
+                    r = f.result(timeout=30)
+                    if r: results.append(r)
+                except concurrent.futures.TimeoutError:
+                    logger.warning(f"[{market}] 종목 타임아웃 스킵")
+                except Exception as e:
+                    logger.warning(f"[{market}] 종목 오류 스킵: {e}")
         results.sort(key=lambda x: x['total_score'], reverse=True)
         results = get_portfolio_weight(results)
         save_screening_to_db(results)
@@ -916,7 +925,6 @@ _liquidity_cache: dict = {}
 def fetch_fred(series_id: str, limit: int = 20):
     if not FRED_API_KEY: return None
     try:
-        # 5년 차트 지원을 위해 observation_start를 2200일(6년)로 설정
         params = {"series_id":series_id,"api_key":FRED_API_KEY,"file_type":"json",
                   "sort_order":"desc","limit":limit,
                   "observation_start":(datetime.now()-timedelta(days=2200)).strftime("%Y-%m-%d")}
@@ -1019,8 +1027,10 @@ def detail_rrp(data, is_cached=False):
     label,fred_id="역레포(RRP) 잔액","RRPONTSYD"
     if data is None or len(data)<2: return _err_ind(label,fred_id,0,is_cached)
     latest=data[0]["value"]
+    # RRP 일별 데이터 → 4주 전 = index 20
     prev4w=data[20]["value"] if len(data)>20 else data[-1]["value"]
     latest_b=round(latest/1000,1)
+    # $10B 미만 = 완전 소진 → 변화율 계산 무의미 (분모≈0 → 수천% 왜곡)
     if latest_b <= 10:
         chg_pct=0
         st="완전 소진 — RRP 버퍼 소멸. 지급준비금에 의존하는 단계."
@@ -1308,7 +1318,7 @@ def get_liquidity():
                 "guide":"https://fred.stlouisfed.org/docs/api/api_key.html 에서 무료 발급 후 Railway 환경변수에 추가하세요.",
                 "updated_at":datetime.now().strftime("%Y-%m-%d %H:%M")}
     series_map={"walcl":"WALCL","rrp":"RRPONTSYD","tga":"WTREGEN","mmf":"WRMFNS"}
-    # 차트용: 주별 260개(5년), RRP 일별 1300개(5년), 점수계산은 앞 20개만 사용
+    # 차트용: 주별 260개(5년), RRP 일별 1300개(5년)
     limit_map={"walcl":260,"rrp":1300,"tga":260,"mmf":260}
     raw,is_cache={},{}
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
