@@ -115,6 +115,23 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
 @media(max-width:900px){.fred-chart-grid{grid-template-columns:1fr;}}
 .fred-chart-grid>div{min-width:0;overflow:hidden;}
 .fred-chart-wrap{position:relative;width:100%;height:200px;min-width:0;}
+.sector-heatmap{display:grid;grid-template-columns:repeat(11,1fr);gap:6px;margin-bottom:14px;}
+.sector-cell{border-radius:10px;padding:12px 6px;text-align:center;cursor:pointer;transition:transform .15s,box-shadow .15s;border:1.5px solid transparent;}
+.sector-cell:hover{transform:translateY(-3px);box-shadow:0 6px 18px rgba(0,0,0,.12);}
+.sector-cell .sc-emoji{font-size:20px;margin-bottom:4px;}
+.sector-cell .sc-name{font-size:10px;font-weight:700;margin-bottom:4px;line-height:1.2;}
+.sector-cell .sc-ret{font-size:13px;font-weight:800;}
+.sector-cell .sc-badge{font-size:9px;font-weight:700;padding:2px 5px;border-radius:3px;margin-top:4px;display:inline-block;}
+.sm-bar-chart{display:flex;flex-direction:column;gap:8px;}
+.sm-bar-row{display:flex;align-items:center;gap:10px;}
+.sm-bar-label{width:110px;font-size:12px;font-weight:600;text-align:right;flex-shrink:0;color:var(--sub);}
+.sm-bar-track{flex:1;height:24px;background:#f1f5f9;border-radius:6px;overflow:hidden;position:relative;}
+.sm-bar-fill{height:100%;border-radius:6px;transition:width .8s ease;display:flex;align-items:center;padding:0 8px;min-width:2px;}
+.sm-bar-val{font-size:11px;font-weight:700;white-space:nowrap;}
+.sm-bar-spy{position:absolute;top:0;bottom:0;width:2px;background:#374151;z-index:2;}
+.sm-period-btn{padding:4px 11px;border-radius:5px;font-size:12px;font-weight:600;cursor:pointer;border:1px solid var(--border);background:#fff;color:var(--sub);transition:all .15s;}
+.sm-period-btn.active{background:#1e3a5f;color:#fff;border-color:#1e3a5f;}
+.market-judge-card{border-radius:12px;padding:18px;margin-bottom:14px;border:2px solid;}
 .sm-toggle-box{display:flex;align-items:center;gap:10px;padding:14px 18px;background:linear-gradient(135deg,#f0fdf4,#dcfce7);border:1px solid #86efac;border-radius:12px;margin-bottom:14px;}
 </style>
 </head>
@@ -421,9 +438,60 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
   <!-- ───────── 스마트머니 ───────── -->
   <div id="page-smartmoney" style="display:none;">
     <div class="topbar">
-      <div><div class="page-title">🏦 스마트머니</div><div class="update-row">SPDR 섹터 ETF 기반 기관 자금 흐름 실시간 분석</div></div>
+      <div><div class="page-title">🏦 스마트머니</div><div class="update-row">SPDR 섹터 ETF 기반 기관 자금 흐름 분석 — <span id="sm-updated" style="color:var(--sub);">분석 전</span></div></div>
       <div class="topbar-right"><button class="run-btn" id="sm-run-btn" onclick="loadSmartMoney()">🔄 섹터 트렌드 분석</button></div>
     </div>
+
+    <!-- 장세 판단 카드 -->
+    <div class="market-judge-card" id="sm-judge-card" style="background:#f8fafc;border-color:#e4e8f0;display:none;">
+      <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
+        <div style="font-size:36px;" id="sm-judge-emoji">—</div>
+        <div style="flex:1;">
+          <div style="font-size:18px;font-weight:800;" id="sm-judge-title">—</div>
+          <div style="font-size:13px;color:var(--sub);margin-top:4px;" id="sm-judge-desc">—</div>
+        </div>
+        <div style="text-align:center;padding:12px 20px;border-radius:10px;background:rgba(255,255,255,.7);">
+          <div style="font-size:11px;color:var(--sub);font-weight:600;margin-bottom:4px;">주도 섹터</div>
+          <div style="font-size:13px;font-weight:800;" id="sm-lead-sector">—</div>
+        </div>
+        <div style="text-align:center;padding:12px 20px;border-radius:10px;background:rgba(255,255,255,.7);">
+          <div style="font-size:11px;color:var(--sub);font-weight:600;margin-bottom:4px;">이탈 섹터</div>
+          <div style="font-size:13px;font-weight:800;" id="sm-weak-sector">—</div>
+        </div>
+        <div style="text-align:center;padding:12px 20px;border-radius:10px;background:rgba(255,255,255,.7);">
+          <div style="font-size:11px;color:var(--sub);font-weight:600;margin-bottom:4px;">S&P500 1개월</div>
+          <div style="font-size:18px;font-weight:800;" id="sm-spy-ret">—</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 섹터 히트맵 -->
+    <div class="card" style="margin-bottom:14px;">
+      <div class="section-title">🗺 섹터 히트맵
+        <span style="margin-left:10px;display:flex;gap:6px;">
+          <button class="sm-period-btn active" onclick="renderHeatmap('1m',this)">1개월</button>
+          <button class="sm-period-btn" onclick="renderHeatmap('3m',this)">3개월</button>
+          <button class="sm-period-btn" onclick="renderHeatmap('6m',this)">6개월</button>
+          <button class="sm-period-btn" onclick="renderHeatmap('1y',this)">1년</button>
+        </span>
+        <span class="section-right">진한 녹색=강한유입 · 진한 빨간색=강한유출</span>
+      </div>
+      <div class="sector-heatmap" id="sm-heatmap">
+        <div class="empty" style="grid-column:1/-1;">🔄 섹터 트렌드 분석 버튼을 눌러주세요</div>
+      </div>
+    </div>
+
+    <!-- 상대강도 바 차트 -->
+    <div class="card" style="margin-bottom:14px;">
+      <div class="section-title">📊 섹터별 상대강도 (S&P500 대비)
+        <span class="section-right" id="sm-bar-period-label">1개월 기준</span>
+      </div>
+      <div class="sm-bar-chart" id="sm-bar-chart">
+        <div class="empty">분석 후 표시됩니다</div>
+      </div>
+    </div>
+
+    <!-- 스마트머니 가산점 토글 -->
     <div class="sm-toggle-box">
       <label style="display:flex;align-items:center;gap:12px;cursor:pointer;width:100%;">
         <input type="checkbox" id="sm-score-toggle" onchange="toggleSmartMoneyScore(this.checked)" style="width:18px;height:18px;cursor:pointer;accent-color:#22c55e;">
@@ -436,22 +504,18 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
         </div>
       </label>
     </div>
-    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px;">
-      <div class="mkt-card"><div class="mkt-label">📈 강한 유입 섹터</div><div class="mkt-val" id="sm-strong-in" style="color:#15803d;">—</div><div style="font-size:11px;color:var(--sub);margin-top:4px;" id="sm-strong-in-names">분석 후 표시</div></div>
-      <div class="mkt-card"><div class="mkt-label">↗ 유입 섹터</div><div class="mkt-val" id="sm-in" style="color:#22c55e;">—</div><div style="font-size:11px;color:var(--sub);margin-top:4px;" id="sm-in-names">분석 후 표시</div></div>
-      <div class="mkt-card"><div class="mkt-label">↘ 유출 섹터</div><div class="mkt-val" id="sm-out" style="color:#ef4444;">—</div><div style="font-size:11px;color:var(--sub);margin-top:4px;" id="sm-out-names">분석 후 표시</div></div>
-      <div class="mkt-card"><div class="mkt-label">📊 S&P500 1개월 수익률</div><div class="mkt-val" id="sm-spy-ret">—</div><div style="font-size:11px;color:var(--sub);margin-top:4px;" id="sm-updated">분석 후 표시</div></div>
-    </div>
+
+    <!-- 상세 테이블 -->
     <div class="card">
-      <div class="section-title">📊 섹터 ETF 자금 흐름 트렌드 <span class="section-right">가산점: 강한유입 +10 / 유입 +5 / 소폭유입 +3 / 중립 0 / 소폭유출 -3 / 유출 -5 / 강한유출 -10</span></div>
+      <div class="section-title">📋 섹터 ETF 상세 데이터 <span class="section-right">가산점: 강한유입 +10 / 유입 +5 / 소폭유입 +3 / 중립 0 / 소폭유출 -3 / 유출 -5 / 강한유출 -10</span></div>
       <div class="table-wrap">
         <table class="stbl" id="sm-etf-table">
           <thead><tr>
             <th style="min-width:180px;">섹터 ETF</th><th style="text-align:right;">현재가</th>
             <th style="text-align:right;">1일</th><th style="text-align:right;">1주</th><th style="text-align:right;">1개월</th>
             <th style="text-align:right;">3개월</th><th style="text-align:right;">6개월</th><th style="text-align:right;">1년</th>
-            <th style="text-align:center;">거래량 비율</th><th style="text-align:center;">RSI</th>
-            <th style="text-align:center;">52주 고점 대비</th><th style="text-align:center;">트렌드</th><th style="text-align:center;">가산점</th>
+            <th style="text-align:center;">거래량</th><th style="text-align:center;">RSI</th>
+            <th style="text-align:center;">52주 고점</th><th style="text-align:center;">트렌드</th><th style="text-align:center;">가산점</th>
           </tr></thead>
           <tbody id="sm-etf-tbody"><tr><td colspan="13" class="empty">🔄 섹터 트렌드 분석 버튼을 눌러주세요</td></tr></tbody>
         </table>
@@ -1042,50 +1106,128 @@ async function searchStock() {
   btn.disabled=false; btn.innerHTML='🔍 조회';
 }
 
-let _smSectorData=[]; let _smScoreOn=false;
+let _smSectorData=[]; let _smScoreOn=false; let _smCurrentPeriod='1m'; let _smSpyRet={};
+
+function getHeatmapColors(ret) {
+  if(ret>=8)  return {bg:'#14532d',color:'#86efac',border:'#166534'};
+  if(ret>=4)  return {bg:'#dcfce7',color:'#15803d',border:'#86efac'};
+  if(ret>=1)  return {bg:'#f0fdf4',color:'#16a34a',border:'#bbf7d0'};
+  if(ret>=-1) return {bg:'#f8fafc',color:'#64748b',border:'#e2e8f0'};
+  if(ret>=-4) return {bg:'#fff1f2',color:'#be123c',border:'#fda4af'};
+  if(ret>=-8) return {bg:'#fee2e2',color:'#991b1b',border:'#fca5a5'};
+  return       {bg:'#7f1d1d',color:'#fca5a5',border:'#991b1b'};
+}
+
+function renderHeatmap(period, btn) {
+  _smCurrentPeriod = period;
+  document.querySelectorAll('.sm-period-btn').forEach(b=>b.classList.remove('active'));
+  if(btn) btn.classList.add('active');
+  const fieldMap = {'1m':'ret_1m','3m':'ret_3m','6m':'ret_6m','1y':'ret_1y'};
+  const lblMap = {'1m':'1개월','3m':'3개월','6m':'6개월','1y':'1년'};
+  const field = fieldMap[period]||'ret_1m';
+  document.getElementById('sm-bar-period-label').textContent = lblMap[period]+' 기준';
+  if(!_smSectorData.length) return;
+  const sorted = [..._smSectorData].sort((a,b)=>b[field]-a[field]);
+  const trendIcon = {'강한유입':'▲▲','유입':'▲','소폭유입':'↗','중립':'→','소폭유출':'↘','유출':'▼','강한유출':'▼▼'};
+
+  // 히트맵
+  document.getElementById('sm-heatmap').innerHTML = sorted.map(s=>{
+    const ret=s[field]; const c=getHeatmapColors(ret);
+    return `<div class="sector-cell" style="background:${c.bg};border-color:${c.border};">
+      <div class="sc-emoji">${s.emoji}</div>
+      <div class="sc-name" style="color:${c.color};">${s.name}</div>
+      <div class="sc-ret" style="color:${c.color};">${ret>=0?'+':''}${ret}%</div>
+      <div class="sc-badge" style="background:${c.border};color:${c.color};">${trendIcon[s.trend]||''} ${s.trend}</div>
+    </div>`;
+  }).join('');
+
+  // 바 차트
+  const spyRet = _smSpyRet[field]||0;
+  const maxAbs = Math.max(...sorted.map(s=>Math.abs(s[field]-spyRet)),1);
+  const mid=50;
+  document.getElementById('sm-bar-chart').innerHTML = sorted.map(s=>{
+    const ret=s[field]; const rel=ret-spyRet;
+    const barPct=Math.min(Math.abs(rel)/maxAbs*45,45);
+    const isPos=rel>=0; const barColor=isPos?'#16a34a':'#dc2626';
+    const startPct=isPos?mid:mid-barPct;
+    return `<div class="sm-bar-row">
+      <div class="sm-bar-label">${s.emoji} ${s.name}</div>
+      <div class="sm-bar-track">
+        <div class="sm-bar-fill" style="margin-left:${startPct}%;width:${barPct}%;background:${barColor};">
+          ${barPct>8?`<span class="sm-bar-val" style="color:#fff;">${rel>=0?'+':''}${rel.toFixed(1)}%</span>`:''}
+        </div>
+        <div class="sm-bar-spy" style="left:${mid}%;"></div>
+      </div>
+      <div style="width:54px;text-align:right;font-size:12px;font-weight:700;" class="${ret>=0?'up':'dn'}">${ret>=0?'+':''}${ret}%</div>
+      <div style="width:44px;text-align:right;font-size:11px;color:var(--sub);">RSI ${s.rsi}</div>
+    </div>`;
+  }).join('');
+}
+
 async function loadSmartMoney() {
   const btn=document.getElementById('sm-run-btn');
   btn.disabled=true; btn.textContent='⏳ 분석 중...';
   document.getElementById('sm-etf-tbody').innerHTML='<tr><td colspan="13"><div class="loading"><div class="spinner"></div>섹터 ETF 데이터 수집 중...</div></td></tr>';
+  document.getElementById('sm-heatmap').innerHTML='<div class="empty" style="grid-column:1/-1;"><div class="spinner" style="margin:0 auto 8px;"></div>수집 중...</div>';
   try {
     const res=await fetch(`${API}/api/smartmoney`);
     const data=await res.json();
     if(data.error) throw new Error(data.error);
     _smSectorData=data.sectors||[];
+    _smSpyRet={ret_1m:data.spy_ret_1m||0,ret_3m:data.spy_ret_3m||0,ret_6m:0,ret_1y:0};
+
+    // S&P500
     const spy1m=data.spy_ret_1m||0;
     const spyEl=document.getElementById('sm-spy-ret');
     spyEl.textContent=(spy1m>=0?'+':'')+spy1m+'%';
     spyEl.className='mkt-val '+(spy1m>=0?'up':'dn');
     document.getElementById('sm-updated').textContent='업데이트: '+data.updated_at;
-    const strongIn=_smSectorData.filter(s=>s.trend==='강한유입');
-    const inflow=_smSectorData.filter(s=>s.trend==='유입'||s.trend==='소폭유입');
-    const outflow=_smSectorData.filter(s=>s.trend==='유출'||s.trend==='강한유출'||s.trend==='소폭유출');
-    document.getElementById('sm-strong-in').textContent=strongIn.length+'개';
-    document.getElementById('sm-in').textContent=inflow.length+'개';
-    document.getElementById('sm-out').textContent=outflow.length+'개';
-    document.getElementById('sm-strong-in-names').textContent=strongIn.map(s=>s.emoji+s.name).join(' ')||'없음';
-    document.getElementById('sm-in-names').textContent=inflow.map(s=>s.emoji+s.name).join(' ')||'없음';
-    document.getElementById('sm-out-names').textContent=outflow.map(s=>s.emoji+s.name).join(' ')||'없음';
+
+    // 장세 판단
+    const inflow=_smSectorData.filter(s=>['강한유입','유입','소폭유입'].includes(s.trend));
+    const outflow=_smSectorData.filter(s=>['강한유출','유출','소폭유출'].includes(s.trend));
+    const ratio=inflow.length/_smSectorData.length;
+    let jEmoji,jTitle,jDesc,jBg,jBorder;
+    if(ratio>=0.7){jEmoji='🚀';jTitle='광범위 상승장 — 대부분 섹터에 자금 유입';jDesc='리스크 온 환경. 스크리닝 신호를 적극 반영하세요.';jBg='#f0fdf4';jBorder='#86efac';}
+    else if(ratio>=0.5){jEmoji='📈';jTitle='부분 강세 — 주도 섹터 중심 상승';jDesc='선별적 접근 필요. 유입 섹터 종목을 우선 고려하세요.';jBg='#eff6ff';jBorder='#93c5fd';}
+    else if(ratio>=0.35){jEmoji='🌊';jTitle='혼조세 — 섹터 로테이션 진행 중';jDesc='섹터 간 자금 이동이 활발합니다. 주도 섹터 파악 후 진입하세요.';jBg='#fefce8';jBorder='#fde047';}
+    else{jEmoji='🛡';jTitle='방어적 장세 — 유출 섹터 우세';jDesc='리스크 오프 신호. 방어주·현금 비중을 높이는 것을 고려하세요.';jBg='#fff1f2';jBorder='#fca5a5';}
+    const bySorted=[..._smSectorData].sort((a,b)=>b.ret_1m-a.ret_1m);
+    document.getElementById('sm-judge-card').style.display='block';
+    document.getElementById('sm-judge-card').style.background=jBg;
+    document.getElementById('sm-judge-card').style.borderColor=jBorder;
+    document.getElementById('sm-judge-emoji').textContent=jEmoji;
+    document.getElementById('sm-judge-title').textContent=jTitle;
+    document.getElementById('sm-judge-desc').textContent=jDesc;
+    document.getElementById('sm-lead-sector').textContent=bySorted.slice(0,3).map(s=>s.emoji+s.name).join(' ');
+    document.getElementById('sm-weak-sector').textContent=bySorted.slice(-3).reverse().map(s=>s.emoji+s.name).join(' ');
+
+    // 히트맵 + 바차트
+    renderHeatmap(_smCurrentPeriod, null);
+
+    // 상세 테이블
     const trendStyle={'강한유입':'background:#14532d;color:#86efac;','유입':'background:#dcfce7;color:#15803d;','소폭유입':'background:#f0fdf4;color:#16a34a;','중립':'background:#f1f5f9;color:#64748b;','소폭유출':'background:#fff1f2;color:#9f1239;','유출':'background:#fee2e2;color:#991b1b;','강한유출':'background:#7f1d1d;color:#fca5a5;'};
-    const trendIcon={'강한유입':'▲▲▲','유입':'▲▲','소폭유입':'▲','중립':'➡','소폭유출':'▼','유출':'▼▼','강한유출':'▼▼▼'};
+    const trendIcon2={'강한유입':'▲▲▲','유입':'▲▲','소폭유입':'▲','중립':'➡','소폭유출':'▼','유출':'▼▼','강한유출':'▼▼▼'};
     document.getElementById('sm-etf-tbody').innerHTML=_smSectorData.map(s=>{
-      const retCell=(v)=>{const cls=v>=0?'up':'dn';const sign=v>=0?'+':'';return `<td style="font-weight:600;text-align:right;" class="${cls}">${sign}${v}%</td>`;};
-      const volColor=s.vol_ratio>1.2?'#22c55e':s.vol_ratio<0.8?'#ef4444':'var(--sub)';
-      const bonusColor=s.trend_score>0?'#22c55e':s.trend_score<0?'#ef4444':'#94a3b8';
-      const rsiColor=s.rsi>65?'#ef4444':s.rsi<35?'#3b82f6':'var(--text)';
-      return `<tr><td style="min-width:180px;padding:13px 16px;"><div style="display:flex;align-items:center;gap:10px;"><div style="font-size:22px;width:28px;text-align:center;flex-shrink:0;">${s.emoji}</div><div><div style="font-size:14px;font-weight:800;color:var(--text);">${s.name}</div><div style="display:flex;align-items:center;gap:5px;margin-top:2px;"><span style="font-size:11px;font-weight:700;color:#fff;background:#1d4ed8;padding:1px 6px;border-radius:4px;">${s.ticker}</span><span style="font-size:11px;color:var(--sub);">${s.name_en}</span></div></div></div></td>
+      const rc=(v)=>{const cls=v>=0?'up':'dn';const sign=v>=0?'+':'';return `<td style="font-weight:600;text-align:right;" class="${cls}">${sign}${v}%</td>`;};
+      const vc=s.vol_ratio>1.2?'#22c55e':s.vol_ratio<0.8?'#ef4444':'var(--sub)';
+      const bc=s.trend_score>0?'#22c55e':s.trend_score<0?'#ef4444':'#94a3b8';
+      const rsiC=s.rsi>65?'#ef4444':s.rsi<35?'#3b82f6':'var(--text)';
+      return `<tr><td style="min-width:180px;padding:13px 16px;"><div style="display:flex;align-items:center;gap:10px;"><div style="font-size:22px;width:28px;text-align:center;flex-shrink:0;">${s.emoji}</div><div><div style="font-size:14px;font-weight:800;">${s.name}</div><div style="display:flex;align-items:center;gap:5px;margin-top:2px;"><span style="font-size:11px;font-weight:700;color:#fff;background:#1d4ed8;padding:1px 6px;border-radius:4px;">${s.ticker}</span><span style="font-size:11px;color:var(--sub);">${s.name_en}</span></div></div></div></td>
       <td style="font-weight:700;text-align:right;">$${s.price.toLocaleString()}</td>
-      ${retCell(s.ret_1d)}${retCell(s.ret_1w)}${retCell(s.ret_1m)}${retCell(s.ret_3m)}${retCell(s.ret_6m)}${retCell(s.ret_1y)}
-      <td style="font-weight:700;color:${volColor};text-align:center;">${s.vol_ratio}배</td>
-      <td style="font-weight:700;color:${rsiColor};text-align:center;">${s.rsi}</td>
+      ${rc(s.ret_1d)}${rc(s.ret_1w)}${rc(s.ret_1m)}${rc(s.ret_3m)}${rc(s.ret_6m)}${rc(s.ret_1y)}
+      <td style="font-weight:700;color:${vc};text-align:center;">${s.vol_ratio}배</td>
+      <td style="font-weight:700;color:${rsiC};text-align:center;">${s.rsi}</td>
       <td style="text-align:center;" class="${s.from_52w_high>-5?'up':'dn'}">${s.from_52w_high}%</td>
-      <td style="text-align:center;"><span style="padding:4px 10px;border-radius:6px;font-size:12px;font-weight:700;white-space:nowrap;${trendStyle[s.trend]||''}">${trendIcon[s.trend]||''} ${s.trend}</span></td>
-      <td style="font-weight:800;color:${bonusColor};font-size:14px;text-align:center;">${s.trend_score>0?'+':''}${s.trend_score}점</td></tr>`;
+      <td style="text-align:center;"><span style="padding:4px 10px;border-radius:6px;font-size:12px;font-weight:700;white-space:nowrap;${trendStyle[s.trend]||''}">${trendIcon2[s.trend]||''} ${s.trend}</span></td>
+      <td style="font-weight:800;color:${bc};font-size:14px;text-align:center;">${s.trend_score>0?'+':''}${s.trend_score}점</td></tr>`;
     }).join('');
-  } catch(e){document.getElementById('sm-etf-tbody').innerHTML=`<tr><td colspan="13" class="empty">❌ 오류: ${e.message}</td></tr>`;}
+  } catch(e){
+    document.getElementById('sm-etf-tbody').innerHTML=`<tr><td colspan="13" class="empty">❌ 오류: ${e.message}</td></tr>`;
+    document.getElementById('sm-heatmap').innerHTML=`<div class="empty" style="grid-column:1/-1;">❌ ${e.message}</div>`;
+  }
   btn.disabled=false; btn.innerHTML='🔄 섹터 트렌드 분석';
 }
-
 function toggleSmartMoneyScore(isOn) {
   _smScoreOn=isOn;
   const el=document.getElementById('sm-toggle-status');
