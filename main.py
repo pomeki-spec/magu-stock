@@ -1017,7 +1017,9 @@ def detail_walcl(data, is_cached=False):
 def detail_rrp(data, is_cached=False):
     label,fred_id="역레포(RRP) 잔액","RRPONTSYD"
     if data is None or len(data)<2: return _err_ind(label,fred_id,0,is_cached)
-    latest=data[0]["value"]; prev4w=data[4]["value"] if len(data)>4 else data[-1]["value"]
+    latest=data[0]["value"]
+    # RRP는 일별 데이터 → 4주 전 = index 20 (WALCL 주별과 다름)
+    prev4w=data[20]["value"] if len(data)>20 else data[-1]["value"]
     latest_b=round(latest/1000,1); chg_pct=round((latest-prev4w)/prev4w*100,2) if prev4w>0 else 0
     rising=latest>prev4w; depl=round((1-latest_b/2500)*100,1)
     if latest_b>500:   st="감소 중 → 유동성 유입 (버퍼 충분)" if not rising else "증가 중 → 유동성 흡수"
@@ -1302,7 +1304,8 @@ def get_liquidity():
     series_map={"walcl":"WALCL","rrp":"RRPONTSYD","tga":"WTREGEN","mmf":"WRMFNS"}
     raw,is_cache={},{}
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
-        futures={executor.submit(fetch_fred_cached,sid,20):key for key,sid in series_map.items()}
+        futures={executor.submit(fetch_fred_cached, sid, 30 if key=="rrp" else 20): key
+                 for key,sid in series_map.items()}
         for f in concurrent.futures.as_completed(futures):
             key=futures[f]; data,cached=f.result()
             raw[key]=data; is_cache[key]=cached
