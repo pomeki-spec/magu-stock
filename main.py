@@ -1045,7 +1045,7 @@ def detail_rrp(data, is_cached=False):
     return {"label":label,"fred_id":fred_id,"score":None,"max_score":0,
             "error":False,"is_cached":is_cached,"status":st,
             "value":latest_b,"value_unit":"십억 달러","change_pct":chg_pct,
-            "history":[{"date":d["date"],"value":round(d["value"]/1000,1)} for d in data[:1300:5]],
+            "history":[{"date":d["date"],"value":round(d["value"]/1000,1)} for d in data[:1300]],
             "context":ctx}
 
 def detail_tga(data, is_cached=False):
