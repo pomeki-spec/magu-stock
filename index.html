@@ -288,12 +288,12 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
             <div style="font-size:12px;font-weight:700;" id="hy-hyg">—</div>
           </div>
           <div style="flex:1;text-align:center;border-right:1px solid var(--border);">
-            <div style="font-size:9px;color:var(--sub);margin-bottom:2px;">LQD</div>
-            <div style="font-size:12px;font-weight:700;" id="hy-lqd">—</div>
+            <div style="font-size:9px;color:var(--sub);margin-bottom:2px;">당일 스프레드</div>
+            <div style="font-size:12px;font-weight:700;" id="hy-spread1d">—</div>
           </div>
           <div style="flex:1;text-align:center;">
-            <div style="font-size:9px;color:var(--sub);margin-bottom:2px;">스프레드</div>
-            <div style="font-size:12px;font-weight:700;" id="hy-spread1d">—</div>
+            <div style="font-size:9px;color:var(--sub);margin-bottom:2px;">5일 스프레드</div>
+            <div style="font-size:12px;font-weight:700;" id="hy-spread5d">—</div>
           </div>
         </div>
       </div>
@@ -1474,6 +1474,10 @@ async function loadMarketData() {
       const s1dEl=document.getElementById('hy-spread1d');
       s1dEl.textContent=s1d!=null?(s1d>0?'+':'')+s1d:'—';
       s1dEl.style.color=s1d!=null?(s1d<0?'#15803d':'#991b1b'):'';
+      const s5d=hy.spread_5d;
+      const s5dEl=document.getElementById('hy-spread5d');
+      s5dEl.textContent=s5d!=null?(s5d>0?'+':'')+s5d:'—';
+      s5dEl.style.color=s5d!=null?(s5d<0?'#15803d':'#991b1b'):'';
     }
 
   } catch(e){ console.error('loadMarketData 오류',e); }
