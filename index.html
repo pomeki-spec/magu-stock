@@ -501,7 +501,7 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
         <div class="update-row">스크리닝 결과에서 매일 5종목을 선정하고 실제 수익률을 추적합니다</div>
       </div>
       <div class="topbar-right">
-        <select id="bp-market" class="bt-select">
+        <select id="bp-market" class="bt-select" onchange="loadBestpickHistory()">
           <option value="nasdaq">🇺🇸 나스닥</option>
           <option value="sp500">🇺🇸 S&amp;P500</option>
         </select>
@@ -1103,7 +1103,7 @@ async function saveBestpick() {
 async function loadBestpickHistory() {
   document.getElementById('bp-history-wrap').innerHTML = '<div style="text-align:center;padding:30px;color:var(--sub);"><div class="spinner" style="margin:0 auto 8px;"></div>이력 불러오는 중...</div>';
   try {
-    const res = await fetch(`${API}/api/bestpick/history`);
+    const res = await fetch(`${API}/api/bestpick/history?market=${document.getElementById('bp-market').value}`);
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const data = await res.json();
     if (data.error) {
