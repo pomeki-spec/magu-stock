@@ -251,17 +251,15 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
 
       <!-- 하단 4개: CNN/하이일드/VIX/MMTH -->
 
+
       <!-- 1. CNN 공포탐욕지수 -->
       <div class="card" id="cnn-fg-card" style="border-top:3px solid #e4e8f0;transition:border-color .3s;position:relative;padding-bottom:52px;">
         <div style="font-size:11px;font-weight:700;color:var(--sub);margin-bottom:8px;">😨 CNN 공포·탐욕지수</div>
-        <div style="position:relative;height:7px;border-radius:4px;background:linear-gradient(to right,#15803d,#22c55e,#eab308,#ef4444,#991b1b);margin-bottom:12px;">
+        <div style="position:relative;height:7px;border-radius:4px;background:linear-gradient(to right,#15803d,#22c55e,#eab308,#ef4444,#991b1b);margin-bottom:10px;">
           <div id="fear-needle" style="position:absolute;top:-5px;width:16px;height:16px;background:#fff;border:3px solid #374151;border-radius:50%;transform:translateX(-50%);transition:left .6s ease;left:50%;"></div>
         </div>
-        <div style="display:flex;align-items:baseline;gap:6px;margin-bottom:2px;">
-          <div style="font-size:20px;font-weight:800;line-height:1;" id="fear-num">—</div>
-          <div style="font-size:12px;color:var(--sub);font-weight:600;">/ 100</div>
-        </div>
-        <div style="font-size:12px;font-weight:800;margin-bottom:10px;" id="fear-label">—</div>
+        <div style="font-size:20px;font-weight:800;line-height:1;margin-bottom:4px;" id="fear-num">—</div>
+        <div style="font-size:12px;font-weight:800;margin-bottom:0;" id="fear-label">—</div>
         <div style="position:absolute;bottom:0;left:0;right:0;display:flex;border-top:1px solid var(--border);padding:8px 16px 12px;">
           <div style="flex:1;text-align:center;border-right:1px solid var(--border);">
             <div style="font-size:9px;color:var(--sub);margin-bottom:2px;">전일</div>
@@ -281,7 +279,9 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
       <!-- 2. 하이일드 스프레드 -->
       <div class="card" id="hy-card" style="border-top:3px solid #e4e8f0;transition:border-color .3s;position:relative;padding-bottom:52px;">
         <div style="font-size:11px;font-weight:700;color:var(--sub);margin-bottom:8px;">📉 하이일드 스프레드</div>
-        <div style="font-size:12px;font-weight:800;margin-bottom:4px;" id="hy-signal-badge">—</div>
+        <div style="height:7px;margin-bottom:10px;"></div><!-- 게이지 자리 맞춤 -->
+        <div style="font-size:20px;font-weight:800;line-height:1;margin-bottom:4px;" id="hy-val-display">—</div>
+        <div style="font-size:12px;font-weight:800;margin-bottom:0;" id="hy-signal-badge">—</div>
         <div style="position:absolute;bottom:0;left:0;right:0;display:flex;border-top:1px solid var(--border);padding:8px 16px 12px;">
           <div style="flex:1;text-align:center;border-right:1px solid var(--border);">
             <div style="font-size:9px;color:var(--sub);margin-bottom:2px;">HYG</div>
@@ -301,11 +301,12 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
       <!-- 3. VIX -->
       <div class="card" id="vix-card" style="border-top:3px solid #e4e8f0;transition:border-color .3s;position:relative;padding-bottom:52px;">
         <div style="font-size:11px;font-weight:700;color:var(--sub);margin-bottom:8px;">📊 VIX 공포지수</div>
+        <div style="height:7px;margin-bottom:10px;"></div><!-- 게이지 자리 맞춤 -->
         <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">
           <div style="font-size:20px;font-weight:800;line-height:1;" id="vix-val">—</div>
-          <div id="vix-dir" style="font-size:18px;line-height:1;">—</div>
+          <div id="vix-dir" style="font-size:16px;line-height:1;">—</div>
         </div>
-        <div style="font-size:12px;font-weight:800;margin-bottom:10px;" id="vix-signal">—</div>
+        <div style="font-size:12px;font-weight:800;margin-bottom:0;" id="vix-signal">—</div>
         <div style="position:absolute;bottom:0;left:0;right:0;display:flex;border-top:1px solid var(--border);padding:8px 16px 12px;">
           <div style="flex:1;text-align:center;border-right:1px solid var(--border);">
             <div style="font-size:9px;color:var(--sub);margin-bottom:2px;">전일 변화</div>
@@ -321,14 +322,11 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
       <!-- 4. MMTH 시장 폭 -->
       <div class="card" id="mmth-card" style="border-top:3px solid #e4e8f0;transition:border-color .3s;position:relative;padding-bottom:52px;">
         <div style="font-size:11px;font-weight:700;color:var(--sub);margin-bottom:8px;">🌡 시장 폭 (200일선 위)</div>
-        <div style="display:flex;align-items:baseline;gap:4px;margin-bottom:6px;">
-          <div style="font-size:20px;font-weight:800;line-height:1;" id="mmth-pct">—</div>
-          <div style="font-size:14px;font-weight:700;color:var(--sub);">%</div>
-        </div>
-        <div style="height:6px;background:#f1f5f9;border-radius:3px;overflow:hidden;margin-bottom:6px;">
+        <div style="height:6px;background:#f1f5f9;border-radius:3px;overflow:hidden;margin-bottom:11px;">
           <div id="mmth-bar" style="height:100%;border-radius:3px;background:#3b82f6;width:0%;transition:width .6s ease;"></div>
         </div>
-        <div style="font-size:12px;font-weight:800;margin-bottom:4px;" id="mmth-signal">—</div>
+        <div style="font-size:20px;font-weight:800;line-height:1;margin-bottom:4px;" id="mmth-pct">—</div>
+        <div style="font-size:12px;font-weight:800;margin-bottom:0;" id="mmth-signal">—</div>
         <div style="position:absolute;bottom:0;left:0;right:0;display:flex;border-top:1px solid var(--border);padding:8px 16px 12px;">
           <div style="flex:1;text-align:center;border-right:1px solid var(--border);">
             <div style="font-size:9px;color:var(--sub);margin-bottom:2px;">나스닥</div>
@@ -1441,11 +1439,11 @@ async function loadMarketData() {
       document.getElementById('vix-change').innerHTML=chgHtml(v.change);
       document.getElementById('vix-prev5').textContent=v.prev5??'—';
       let vixSig,vixCol,vixBorder;
-      if(v.value>=40)            {vixSig='🟢 패닉 수준 — 역발상 적극 매수';vixCol='#15803d';vixBorder='#22c55e';}
-      else if(v.value>=30)       {vixSig='🟡 극단 공포 — 분할 매수 고려';vixCol='#b45309';vixBorder='#f59e0b';}
-      else if(v.value>=25)       {vixSig='🟠 변동성 확대 — 신중 접근';vixCol='#c2410c';vixBorder='#fb923c';}
-      else if(v.value>=15)       {vixSig='🟢 정상 범위 — 중립';vixCol='#15803d';vixBorder='#22c55e';}
-      else                       {vixSig='⚠️ 과도한 낙관 — 조정 주의';vixCol='#6b7280';vixBorder='#d1d5db';}
+      if(v.value>=40)            {vixSig='적극 분할 매수 고려';vixCol='#15803d';vixBorder='#22c55e';}
+      else if(v.value>=30)       {vixSig='분할 매수 고려';vixCol='#b45309';vixBorder='#f59e0b';}
+      else if(v.value>=25)       {vixSig='신중 접근 (관망)';vixCol='#c2410c';vixBorder='#fb923c';}
+      else if(v.value>=15)       {vixSig='정상 — 중립';vixCol='#15803d';vixBorder='#22c55e';}
+      else                       {vixSig='과열 — 비중 축소 고려';vixCol='#6b7280';vixBorder='#d1d5db';}
       const sigEl=document.getElementById('vix-signal');
       sigEl.textContent=vixSig; sigEl.style.color=vixCol;
       document.getElementById('vix-card').style.borderTopColor=vixBorder;
@@ -1456,13 +1454,18 @@ async function loadMarketData() {
       const hy=d.high_yield;
       const isNarrowing=hy.direction==='narrowing';
       const badge=document.getElementById('hy-signal-badge');
+      const valDisplay=document.getElementById('hy-val-display');
       if(isNarrowing){
-        badge.textContent='🟢 리스크온 — 스프레드 축소 중';
-        badge.style.background='#f0fdf4'; badge.style.color='#15803d';
+        valDisplay.textContent='📉 축소 중';
+        valDisplay.style.color='#15803d';
+        badge.textContent='분할 매수 고려';
+        badge.style.color='#15803d';
         document.getElementById('hy-card').style.borderTopColor='#22c55e';
       } else {
-        badge.textContent='🔴 리스크오프 — 스프레드 확대 중';
-        badge.style.background='#fff1f2'; badge.style.color='#991b1b';
+        valDisplay.textContent='📈 확대 중';
+        valDisplay.style.color='#991b1b';
+        badge.textContent='관망 (비중 축소 고려)';
+        badge.style.color='#991b1b';
         document.getElementById('hy-card').style.borderTopColor='#ef4444';
       }
       document.getElementById('hy-hyg').textContent=hy.hyg?'$'+hy.hyg:'—';
@@ -1532,10 +1535,10 @@ async function loadBreadth() {
 
     // 신호
     let signal,color;
-    if(usPct>=70)       {signal='🟢 시장 폭 양호 — 광범위한 강세';color='#15803d';}
-    else if(usPct>=40)  {signal='🟡 혼조 — 선별적 접근';color='#b45309';}
-    else if(usPct>=20)  {signal='🟠 시장 폭 붕괴 주의';color='#c2410c';}
-    else                {signal='🔴 극단 공포 — 역발상 매수 고려';color='#991b1b';}
+    if(usPct>=70)       {signal='적극 매수 가능';color='#15803d';}
+    else if(usPct>=40)  {signal='선별 매수 (종목 선택 중요)';color='#b45309';}
+    else if(usPct>=20)  {signal='관망 (신규 매수 자제)';color='#c2410c';}
+    else                {signal='분할 매수 고려 (역발상)';color='#991b1b';}
     const sigEl=document.getElementById('mmth-signal');
     sigEl.textContent=signal; sigEl.style.color=color;
 
