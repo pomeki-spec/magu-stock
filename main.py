@@ -1238,13 +1238,13 @@ def get_fear_greed():
         week_ago    = round(float(fg.get("previous_1_week", score)), 1)
         month_ago   = round(float(fg.get("previous_1_month", score)), 1)
 
-        # 신호 판단 (말씀하신 기준 반영)
-        if score <= 10:   signal, color = "🟢 극단적 공포 — 적극 매수 구간", "#15803d"
-        elif score <= 25: signal, color = "🟠 공포 — 분할 매수 고려", "#f59e0b"
-        elif score <= 45: signal, color = "🟡 중립 하단", "#b45309"
-        elif score <= 55: signal, color = "⚪ 중립", "#6b7280"
-        elif score <= 75: signal, color = "🔵 탐욕 — 매수 자제", "#1d4ed8"
-        else:             signal, color = "🔴 극단적 탐욕 — 비중 축소", "#991b1b"
+        # 신호 판단
+        if score <= 10:   signal, color = "적극 분할 매수 고려", "#15803d"
+        elif score <= 25: signal, color = "분할 매수 고려", "#f59e0b"
+        elif score <= 45: signal, color = "관망 (중립 하단)", "#b45309"
+        elif score <= 55: signal, color = "관망 (중립)", "#6b7280"
+        elif score <= 75: signal, color = "신규 매수 자제", "#1d4ed8"
+        else:             signal, color = "비중 축소 고려", "#991b1b"
 
         return {
             "score": score, "rating": rating,
