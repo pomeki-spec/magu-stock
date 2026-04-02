@@ -1497,7 +1497,6 @@ async function loadFearGreed() {
     document.getElementById('fear-needle').style.left=Math.min(Math.max(score,2),98)+'%';
     document.getElementById('fear-label').textContent=d.signal||'—';
     document.getElementById('fear-label').style.color=d.color||'var(--sub)';
-    document.getElementById('cnn-fg-updated').textContent=d.updated_at||'';
     document.getElementById('fg-prev').textContent=d.prev_close??'—';
     document.getElementById('fg-week').textContent=d.week_ago??'—';
     document.getElementById('fg-month').textContent=d.month_ago??'—';
