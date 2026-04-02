@@ -523,27 +523,14 @@ def score_eps_growth(info):
         if quarterly>annual+0.05: base=min(base+1,10)
     return base
 
-def score_quality(info):
-    """PEG 대체 — 매출성장률 + 영업이익률 복합 지표 (5점 만점)
-    yfinance에서 안정적으로 수집되는 지표 위주로 구성"""
-    score = 0
-    try:
-        # 1) 매출 성장률 (revenueGrowth) — 0~3점
-        rev_growth = info.get('revenueGrowth', None)
-        if rev_growth is not None:
-            if rev_growth >= 0.20:   score += 3   # 20%+ 고성장
-            elif rev_growth >= 0.10: score += 2   # 10~20% 성장
-            elif rev_growth >= 0.0:  score += 1   # 0~10% 소폭 성장
-            # 마이너스 성장이면 0점
-        # 2) 영업이익률 (operatingMargins) — 0~2점
-        op_margin = info.get('operatingMargins', None)
-        if op_margin is not None:
-            if op_margin >= 0.20:   score += 2   # 20%+ 우수
-            elif op_margin >= 0.10: score += 1   # 10~20% 양호
-            # 10% 미만이면 0점
-    except:
-        pass
-    return score
+def score_peg(peg):
+    if peg is None or peg<=0 or peg>=50: return 2
+    elif peg<=0.8: return 5
+    elif peg<=1.0: return 4
+    elif peg<=1.5: return 3
+    elif peg<=2.0: return 2
+    elif peg<=3.0: return 1
+    else: return 0
 
 def score_ma200(hist_daily):
     try:
@@ -574,7 +561,7 @@ def calculate_growth_score(info, hist_daily):
     return (score_roe(info.get('returnOnEquity',0) or 0)
           + score_debt(info.get('debtToEquity',999) or 999)
           + score_eps_growth(info)
-          + score_quality(info)
+          + score_peg(info.get('pegRatio',None))
           + score_ma200(hist_daily)
           + score_rsi(hist_daily))
 
@@ -647,9 +634,9 @@ def fetch_single_stock(ticker, market):
         c_ema=score_ema_slope(hist_weekly); c_stoch=score_stochastic(hist_daily); c_break=score_breakout(hist_daily)
         classic=c_ema+(c_stoch//2 if c_ema==0 else c_stoch)+(c_break//2 if c_ema==0 else c_break)
         g_roe=score_roe(info.get('returnOnEquity',0) or 0); g_debt=score_debt(info.get('debtToEquity',999) or 999)
-        g_eps=score_eps_growth(info); g_quality=score_quality(info)
+        g_eps=score_eps_growth(info); g_peg=score_peg(info.get('pegRatio',None))
         g_ma200=score_ma200(hist_daily); g_rsi=score_rsi(hist_daily)
-        growth=g_roe+g_debt+g_eps+g_quality+g_ma200+g_rsi
+        growth=g_roe+g_debt+g_eps+g_peg+g_ma200+g_rsi
         m_anal=score_analyst(info.get('recommendationKey','') or '')
         m_rs=score_relative_strength(hist_daily); m_obv=score_obv_momentum(hist_daily)
         modern=m_anal+m_rs+m_obv; total=classic+growth+modern
@@ -666,12 +653,9 @@ def fetch_single_stock(ticker, market):
             "classic_score":classic,"growth_score":growth,"modern_score":modern,
             "total_score":total,"recommendation":get_recommendation(total,classic,growth,modern),
             "weight":0,"rsi":rsi_val,
-            "roe":round((info.get('returnOnEquity',0) or 0)*100,1),
-            "rev_growth":round((info.get('revenueGrowth',0) or 0)*100,1),
-            "op_margin":round((info.get('operatingMargins',0) or 0)*100,1),
-            "peg":0,  # 하위호환 유지 (DB 컬럼 존재)
+            "roe":round((info.get('returnOnEquity',0) or 0)*100,1),"peg":round(info.get('pegRatio',0) or 0,2),
             "c_ema":c_ema,"c_stoch":c_stoch,"c_break":c_break,
-            "g_roe":g_roe,"g_debt":g_debt,"g_eps":g_eps,"g_peg":g_quality,"g_ma200":g_ma200,"g_rsi":g_rsi,
+            "g_roe":g_roe,"g_debt":g_debt,"g_eps":g_eps,"g_peg":g_peg,"g_ma200":g_ma200,"g_rsi":g_rsi,
             "m_anal":m_anal,"m_rs":m_rs,"m_obv":m_obv,
         }
     except: return None
@@ -1189,13 +1173,134 @@ def get_market_data():
         result={}
         for key,symbol in tickers.items():
             try:
-                t=yf.Ticker(symbol); hist=t.history(period="2d")
+                t=yf.Ticker(symbol); hist=t.history(period="10d")
                 if len(hist)>=2:
                     current=hist['Close'].iloc[-1]; prev=hist['Close'].iloc[-2]
-                    result[key]={"value":round(current,2),"change":round((current/prev-1)*100,2)}
+                    row={"value":round(current,2),"change":round((current/prev-1)*100,2)}
+                    # VIX: 5일 전 대비 방향성 추가
+                    if key=="vix" and len(hist)>=6:
+                        prev5=hist['Close'].iloc[-6]
+                        row["direction"]="up" if current>prev5 else "down"
+                        row["prev5"]=round(prev5,2)
+                    result[key]=row
             except: result[key]={"value":0,"change":0}
+
+        # ── 하이일드 스프레드 (HYG vs LQD) ──────────────────────
+        try:
+            hyg=yf.Ticker("HYG").history(period="10d")
+            lqd=yf.Ticker("LQD").history(period="10d")
+            if len(hyg)>=6 and len(lqd)>=6:
+                # 스프레드 = LQD수익률 - HYG수익률 (클수록 하이일드 불리)
+                hyg_ret  = (hyg['Close'].iloc[-1]/hyg['Close'].iloc[-2]-1)*100
+                lqd_ret  = (lqd['Close'].iloc[-1]/lqd['Close'].iloc[-2]-1)*100
+                spread_now  = lqd_ret - hyg_ret          # 당일
+                hyg_5d = (hyg['Close'].iloc[-1]/hyg['Close'].iloc[-6]-1)*100
+                lqd_5d = (lqd['Close'].iloc[-1]/lqd['Close'].iloc[-6]-1)*100
+                spread_5d   = lqd_5d - hyg_5d            # 5일 추세
+                # 방향: 스프레드 좁아지면(음수) 리스크온, 벌어지면 리스크오프
+                direction = "narrowing" if spread_5d < 0 else "widening"
+                signal    = "리스크온 🟢" if direction=="narrowing" else "리스크오프 🔴"
+                result["high_yield"]={
+                    "hyg": round(hyg['Close'].iloc[-1],2),
+                    "lqd": round(lqd['Close'].iloc[-1],2),
+                    "spread_1d": round(spread_now,3),
+                    "spread_5d": round(spread_5d,3),
+                    "direction": direction,
+                    "signal": signal
+                }
+        except Exception as e:
+            logger.warning(f"하이일드 스프레드 오류: {e}")
+            result["high_yield"]={"direction":"unknown","signal":"데이터 없음"}
+
         return result
     except: return {}
+
+
+@app.get("/api/fear_greed")
+def get_fear_greed():
+    """CNN 공포탐욕지수 — CNN 내부 API 직접 호출"""
+    try:
+        url="https://production.dataviz.cnn.io/index/fearandgreed/graphdata/"
+        headers={"User-Agent":"Mozilla/5.0","referer":"https://edition.cnn.com/"}
+        resp=requests.get(url, headers=headers, timeout=10)
+        resp.raise_for_status()
+        data=resp.json()
+        fg=data.get("fear_and_greed",{})
+        score=round(float(fg.get("score",50)),1)
+        rating=fg.get("rating","neutral")
+        prev_close=round(float(data.get("fear_and_greed_historical",{})
+                                .get("data",[{}])[-2].get("y",score) if
+                                len(data.get("fear_and_greed_historical",{})
+                                .get("data",[]))>=2 else score),1)
+        # 1주전, 1개월전
+        hist=data.get("fear_and_greed_historical",{}).get("data",[])
+        week_ago =round(float(hist[-6].get("y",score)),1)  if len(hist)>=6  else None
+        month_ago=round(float(hist[-22].get("y",score)),1) if len(hist)>=22 else None
+
+        # 신호 판단
+        if score<=10:   signal,color="🔴 극단적 공포 — 적극 매수 구간","#15803d"
+        elif score<=25: signal,color="🟠 공포 — 분할 매수 고려","#f59e0b"
+        elif score<=45: signal,color="🟡 중립 하단","#b45309"
+        elif score<=55: signal,color="⚪ 중립","#6b7280"
+        elif score<=75: signal,color="🔵 탐욕 — 매수 자제","#1d4ed8"
+        else:           signal,color="🔴 극단적 탐욕 — 비중 축소","#991b1b"
+
+        return {"score":score,"rating":rating,"signal":signal,"color":color,
+                "prev_close":prev_close,"week_ago":week_ago,"month_ago":month_ago,
+                "updated_at":datetime.now().strftime("%Y-%m-%d %H:%M")}
+    except Exception as e:
+        logger.warning(f"CNN 공포탐욕 오류: {e}")
+        return {"score":None,"signal":"데이터 수집 실패","error":str(e)}
+
+
+@app.get("/api/breadth")
+def get_market_breadth():
+    """MMTH 자체 계산 — DB 스크리닝 결과 기반 시장 폭 지표"""
+    if not DATABASE_URL:
+        return {"error":"DATABASE_URL 없음"}
+    try:
+        conn=get_conn(); cur=conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        # 전체 + 마켓별 200일선 위 비율
+        cur.execute("""
+            SELECT
+                market,
+                COUNT(*) AS total,
+                SUM(CASE WHEN g_ma200 >= 2 THEN 1 ELSE 0 END) AS above_ma200,
+                ROUND(SUM(CASE WHEN g_ma200 >= 2 THEN 1 ELSE 0 END)*100.0/COUNT(*),1) AS pct
+            FROM screening_cache
+            WHERE screened_at > NOW() - INTERVAL '25 hours'
+            GROUP BY market
+        """)
+        rows=[dict(r) for r in cur.fetchall()]
+        cur.execute("""
+            SELECT
+                COUNT(*) AS total,
+                SUM(CASE WHEN g_ma200 >= 2 THEN 1 ELSE 0 END) AS above_ma200,
+                ROUND(SUM(CASE WHEN g_ma200 >= 2 THEN 1 ELSE 0 END)*100.0/COUNT(*),1) AS pct
+            FROM screening_cache
+            WHERE screened_at > NOW() - INTERVAL '25 hours'
+        """)
+        total=dict(cur.fetchone())
+        cur.close(); conn.close()
+
+        pct=float(total.get("pct") or 0)
+        if pct>=70:   signal,color="🟢 시장 폭 양호 — 광범위한 강세","#15803d"
+        elif pct>=40: signal,color="🟡 혼조 — 선별적 접근","#b45309"
+        elif pct>=20: signal,color="🟠 시장 폭 붕괴 주의","#c2410c"
+        else:         signal,color="🔴 극단 공포 — 역발상 매수 고려","#991b1b"
+
+        return {
+            "total_stocks": int(total.get("total") or 0),
+            "above_ma200":  int(total.get("above_ma200") or 0),
+            "pct": pct,
+            "signal": signal,
+            "color": color,
+            "by_market": rows,
+            "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M")
+        }
+    except Exception as e:
+        logger.error(f"시장 폭 오류: {e}")
+        return {"error":str(e)}
 
 def _market_label(market):
     return {"nasdaq":"나스닥","sp500":"S&P500","kospi":"코스피","kosdaq":"코스닥","us":"미국 전체","kr":"한국 전체"}.get(market,market)
@@ -1255,9 +1360,9 @@ def get_stock_score(ticker: str):
         c_ema=score_ema_slope(hist_weekly); c_stoch=score_stochastic(hist_daily); c_break=score_breakout(hist_daily)
         classic=c_ema+(c_stoch//2 if c_ema==0 else c_stoch)+(c_break//2 if c_ema==0 else c_break)
         g_roe=score_roe(info.get('returnOnEquity',0) or 0); g_debt=score_debt(info.get('debtToEquity',999) or 999)
-        g_eps=score_eps_growth(info); g_quality=score_quality(info)
+        g_eps=score_eps_growth(info); g_peg=score_peg(info.get('pegRatio',None))
         g_ma200=score_ma200(hist_daily); g_rsi=score_rsi(hist_daily)
-        growth=g_roe+g_debt+g_eps+g_quality+g_ma200+g_rsi
+        growth=g_roe+g_debt+g_eps+g_peg+g_ma200+g_rsi
         m_anal=score_analyst(info.get('recommendationKey','') or '')
         m_rs=score_relative_strength(hist_daily); m_obv=score_obv_momentum(hist_daily)
         modern=m_anal+m_rs+m_obv; total=classic+growth+modern
@@ -1278,9 +1383,7 @@ def get_stock_score(ticker: str):
                 "detail":{"roe":round((info.get('returnOnEquity') or 0)*100,1),
                           "debt_equity":round(info.get('debtToEquity') or 0,1),
                           "eps_growth":round((info.get('earningsGrowth') or 0)*100,1),
-                          "rev_growth":round((info.get('revenueGrowth') or 0)*100,1),
-                          "op_margin":round((info.get('operatingMargins') or 0)*100,1),
-                          "g_quality":g_quality,
+                          "peg":round(info.get('pegRatio') or 0,2),
                           "rsi":rsi_val,"year_return":year_return,
                           "analyst_rec":info.get('recommendationKey') or '—',
                           "market_cap":info.get('marketCap') or 0}}
