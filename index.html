@@ -281,7 +281,7 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
       <!-- 2. 하이일드 스프레드 -->
       <div class="card" id="hy-card" style="border-top:3px solid #e4e8f0;transition:border-color .3s;position:relative;padding-bottom:52px;">
         <div style="font-size:11px;font-weight:700;color:var(--sub);margin-bottom:8px;">📉 하이일드 스프레드</div>
-        <div style="font-size:20px;font-weight:800;margin-bottom:4px;" id="hy-signal-badge">—</div>
+        <div style="font-size:12px;font-weight:800;margin-bottom:4px;" id="hy-signal-badge">—</div>
         <div style="position:absolute;bottom:0;left:0;right:0;display:flex;border-top:1px solid var(--border);padding:8px 16px 12px;">
           <div style="flex:1;text-align:center;border-right:1px solid var(--border);">
             <div style="font-size:9px;color:var(--sub);margin-bottom:2px;">HYG</div>
@@ -1441,10 +1441,11 @@ async function loadMarketData() {
       document.getElementById('vix-change').innerHTML=chgHtml(v.change);
       document.getElementById('vix-prev5').textContent=v.prev5??'—';
       let vixSig,vixCol,vixBorder;
-      if(v.value>=30&&isUp)     {vixSig='🔴 위험 상승 — 신규 매수 금지';vixCol='#991b1b';vixBorder='#ef4444';}
-      else if(v.value>=30&&!isUp){vixSig='🟡 안정화 중 — 분할 매수 고려';vixCol='#b45309';vixBorder='#f59e0b';}
-      else if(v.value>=20)       {vixSig='🟡 주의 구간';vixCol='#b45309';vixBorder='#fde68a';}
-      else                       {vixSig='🟢 정상 — 매수 우호';vixCol='#15803d';vixBorder='#22c55e';}
+      if(v.value>=40)            {vixSig='🟢 패닉 수준 — 역발상 적극 매수';vixCol='#15803d';vixBorder='#22c55e';}
+      else if(v.value>=30)       {vixSig='🟡 극단 공포 — 분할 매수 고려';vixCol='#b45309';vixBorder='#f59e0b';}
+      else if(v.value>=25)       {vixSig='🟠 변동성 확대 — 신중 접근';vixCol='#c2410c';vixBorder='#fb923c';}
+      else if(v.value>=15)       {vixSig='🟢 정상 범위 — 중립';vixCol='#15803d';vixBorder='#22c55e';}
+      else                       {vixSig='⚠️ 과도한 낙관 — 조정 주의';vixCol='#6b7280';vixBorder='#d1d5db';}
       const sigEl=document.getElementById('vix-signal');
       sigEl.textContent=vixSig; sigEl.style.color=vixCol;
       document.getElementById('vix-card').style.borderTopColor=vixBorder;
