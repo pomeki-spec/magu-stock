@@ -1187,6 +1187,22 @@ def _market_label(market):
 def _currency(market):
     return "KRW" if market in ("kospi","kosdaq","kr") else "USD"
 
+@app.get("/api/screen/status")
+def screening_status():
+    if not DATABASE_URL: return {"error":"DATABASE_URL 없음"}
+    try:
+        conn=get_conn(); cur=conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("SELECT market, COUNT(*) as cnt, MAX(screened_at) as last_run FROM screening_cache GROUP BY market ORDER BY market")
+        rows=cur.fetchall(); cur.close(); conn.close()
+        return {"status":[dict(r) for r in rows]}
+    except Exception as e: return {"error":str(e)}
+
+@app.post("/api/screen/run")
+def trigger_screening(background_tasks: BackgroundTasks):
+    """수동으로 전체 스크리닝 즉시 실행 (백그라운드)"""
+    background_tasks.add_task(run_full_screening_job)
+    return {"message":"스크리닝 시작됨. 나스닥200+S&P500+코스피200+코스닥150 약 10~15분 소요. /api/screen/status 로 확인하세요."}
+
 @app.get("/api/screen/{market}")
 def screen_stocks(market: str = "nasdaq"):
     """DB 캐시 우선 → 없으면 실시간 계산 (기존 방식)"""
@@ -1210,42 +1226,6 @@ def screen_stocks(market: str = "nasdaq"):
     return {"market":market,"market_label":_market_label(market),"currency":_currency(market),
             "updated_at":datetime.now().strftime("%Y-%m-%d %H:%M"),
             "total_screened":len(results),"results":results,"from_cache":False}
-
-@app.post("/api/screen/run")
-def trigger_screening(background_tasks: BackgroundTasks):
-    """수동으로 전체 스크리닝 즉시 실행 (백그라운드)"""
-    background_tasks.add_task(run_full_screening_job)
-    return {"message":"스크리닝 시작됨. 나스닥200+S&P500+코스피200+코스닥150 약 10~15분 소요. /api/screen/status 로 확인하세요."}
-
-@app.get("/api/screen/status")
-def screening_status():
-    if not DATABASE_URL: return {"error":"DATABASE_URL 없음"}
-    try:
-        conn=get_conn(); cur=conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        cur.execute("SELECT market, COUNT(*) as cnt, MAX(screened_at) as last_run FROM screening_cache GROUP BY market ORDER BY market")
-        rows=cur.fetchall(); cur.close(); conn.close()
-        return {"status":[dict(r) for r in rows]}
-    except Exception as e: return {"error":str(e)}
-
-@app.get("/api/stock/search")
-def search_stock_by_name(q: str = ""):
-    """한국어 종목명 부분 검색 → 후보 목록 반환"""
-    q = q.strip()
-    if not q:
-        return {"candidates": []}
-    q_lower = q.lower()
-    candidates = []
-    for ticker, name in KR_NAMES.items():
-        if q_lower in name.lower() or q_lower in ticker.lower():
-            candidates.append({"ticker": ticker, "name": name})
-    # 정렬: 정확히 일치하는 이름 우선, 그 다음 시작 일치, 그 다음 포함
-    def sort_key(c):
-        n = c["name"].lower()
-        if n == q_lower: return 0
-        if n.startswith(q_lower): return 1
-        return 2
-    candidates.sort(key=sort_key)
-    return {"candidates": candidates[:10]}  # 최대 10개
 
 @app.get("/api/stock/{ticker}")
 def get_stock_score(ticker: str):
