@@ -523,14 +523,27 @@ def score_eps_growth(info):
         if quarterly>annual+0.05: base=min(base+1,10)
     return base
 
-def score_peg(peg):
-    if peg is None or peg<=0 or peg>=50: return 2
-    elif peg<=0.8: return 5
-    elif peg<=1.0: return 4
-    elif peg<=1.5: return 3
-    elif peg<=2.0: return 2
-    elif peg<=3.0: return 1
-    else: return 0
+def score_quality(info):
+    """PEG 대체 — 매출성장률 + 영업이익률 복합 지표 (5점 만점)
+    yfinance에서 안정적으로 수집되는 지표 위주로 구성"""
+    score = 0
+    try:
+        # 1) 매출 성장률 (revenueGrowth) — 0~3점
+        rev_growth = info.get('revenueGrowth', None)
+        if rev_growth is not None:
+            if rev_growth >= 0.20:   score += 3   # 20%+ 고성장
+            elif rev_growth >= 0.10: score += 2   # 10~20% 성장
+            elif rev_growth >= 0.0:  score += 1   # 0~10% 소폭 성장
+            # 마이너스 성장이면 0점
+        # 2) 영업이익률 (operatingMargins) — 0~2점
+        op_margin = info.get('operatingMargins', None)
+        if op_margin is not None:
+            if op_margin >= 0.20:   score += 2   # 20%+ 우수
+            elif op_margin >= 0.10: score += 1   # 10~20% 양호
+            # 10% 미만이면 0점
+    except:
+        pass
+    return score
 
 def score_ma200(hist_daily):
     try:
@@ -561,7 +574,7 @@ def calculate_growth_score(info, hist_daily):
     return (score_roe(info.get('returnOnEquity',0) or 0)
           + score_debt(info.get('debtToEquity',999) or 999)
           + score_eps_growth(info)
-          + score_peg(info.get('pegRatio',None))
+          + score_quality(info)
           + score_ma200(hist_daily)
           + score_rsi(hist_daily))
 
@@ -634,9 +647,9 @@ def fetch_single_stock(ticker, market):
         c_ema=score_ema_slope(hist_weekly); c_stoch=score_stochastic(hist_daily); c_break=score_breakout(hist_daily)
         classic=c_ema+(c_stoch//2 if c_ema==0 else c_stoch)+(c_break//2 if c_ema==0 else c_break)
         g_roe=score_roe(info.get('returnOnEquity',0) or 0); g_debt=score_debt(info.get('debtToEquity',999) or 999)
-        g_eps=score_eps_growth(info); g_peg=score_peg(info.get('pegRatio',None))
+        g_eps=score_eps_growth(info); g_quality=score_quality(info)
         g_ma200=score_ma200(hist_daily); g_rsi=score_rsi(hist_daily)
-        growth=g_roe+g_debt+g_eps+g_peg+g_ma200+g_rsi
+        growth=g_roe+g_debt+g_eps+g_quality+g_ma200+g_rsi
         m_anal=score_analyst(info.get('recommendationKey','') or '')
         m_rs=score_relative_strength(hist_daily); m_obv=score_obv_momentum(hist_daily)
         modern=m_anal+m_rs+m_obv; total=classic+growth+modern
@@ -653,9 +666,12 @@ def fetch_single_stock(ticker, market):
             "classic_score":classic,"growth_score":growth,"modern_score":modern,
             "total_score":total,"recommendation":get_recommendation(total,classic,growth,modern),
             "weight":0,"rsi":rsi_val,
-            "roe":round((info.get('returnOnEquity',0) or 0)*100,1),"peg":round(info.get('pegRatio',0) or 0,2),
+            "roe":round((info.get('returnOnEquity',0) or 0)*100,1),
+            "rev_growth":round((info.get('revenueGrowth',0) or 0)*100,1),
+            "op_margin":round((info.get('operatingMargins',0) or 0)*100,1),
+            "peg":0,  # 하위호환 유지 (DB 컬럼 존재)
             "c_ema":c_ema,"c_stoch":c_stoch,"c_break":c_break,
-            "g_roe":g_roe,"g_debt":g_debt,"g_eps":g_eps,"g_peg":g_peg,"g_ma200":g_ma200,"g_rsi":g_rsi,
+            "g_roe":g_roe,"g_debt":g_debt,"g_eps":g_eps,"g_peg":g_quality,"g_ma200":g_ma200,"g_rsi":g_rsi,
             "m_anal":m_anal,"m_rs":m_rs,"m_obv":m_obv,
         }
     except: return None
@@ -1187,22 +1203,6 @@ def _market_label(market):
 def _currency(market):
     return "KRW" if market in ("kospi","kosdaq","kr") else "USD"
 
-@app.get("/api/screen/status")
-def screening_status():
-    if not DATABASE_URL: return {"error":"DATABASE_URL 없음"}
-    try:
-        conn=get_conn(); cur=conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        cur.execute("SELECT market, COUNT(*) as cnt, MAX(screened_at) as last_run FROM screening_cache GROUP BY market ORDER BY market")
-        rows=cur.fetchall(); cur.close(); conn.close()
-        return {"status":[dict(r) for r in rows]}
-    except Exception as e: return {"error":str(e)}
-
-@app.post("/api/screen/run")
-def trigger_screening(background_tasks: BackgroundTasks):
-    """수동으로 전체 스크리닝 즉시 실행 (백그라운드)"""
-    background_tasks.add_task(run_full_screening_job)
-    return {"message":"스크리닝 시작됨. 나스닥200+S&P500+코스피200+코스닥150 약 10~15분 소요. /api/screen/status 로 확인하세요."}
-
 @app.get("/api/screen/{market}")
 def screen_stocks(market: str = "nasdaq"):
     """DB 캐시 우선 → 없으면 실시간 계산 (기존 방식)"""
@@ -1227,6 +1227,22 @@ def screen_stocks(market: str = "nasdaq"):
             "updated_at":datetime.now().strftime("%Y-%m-%d %H:%M"),
             "total_screened":len(results),"results":results,"from_cache":False}
 
+@app.post("/api/screen/run")
+def trigger_screening(background_tasks: BackgroundTasks):
+    """수동으로 전체 스크리닝 즉시 실행 (백그라운드)"""
+    background_tasks.add_task(run_full_screening_job)
+    return {"message":"스크리닝 시작됨. 나스닥200+S&P500+코스피200+코스닥150 약 10~15분 소요. /api/screen/status 로 확인하세요."}
+
+@app.get("/api/screen/status")
+def screening_status():
+    if not DATABASE_URL: return {"error":"DATABASE_URL 없음"}
+    try:
+        conn=get_conn(); cur=conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("SELECT market, COUNT(*) as cnt, MAX(screened_at) as last_run FROM screening_cache GROUP BY market ORDER BY market")
+        rows=cur.fetchall(); cur.close(); conn.close()
+        return {"status":[dict(r) for r in rows]}
+    except Exception as e: return {"error":str(e)}
+
 @app.get("/api/stock/{ticker}")
 def get_stock_score(ticker: str):
     ticker=ticker.upper().strip()
@@ -1239,9 +1255,9 @@ def get_stock_score(ticker: str):
         c_ema=score_ema_slope(hist_weekly); c_stoch=score_stochastic(hist_daily); c_break=score_breakout(hist_daily)
         classic=c_ema+(c_stoch//2 if c_ema==0 else c_stoch)+(c_break//2 if c_ema==0 else c_break)
         g_roe=score_roe(info.get('returnOnEquity',0) or 0); g_debt=score_debt(info.get('debtToEquity',999) or 999)
-        g_eps=score_eps_growth(info); g_peg=score_peg(info.get('pegRatio',None))
+        g_eps=score_eps_growth(info); g_quality=score_quality(info)
         g_ma200=score_ma200(hist_daily); g_rsi=score_rsi(hist_daily)
-        growth=g_roe+g_debt+g_eps+g_peg+g_ma200+g_rsi
+        growth=g_roe+g_debt+g_eps+g_quality+g_ma200+g_rsi
         m_anal=score_analyst(info.get('recommendationKey','') or '')
         m_rs=score_relative_strength(hist_daily); m_obv=score_obv_momentum(hist_daily)
         modern=m_anal+m_rs+m_obv; total=classic+growth+modern
@@ -1262,7 +1278,9 @@ def get_stock_score(ticker: str):
                 "detail":{"roe":round((info.get('returnOnEquity') or 0)*100,1),
                           "debt_equity":round(info.get('debtToEquity') or 0,1),
                           "eps_growth":round((info.get('earningsGrowth') or 0)*100,1),
-                          "peg":round(info.get('pegRatio') or 0,2),
+                          "rev_growth":round((info.get('revenueGrowth') or 0)*100,1),
+                          "op_margin":round((info.get('operatingMargins') or 0)*100,1),
+                          "g_quality":g_quality,
                           "rsi":rsi_val,"year_return":year_return,
                           "analyst_rec":info.get('recommendationKey') or '—',
                           "market_cap":info.get('marketCap') or 0}}
