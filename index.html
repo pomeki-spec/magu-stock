@@ -279,7 +279,15 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
       <!-- 2. 하이일드 스프레드 -->
       <div class="card" id="hy-card" style="border-top:3px solid #e4e8f0;transition:border-color .3s;position:relative;padding-bottom:52px;">
         <div style="font-size:11px;font-weight:700;color:var(--sub);margin-bottom:8px;">📉 하이일드 스프레드</div>
-        <div style="height:7px;margin-bottom:10px;"></div><!-- 게이지 자리 맞춤 -->
+        <!-- 중앙기준 좌우 바 -->
+        <div style="position:relative;height:7px;border-radius:4px;background:#f1f5f9;margin-bottom:11px;overflow:hidden;">
+          <!-- 왼쪽(확대/위험) -->
+          <div id="hy-bar-left" style="position:absolute;right:50%;top:0;height:100%;background:#ef4444;border-radius:4px 0 0 4px;width:0%;transition:width .6s ease;"></div>
+          <!-- 오른쪽(축소/매수) -->
+          <div id="hy-bar-right" style="position:absolute;left:50%;top:0;height:100%;background:#22c55e;border-radius:0 4px 4px 0;width:0%;transition:width .6s ease;"></div>
+          <!-- 중앙선 -->
+          <div style="position:absolute;left:50%;top:0;width:2px;height:100%;background:#d1d5db;transform:translateX(-50%);"></div>
+        </div>
         <div style="font-size:20px;font-weight:800;line-height:1;margin-bottom:4px;" id="hy-val-display">—</div>
         <div style="font-size:12px;font-weight:800;margin-bottom:0;" id="hy-signal-badge">—</div>
         <div style="position:absolute;bottom:0;left:0;right:0;display:flex;border-top:1px solid var(--border);padding:8px 16px 12px;">
@@ -301,7 +309,10 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
       <!-- 3. VIX -->
       <div class="card" id="vix-card" style="border-top:3px solid #e4e8f0;transition:border-color .3s;position:relative;padding-bottom:52px;">
         <div style="font-size:11px;font-weight:700;color:var(--sub);margin-bottom:8px;">📊 VIX 공포지수</div>
-        <div style="height:7px;margin-bottom:10px;"></div><!-- 게이지 자리 맞춤 -->
+        <!-- 그라데이션 바 (0→50, 낮을수록 과열/빨강, 높을수록 매수/초록) -->
+        <div style="position:relative;height:7px;border-radius:4px;background:linear-gradient(to right,#ef4444,#f59e0b,#eab308,#22c55e);margin-bottom:11px;">
+          <div id="vix-needle" style="position:absolute;top:-5px;width:16px;height:16px;background:#fff;border:3px solid #374151;border-radius:50%;transform:translateX(-50%);transition:left .6s ease;left:50%;"></div>
+        </div>
         <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">
           <div style="font-size:20px;font-weight:800;line-height:1;" id="vix-val">—</div>
           <div id="vix-dir" style="font-size:16px;line-height:1;">—</div>
@@ -1444,6 +1455,9 @@ async function loadMarketData() {
       else if(v.value>=25)       {vixSig='신중 접근 (관망)';vixCol='#c2410c';vixBorder='#fb923c';}
       else if(v.value>=15)       {vixSig='정상 — 중립';vixCol='#15803d';vixBorder='#22c55e';}
       else                       {vixSig='과열 — 비중 축소 고려';vixCol='#6b7280';vixBorder='#d1d5db';}
+      // VIX 바늘: 0~50 범위, 낮을수록 왼쪽(빨강), 높을수록 오른쪽(초록)
+      const vixPct=Math.min(Math.max(v.value/50*100,2),98);
+      document.getElementById('vix-needle').style.left=vixPct+'%';
       const sigEl=document.getElementById('vix-signal');
       sigEl.textContent=vixSig; sigEl.style.color=vixCol;
       document.getElementById('vix-card').style.borderTopColor=vixBorder;
@@ -1455,18 +1469,25 @@ async function loadMarketData() {
       const isNarrowing=hy.direction==='narrowing';
       const badge=document.getElementById('hy-signal-badge');
       const valDisplay=document.getElementById('hy-val-display');
+      // 하이일드 바: 5일 스프레드 절댓값으로 바 길이 (최대 2% → 50% 너비)
+      const s5dVal=Math.abs(hy.spread_5d||0);
+      const barPct=Math.min(s5dVal/2*50,50);
       if(isNarrowing){
         valDisplay.textContent='📉 축소 중';
         valDisplay.style.color='#15803d';
         badge.textContent='분할 매수 고려';
         badge.style.color='#15803d';
         document.getElementById('hy-card').style.borderTopColor='#22c55e';
+        document.getElementById('hy-bar-right').style.width=barPct+'%';
+        document.getElementById('hy-bar-left').style.width='0%';
       } else {
         valDisplay.textContent='📈 확대 중';
         valDisplay.style.color='#991b1b';
         badge.textContent='관망 (비중 축소 고려)';
         badge.style.color='#991b1b';
         document.getElementById('hy-card').style.borderTopColor='#ef4444';
+        document.getElementById('hy-bar-left').style.width=barPct+'%';
+        document.getElementById('hy-bar-right').style.width='0%';
       }
       document.getElementById('hy-hyg').textContent=hy.hyg?'$'+hy.hyg:'—';
       const s1d=hy.spread_1d;
