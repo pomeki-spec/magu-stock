@@ -1221,36 +1221,42 @@ def get_fear_greed():
     """CNN 공포탐욕지수 — CNN 내부 API 직접 호출"""
     try:
         url="https://production.dataviz.cnn.io/index/fearandgreed/graphdata/"
-        headers={"User-Agent":"Mozilla/5.0","referer":"https://edition.cnn.com/"}
-        resp=requests.get(url, headers=headers, timeout=10)
+        headers={
+            "User-Agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Referer":"https://edition.cnn.com/markets/fear-and-greed",
+            "Accept":"application/json, text/plain, */*",
+            "Origin":"https://edition.cnn.com",
+        }
+        resp=requests.get(url, headers=headers, timeout=15)
         resp.raise_for_status()
         data=resp.json()
         fg=data.get("fear_and_greed",{})
-        score=round(float(fg.get("score",50)),1)
-        rating=fg.get("rating","neutral")
-        prev_close=round(float(data.get("fear_and_greed_historical",{})
-                                .get("data",[{}])[-2].get("y",score) if
-                                len(data.get("fear_and_greed_historical",{})
-                                .get("data",[]))>=2 else score),1)
-        # 1주전, 1개월전
-        hist=data.get("fear_and_greed_historical",{}).get("data",[])
-        week_ago =round(float(hist[-6].get("y",score)),1)  if len(hist)>=6  else None
-        month_ago=round(float(hist[-22].get("y",score)),1) if len(hist)>=22 else None
 
-        # 신호 판단
-        if score<=10:   signal,color="🔴 극단적 공포 — 적극 매수 구간","#15803d"
-        elif score<=25: signal,color="🟠 공포 — 분할 매수 고려","#f59e0b"
-        elif score<=45: signal,color="🟡 중립 하단","#b45309"
-        elif score<=55: signal,color="⚪ 중립","#6b7280"
-        elif score<=75: signal,color="🔵 탐욕 — 매수 자제","#1d4ed8"
-        else:           signal,color="🔴 극단적 탐욕 — 비중 축소","#991b1b"
+        score       = round(float(fg.get("score", 50)), 1)
+        rating      = fg.get("rating", "neutral")
+        prev_close  = round(float(fg.get("previous_close", score)), 1)
+        week_ago    = round(float(fg.get("previous_1_week", score)), 1)
+        month_ago   = round(float(fg.get("previous_1_month", score)), 1)
 
-        return {"score":score,"rating":rating,"signal":signal,"color":color,
-                "prev_close":prev_close,"week_ago":week_ago,"month_ago":month_ago,
-                "updated_at":datetime.now().strftime("%Y-%m-%d %H:%M")}
+        # 신호 판단 (말씀하신 기준 반영)
+        if score <= 10:   signal, color = "🟢 극단적 공포 — 적극 매수 구간", "#15803d"
+        elif score <= 25: signal, color = "🟠 공포 — 분할 매수 고려", "#f59e0b"
+        elif score <= 45: signal, color = "🟡 중립 하단", "#b45309"
+        elif score <= 55: signal, color = "⚪ 중립", "#6b7280"
+        elif score <= 75: signal, color = "🔵 탐욕 — 매수 자제", "#1d4ed8"
+        else:             signal, color = "🔴 극단적 탐욕 — 비중 축소", "#991b1b"
+
+        return {
+            "score": score, "rating": rating,
+            "signal": signal, "color": color,
+            "prev_close": prev_close,
+            "week_ago": week_ago,
+            "month_ago": month_ago,
+            "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M")
+        }
     except Exception as e:
         logger.warning(f"CNN 공포탐욕 오류: {e}")
-        return {"score":None,"signal":"데이터 수집 실패","error":str(e)}
+        return {"score": None, "signal": "데이터 수집 실패", "error": str(e)}
 
 
 @app.get("/api/breadth")
