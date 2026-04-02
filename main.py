@@ -1,1828 +1,1840 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>WISEMAC STOCK — 멀티모델 주식 스크리너</title>
-<style>
-@import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@400;500;600;700;800&display=swap');
-*{box-sizing:border-box;margin:0;padding:0;}
-:root{
-  --sidebar:#0f1923;--bg:#f0f2f5;--card:#fff;
-  --border:#e4e8f0;--text:#1a1f2e;--sub:#6b7280;
-  --blue:#3b82f6;--green:#22c55e;--red:#ef4444;
-  --orange:#f59e0b;--purple:#8b5cf6;
+from fastapi import FastAPI, BackgroundTasks
+from fastapi.responses import FileResponse
+from fastapi.middleware.cors import CORSMiddleware
+import yfinance as yf
+import ta
+import pandas as pd
+from datetime import datetime, timedelta
+import concurrent.futures
+import os
+import requests
+import psycopg2
+import psycopg2.extras
+import json
+import pytz
+import logging
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+app = FastAPI()
+
+@app.get("/dashboard")
+def dashboard():
+    response = FileResponse("index.html")
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# ══════════════════════════════════════════════════════════════
+# DB 연결
+# ══════════════════════════════════════════════════════════════
+
+DATABASE_URL = os.environ.get("DATABASE_URL", "")
+
+def get_conn():
+    url = DATABASE_URL
+    if url.startswith("postgres://"):
+        url = url.replace("postgres://", "postgresql://", 1)
+    return psycopg2.connect(url, sslmode="require")
+
+def init_db():
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS screening_cache (
+            ticker         TEXT NOT NULL,
+            market         TEXT NOT NULL,
+            name           TEXT,
+            sector         TEXT,
+            etf            TEXT,
+            price          FLOAT,
+            change_pct     FLOAT,
+            classic_score  INT,
+            growth_score   INT,
+            modern_score   INT,
+            total_score    INT,
+            recommendation TEXT,
+            weight         FLOAT,
+            rsi            FLOAT,
+            roe            FLOAT,
+            peg            FLOAT,
+            c_ema          INT,
+            c_stoch        INT,
+            c_break        INT,
+            g_roe          INT,
+            g_debt         INT,
+            g_eps          INT,
+            g_peg          INT,
+            g_ma200        INT,
+            g_rsi          INT,
+            m_anal         INT,
+            m_rs           INT,
+            m_obv          INT,
+            screened_at    TIMESTAMP DEFAULT NOW(),
+            PRIMARY KEY (ticker, market)
+        );
+        CREATE INDEX IF NOT EXISTS idx_sc_market ON screening_cache(market);
+        CREATE INDEX IF NOT EXISTS idx_sc_score  ON screening_cache(total_score DESC);
+
+        CREATE TABLE IF NOT EXISTS tenbagger_cache (
+            ticker           TEXT PRIMARY KEY,
+            name             TEXT,
+            sector           TEXT,
+            market_cap_b     FLOAT,
+            price            FLOAT,
+            change_pct       FLOAT,
+            lynch_score      INT,
+            oneil_score      INT,
+            minervini_score  INT,
+            total_score      INT,
+            grade            TEXT,
+            lynch_detail     JSONB,
+            oneil_detail     JSONB,
+            minervini_detail JSONB,
+            screened_at      TIMESTAMP DEFAULT NOW()
+        );
+
+        CREATE TABLE IF NOT EXISTS bestpick_records (
+            id                SERIAL PRIMARY KEY,
+            ticker            TEXT NOT NULL,
+            name              TEXT,
+            sector            TEXT,
+            entry_price       FLOAT NOT NULL,
+            total_score       INT,
+            classic_score     INT,
+            growth_score      INT,
+            modern_score      INT,
+            recommendation    TEXT,
+            consecutive_count INT DEFAULT 1,
+            picked_at         DATE NOT NULL DEFAULT CURRENT_DATE,
+            UNIQUE (ticker, picked_at)
+        );
+        CREATE INDEX IF NOT EXISTS idx_bp_picked_at ON bestpick_records(picked_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_bp_ticker    ON bestpick_records(ticker);
+
+        CREATE TABLE IF NOT EXISTS bestpick_prices (
+            id         SERIAL PRIMARY KEY,
+            record_id  INT NOT NULL REFERENCES bestpick_records(id) ON DELETE CASCADE,
+            ticker     TEXT NOT NULL,
+            price_date DATE NOT NULL,
+            price      FLOAT NOT NULL,
+            return_pct FLOAT,
+            UNIQUE (record_id, price_date)
+        );
+        CREATE INDEX IF NOT EXISTS idx_bpp_record ON bestpick_prices(record_id);
+    """)
+    conn.commit()
+    cur.close()
+    conn.close()
+    logger.info("DB 초기화 완료")
+
+def cleanup_old_data():
+    try:
+        conn = get_conn(); cur = conn.cursor()
+        cur.execute("DELETE FROM screening_cache WHERE screened_at < NOW() - INTERVAL '30 days'")
+        cur.execute("DELETE FROM tenbagger_cache WHERE screened_at < NOW() - INTERVAL '30 days'")
+        cur.execute("DELETE FROM bestpick_records WHERE picked_at < CURRENT_DATE - INTERVAL '180 days'")
+        conn.commit(); cur.close(); conn.close()
+        logger.info("cleanup 완료")
+    except Exception as e:
+        logger.error(f"cleanup 오류: {e}")
+
+# ══════════════════════════════════════════════════════════════
+# 종목 풀 — 확장판 (나스닥200, S&P500, 코스피200, 코스닥150)
+# ══════════════════════════════════════════════════════════════
+
+def get_sp500_tickers():
+    """Wikipedia에서 S&P500 최신 구성종목 크롤링"""
+    try:
+        url = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
+        tables = pd.read_html(url)
+        tickers = tables[0]['Symbol'].str.replace('.', '-', regex=False).tolist()
+        logger.info(f"S&P500 Wikipedia 크롤링: {len(tickers)}개")
+        return tickers
+    except Exception as e:
+        logger.warning(f"S&P500 크롤링 실패, 하드코딩 폴백: {e}")
+        return []
+
+TICKERS_NASDAQ = list(dict.fromkeys([
+    "AAPL","MSFT","NVDA","AMZN","META","GOOGL","TSLA","AVGO","COST","NFLX",
+    "TMUS","AMD","ADBE","TXN","QCOM","INTU","AMAT","AMGN","ISRG","MU",
+    "LRCX","KLAC","MRVL","ADP","REGN","PANW","SNPS","CDNS","CRWD","ADI",
+    "FTNT","MELI","PYPL","WDAY","ABNB","DXCM","IDXX","FAST","VRSK","BIIB",
+    "PCAR","TEAM","ZS","CPRT","PAYX","NXPI","ANSS","CTAS","CTSH","MCHP",
+    "MRNA","DDOG","EBAY","ENPH","TTWO","GEHC","ON","GILD","SBUX","BKNG",
+    "VRTX","LULU","NTAP","FSLR","CDW","SMCI","CCEP","CEG","MNST","KDP",
+    "ILMN","OKTA","ALGN","DOCU","ZM","MTCH","ARM","MDLZ","ORLY","MAR",
+    "PLTR","COIN","RBLX","DASH","HOOD","AFRM","UPST","BILL","TOST","GTLB",
+    "DUOL","HIMS","RDDT","CAVA","APP","CELH","DKNG","RIVN","CHWY","ETSY",
+    "PINS","SNAP","BMBL","LYFT","UBER","SQ","ROKU","SOFI","NU","MSTR",
+    "RIOT","MARA","SOUN","BBAI","IONQ","RKLB","ASTS","JOBY","ACHR","LUNR",
+    "ARRY","NOVA","STEM","EVGO","CHPT","BLNK","PLUG","BE","FCEL","NKLA",
+    "RXRX","BEAM","CRSP","EDIT","NTLA","PACB","ARWR","KYMR","VKTX","NVCR",
+    "AMBA","LSCC","SITM","POWI","AOSL","ONTO","ACLS","ICHR","KLIC","MTSI",
+    "BROS","SHAK","WING","TXRH","XPOF","FRPT","YETI","BRZE","SMAR","ASAN",
+    "MNDY","PCVX","RELY","TASK","ALVO","KTOS","AVAV","HLIT","PRFT","CWAN",
+    "ALKT","RBRK","AEHR","EVTC","RSKD","IDCC","AEIS","NRDS","GFAI","INTC",
+    "CSCO","PEP","CMCSA","VRSN","SWKS","QRVO","MPWR","ENTG","FORM","UCTT",
+    "CRUS","SLAB","DIOD","AAON","EXPO","PRGS","PCTY","NCNO","JAMF","APPF",
+]))[:200]
+
+TICKERS_SP500_FALLBACK = list(dict.fromkeys([
+    "BRK-B","JPM","V","UNH","XOM","JNJ","WMT","MA","PG","HD",
+    "CVX","MRK","ABBV","BAC","KO","LLY","TMO","MCD","CRM","ACN",
+    "ABT","DHR","NKE","NEE","WFC","PM","T","UPS","MS","RTX",
+    "SPGI","BMY","CAT","GS","BLK","SYK","AXP","C","CB","MO",
+    "ZTS","CVS","SO","DUK","PLD","TGT","MMC","CI","ITW","HUM",
+    "USB","EMR","NSC","AON","EL","HCA","PSA","MCK","WM","ADM",
+    "SHW","FCX","ECL","TRV","APD","COF","EW","CARR","IQV","BDX",
+    "SPG","GD","NOC","AIG","WELL","CME","MPC","VLO","CCI","CBRE",
+    "STZ","YUM","ROP","KEYS","AWK","FIS","LHX","DG","CTVA","TDG",
+    "LOW","IBM","GE","F","GM","PFE","LIN","CSCO","MMM","AFL",
+    "ALB","AMP","AMT","AZO","BAX","BEN","BSX","BWA","CAG","CAH",
+    "CE","CF","CHD","CHRW","CINF","CL","CLX","CMA","CMS","CNP",
+    "COO","CPB","CSX","D","DAL","DD","DE","DFS","DGX","DHI",
+    "DIS","DLTR","DOV","DRI","DTE","DVA","DVN","EA","ED","EFX",
+    "EIX","EMN","EOG","EQIX","EQR","ES","ESS","ETN","ETR","EXC",
+    "EXR","EXPD","EXPE","FDS","FDX","FE","FFIV","FLT","FMC","FRT",
+    "FTV","GIS","GL","GPC","HIG","HON","HPQ","HSY","ICE","IFF",
+    "IP","IPG","IRM","SNA","SWK","SYY","TAP","TFC","TGT","TJX",
+    "TPR","TSCO","TSN","TT","TXT","UDR","UHS","ULTA","UNM","URI",
+]))
+
+TICKERS_KOSPI = list(dict.fromkeys([
+    "005930.KS","000660.KS","005380.KS","000270.KS","051910.KS",
+    "006400.KS","035420.KS","035720.KS","028260.KS","105560.KS",
+    "055550.KS","086790.KS","032830.KS","003550.KS","066570.KS",
+    "012330.KS","017670.KS","018260.KS","012450.KS","096770.KS",
+    "010950.KS","003670.KS","005490.KS","000810.KS","030200.KS",
+    "015760.KS","011200.KS","034730.KS","009150.KS","010130.KS",
+    "002380.KS","011170.KS","004020.KS","000100.KS","006800.KS",
+    "016360.KS","139480.KS","004170.KS","021240.KS","097950.KS",
+    "000080.KS","033780.KS","271560.KS","282330.KS","326030.KS",
+    "207940.KS","068270.KS","128940.KS","002270.KS","001040.KS",
+    "011070.KS","161390.KS","009830.KS","000720.KS","002790.KS",
+    "008770.KS","010060.KS","001800.KS","004000.KS","006260.KS",
+    "009540.KS","000150.KS","003490.KS","005300.KS","007070.KS",
+    "007310.KS","008060.KS","009240.KS","010620.KS","011790.KS",
+    "012030.KS","014820.KS","015350.KS","017550.KS","018880.KS",
+    "023530.KS","024110.KS","025560.KS","026960.KS","028050.KS",
+    "029780.KS","030000.KS","031430.KS","032640.KS","033240.KS",
+    "034020.KS","034220.KS","036460.KS","037270.KS","042670.KS",
+    "042700.KS","044490.KS","047040.KS","051600.KS","051900.KS",
+    "055490.KS","057050.KS","064350.KS","069260.KS","071050.KS",
+    "078930.KS","079550.KS","081660.KS","086280.KS","088350.KS",
+    "090350.KS","096400.KS","103140.KS","108670.KS","180640.KS",
+    "185750.KS","192080.KS","267250.KS","272210.KS","278280.KS",
+    "316140.KS","323410.KS","352820.KS","377300.KS","000240.KS",
+    "000390.KS","000670.KS","000880.KS","001230.KS","001450.KS",
+    "001740.KS","002320.KS","002350.KS","002820.KS","003070.KS",
+    "003240.KS","003580.KS","004140.KS","004370.KS","004490.KS",
+    "004990.KS","005010.KS","005160.KS","005440.KS","005850.KS",
+    "006050.KS","006360.KS","006650.KS","007160.KS","007340.KS",
+    "008300.KS","008350.KS","008490.KS","009680.KS","009770.KS",
+    "010040.KS","010140.KS","010580.KS","010780.KS","011080.KS",
+    "011420.KS","011760.KS","012750.KS","013360.KS","014680.KS",
+    "016380.KS","017040.KS","017180.KS","018120.KS","019170.KS",
+    "020150.KS","021080.KS","022000.KS","024090.KS","025860.KS",
+    "027740.KS","029530.KS","030190.KS","032560.KS","033530.KS",
+    "036570.KS","037560.KS","038530.KS","039130.KS","041650.KS",
+    "042660.KS","047050.KS","048270.KS","049770.KS","053210.KS",
+    "054210.KS","058430.KS","060980.KS","069620.KS","075580.KS",
+    "078520.KS","082740.KS","091810.KS","100840.KS","138040.KS",
+    "145990.KS","175330.KS","214390.KS","241560.KS","259960.KS",
+]))[:200]
+
+TICKERS_KOSDAQ = list(dict.fromkeys([
+    "247540.KQ","086520.KQ","068760.KQ","091990.KQ","196170.KQ",
+    "096530.KQ","145020.KQ","009420.KQ","048410.KQ","237690.KQ",
+    "088290.KQ","058850.KQ","039200.KQ","031370.KQ","039030.KQ",
+    "357780.KQ","084370.KQ","064760.KQ","095340.KQ","022100.KQ",
+    "058970.KQ","214150.KQ","151910.KQ","042700.KQ","078070.KQ",
+    "036540.KQ","114840.KQ","101490.KQ","126340.KQ","112610.KQ",
+    "140860.KQ","323280.KQ","232140.KQ","065510.KQ","035900.KQ",
+    "041510.KQ","122870.KQ","263750.KQ","293490.KQ","112040.KQ",
+    "036570.KQ","067160.KQ","095660.KQ","066430.KQ","241560.KQ",
+    "179900.KQ","950130.KQ","082270.KQ","091120.KQ","070300.KQ",
+    "086040.KQ","039440.KQ","053160.KQ","191410.KQ","228760.KQ",
+    "251970.KQ","256840.KQ","319400.KQ","298540.KQ","204840.KQ",
+    "036830.KQ","357120.KQ","048910.KQ","060310.KQ","053800.KQ",
+    "067900.KQ","041830.KQ","078130.KQ","033290.KQ","094970.KQ",
+    "058470.KQ","052690.KQ","090460.KQ","092130.KQ","054040.KQ",
+    "089590.KQ","083790.KQ","036200.KQ","067570.KQ","042420.KQ",
+    "054180.KQ","080000.KQ","066970.KQ","058610.KQ","041920.KQ",
+    "048260.KQ","050120.KQ","038500.KQ","053600.KQ","039610.KQ",
+    "053580.KQ","093240.KQ","051160.KQ","089180.KQ","091440.KQ",
+    "078340.KQ","078520.KQ","045970.KQ","060900.KQ","058430.KQ",
+    "083500.KQ","052260.KQ","047310.KQ","099290.KQ","036160.KQ",
+    "058820.KQ","081000.KQ","053210.KQ","045180.KQ","066790.KQ",
+    "053290.KQ","052710.KQ","049520.KQ","048870.KQ","039350.KQ",
+    "067730.KQ","046080.KQ","036000.KQ","052900.KQ","053700.KQ",
+    "058380.KQ","041190.KQ","042080.KQ","048550.KQ","037760.KQ",
+    "063570.KQ","038870.KQ","039840.KQ","048430.KQ","041440.KQ",
+    "050960.KQ","040290.KQ","049080.KQ","036810.KQ","039290.KQ",
+    "052400.KQ","038390.KQ","049830.KQ","052600.KQ","037950.KQ",
+    "041590.KQ","067000.KQ","043370.KQ","049010.KQ","038830.KQ",
+    "054780.KQ","067140.KQ","048310.KQ","036620.KQ","053050.KQ",
+]))[:150]
+
+_sp500_cache = []
+
+def get_tickers_sp500():
+    global _sp500_cache
+    if _sp500_cache:
+        return _sp500_cache
+    fresh = get_sp500_tickers()
+    if fresh:
+        _sp500_cache = fresh
+        return _sp500_cache
+    return TICKERS_SP500_FALLBACK
+
+TICKERS_US = list(dict.fromkeys(TICKERS_NASDAQ + TICKERS_SP500_FALLBACK))
+TICKERS_KR = list(dict.fromkeys(TICKERS_KOSPI + TICKERS_KOSDAQ))
+
+KR_NAMES = {
+    "005930.KS":"삼성전자","000660.KS":"SK하이닉스","005380.KS":"현대차",
+    "000270.KS":"기아","051910.KS":"LG화학","006400.KS":"삼성SDI",
+    "035420.KS":"NAVER","035720.KS":"카카오","028260.KS":"삼성물산",
+    "105560.KS":"KB금융","055550.KS":"신한지주","086790.KS":"하나금융지주",
+    "032830.KS":"삼성생명","003550.KS":"LG","066570.KS":"LG전자",
+    "012330.KS":"현대모비스","017670.KS":"SK텔레콤","018260.KS":"삼성SDS",
+    "012450.KS":"한화에어로스페이스","096770.KS":"SK이노베이션",
+    "010950.KS":"S-Oil","003670.KS":"포스코퓨처엠","005490.KS":"POSCO홀딩스",
+    "000810.KS":"삼성화재","030200.KS":"KT","015760.KS":"한국전력",
+    "011200.KS":"HMM","034730.KS":"SK","009150.KS":"삼성전기",
+    "010130.KS":"고려아연","002380.KS":"KCC","011170.KS":"롯데케미칼",
+    "004020.KS":"현대제철","000100.KS":"유한양행","006800.KS":"미래에셋증권",
+    "016360.KS":"삼성증권","139480.KS":"이마트","004170.KS":"신세계",
+    "021240.KS":"코웨이","097950.KS":"CJ제일제당","000080.KS":"하이트진로",
+    "033780.KS":"KT&G","271560.KS":"오리온","282330.KS":"BGF리테일",
+    "326030.KS":"SK바이오팜","207940.KS":"삼성바이오로직스","068270.KS":"셀트리온",
+    "128940.KS":"한미약품","002270.KS":"롯데제과","001040.KS":"CJ",
+    "011070.KS":"LG이노텍","161390.KS":"한국타이어앤테크놀로지",
+    "009830.KS":"한화솔루션","000720.KS":"현대건설","002790.KS":"아모레퍼시픽",
+    "008770.KS":"호텔신라","010060.KS":"OCI홀딩스","004000.KS":"롯데정밀화학",
+    "006260.KS":"LS","009540.KS":"한진칼","000150.KS":"두산",
+    "003490.KS":"대한항공","005300.KS":"롯데칠성","007070.KS":"GS리테일",
+    "007310.KS":"오뚜기","009240.KS":"한샘","011790.KS":"SKC",
+    "012030.KS":"DB손해보험","023530.KS":"롯데쇼핑","024110.KS":"기업은행",
+    "025560.KS":"메리츠화재","028050.KS":"삼성엔지니어링","034020.KS":"두산에너빌리티",
+    "034220.KS":"LG디스플레이","036460.KS":"한국가스공사","037270.KS":"YG엔터테인먼트",
+    "042670.KS":"HD현대인프라코어","042700.KS":"한미반도체","047040.KS":"대우건설",
+    "051600.KS":"한전KPS","051900.KS":"LG생활건강","064350.KS":"현대로템",
+    "078930.KS":"GS","079550.KS":"LIG넥스원","086280.KS":"현대글로비스",
+    "088350.KS":"한화생명","096400.KS":"BNK금융지주","103140.KS":"풍산",
+    "180640.KS":"한진칼","185750.KS":"종근당","267250.KS":"HD현대",
+    "272210.KS":"한화시스템","278280.KS":"천보","316140.KS":"우리금융지주",
+    "323410.KS":"카카오뱅크","352820.KS":"하이브","377300.KS":"카카오페이",
+    "247540.KQ":"에코프로비엠","086520.KQ":"에코프로","196170.KQ":"알테오젠",
+    "091990.KQ":"셀트리온헬스케어","035900.KQ":"JYP엔터","041510.KQ":"SM엔터테인먼트",
+    "122870.KQ":"와이지엔터테인먼트","263750.KQ":"펄어비스","293490.KQ":"카카오게임즈",
+    "112040.KQ":"위메이드","067160.KQ":"아프리카TV","039030.KQ":"이오테크닉스",
+    "357780.KQ":"솔브레인","096530.KQ":"씨젠","145020.KQ":"휴젤",
+    "214150.KQ":"클래시스","151910.KQ":"한국콜마","084370.KQ":"유진테크",
+    "095340.KQ":"ISC","039200.KQ":"오스코텍","031370.KQ":"아이센스",
+    "048410.KQ":"현대바이오","058970.KQ":"엠씨넥스","064760.KQ":"티씨케이",
+    "237690.KQ":"에스티팜","022100.KQ":"포스코DX","179900.KQ":"유티아이",
+    "036570.KQ":"엔씨소프트","241560.KQ":"두산밥캣","950130.KQ":"엑스페릭스",
+    "068760.KQ":"셀트리온제약","091120.KQ":"레인보우로보틱스","009420.KQ":"한올바이오파마",
+    "112610.KQ":"씨에스윈드","082270.KQ":"뉴트리","086040.KQ":"JW중외제약",
+    "095660.KQ":"네오위즈","066430.KQ":"티에스이","070300.KQ":"엑스큐어",
+    # 코스피 추가
+    "001800.KS":"오리온홀딩스","008060.KS":"대덕전자","010620.KS":"현대미포조선",
+    "014820.KS":"동원시스템즈","018880.KS":"한온시스템","026960.KS":"동서",
+    "029780.KS":"삼성카드","030000.KS":"제일기획","030190.KS":"NICE평가정보",
+    "031430.KS":"신세계인터내셔날","036570.KS":"엔씨소프트","037560.KS":"LG헬로비전",
+    "039130.KS":"하나투어","042660.KS":"한화오션","047050.KS":"포스코인터내셔날",
+    "048270.KS":"오스템임플란트","049770.KS":"동원F&B","053210.KS":"스카이라이프",
+    "054210.KS":"포스코DX","060980.KS":"한솔홀딩스","069620.KS":"대웅제약",
+    "082740.KS":"HSD엔진","100840.KS":"SNT에너지","138040.KS":"메리츠금융지주",
+    "145990.KS":"삼양사","175330.KS":"JB금융지주","214390.KS":"경보제약",
+    "259960.KS":"크래프톤","000390.KS":"삼화페인트","000670.KS":"영풍",
+    "000880.KS":"한화","001230.KS":"동국제강","001450.KS":"현대해상",
+    "001740.KS":"SK네트웍스","002320.KS":"한진","002350.KS":"넥센타이어",
+    "002820.KS":"SBS","003070.KS":"코오롱","003240.KS":"태광산업",
+    "003580.KS":"HLB생명과학","004140.KS":"동양","004370.KS":"농심",
+    "004490.KS":"세방전지","004990.KS":"롯데지주","005160.KS":"동국제강",
+    "005440.KS":"현대그린푸드","005850.KS":"에스엘","006360.KS":"GS건설",
+    "006650.KS":"대한유화","007160.KS":"사조산업","007340.KS":"DN오토모티브",
+    "008300.KS":"효성티앤씨","008350.KS":"남선알미늄","008490.KS":"서흥",
+    "009680.KS":"부산은행","009770.KS":"삼원강재","010040.KS":"한국내화",
+    "010140.KS":"삼성중공업","010780.KS":"아이에스동서","011080.KS":"두산에너빌리티",
+    "011420.KS":"경동나비엔","011760.KS":"현대코퍼레이션","012750.KS":"에스원",
+    "014680.KS":"한솔케미칼","016380.KS":"KG동부제철","017040.KS":"광동제약",
+    "017180.KS":"한미사이언스","019170.KS":"신풍제약","020150.KS":"일진전기",
+    "022000.KS":"오성첨단소재","025860.KS":"남해화학","032640.KS":"LG유플러스",
+    "033240.KS":"자화전자","033530.KS":"세아제강지주","038530.KS":"삼일제약",
+    "041650.KS":"상신브레이크","053580.KS":"빙그레","058430.KS":"포스코스틸리온",
+    "069260.KS":"쌍용C&E","071050.KS":"한국금융지주","081660.KS":"휠라홀딩스",
+    "090350.KS":"노루홀딩스","108670.KS":"LG하우시스","241560.KS":"두산밥캣",
+    # 코스닥 추가
+    "088290.KQ":"이오플로우","058850.KQ":"KH바텍","078070.KQ":"유비케어",
+    "036540.KQ":"SFA반도체","114840.KQ":"아이패밀리에스씨","101490.KQ":"에스앤에스텍",
+    "126340.KQ":"비나텍","140860.KQ":"파크시스템스","323280.KQ":"태성",
+    "232140.KQ":"와이씨","065510.KQ":"휴비스","066970.KQ":"엘앤에프",
+    "058610.KQ":"에스피지","039440.KQ":"에스티아이","053160.KQ":"CJ CGV",
+    "228760.KQ":"지노믹트리","251970.KQ":"펌텍코리아","256840.KQ":"한국비엔씨",
+    "319400.KQ":"현대무벡스","036830.KQ":"솔브레인홀딩스","357120.KQ":"큐라클",
+    "048910.KQ":"대원미디어","053800.KQ":"안랩","041830.KQ":"인바디",
+    "033290.KQ":"코웰패션","058470.KQ":"리노공업","052690.KQ":"한전기술",
+    "090460.KQ":"비에이치","092130.KQ":"이크레더블","083790.KQ":"크리스에프앤씨",
+    "036200.KQ":"유니셈","054180.KQ":"PI첨단소재","080000.KQ":"에스엔유",
+    "041920.KQ":"동국S&C","048260.KQ":"오스코텍","038500.KQ":"로보스타",
+    "053600.KQ":"한국토지신탁","083500.KQ":"에프에스티","052260.KQ":"현대바이오랜드",
+    "047310.KQ":"파워로직스","099290.KQ":"테크윙","081000.KQ":"티씨케이",
+    "058820.KQ":"CMG제약","053290.KQ":"NE능률","052710.KQ":"아모텍",
+    "049520.KQ":"유아이엘","039350.KQ":"이건산업","046080.KQ":"에코바이오",
+    "052900.KQ":"엘아이에스","041190.KQ":"우리기술투자","042080.KQ":"가비아",
+    "037760.KQ":"코스모화학","063570.KQ":"한국전자금융","038870.KQ":"에코마케팅",
+    "039840.KQ":"디오","041440.KQ":"현대에버다임","040290.KQ":"미래컴퍼니",
+    "049080.KQ":"파세코","039290.KQ":"후성","052400.KQ":"코나아이",
+    "038390.KQ":"레드캡투어","037950.KQ":"엘앤씨바이오","067000.KQ":"조이시티",
+    "043370.KQ":"피에이치에이","049010.KQ":"이엔에프테크놀로지","054780.KQ":"하이록코리아",
+    "067140.KQ":"두올","048310.KQ":"비트컴퓨터","053050.KQ":"지에스이",
+    "067730.KQ":"에스바이오메딕스","191410.KQ":"육일씨엔에쓰","298540.KQ":"더컴퍼니",
+    "204840.KQ":"지오엘리먼트","060310.KQ":"3S","078130.KQ":"국일인토트",
+    "094970.KQ":"제이엠티","089590.KQ":"제주항공","036000.KQ":"예림당",
+    "058380.KQ":"동화일렉트로라이트","048430.KQ":"유라테크","050960.KQ":"수산아이앤티",
+    "036810.KQ":"에스엠코어","049830.KQ":"율호","052600.KQ":"나노엔텍",
+    "041590.KQ":"플랜티넷","038830.KQ":"이건에너지","036620.KQ":"감성코퍼레이션",
+    "067570.KQ":"에이테크솔루션","042420.KQ":"네오위즈홀딩스",
 }
-body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:var(--text);display:flex;min-height:100vh;font-size:14px;}
-.sidebar{width:200px;background:var(--sidebar);min-height:100vh;display:flex;flex-direction:column;flex-shrink:0;position:fixed;top:0;left:0;height:100%;overflow-y:auto;}
-.logo-area{padding:22px 18px 18px;border-bottom:1px solid rgba(255,255,255,.07);}
-.logo-name{font-size:16px;font-weight:800;color:#fff;letter-spacing:-.3px;}
-.logo-badge{font-size:9px;background:var(--blue);color:#fff;padding:2px 7px;border-radius:3px;margin-left:5px;vertical-align:middle;font-weight:700;}
-.logo-sub{font-size:11px;color:rgba(255,255,255,.3);margin-top:5px;}
-.nav{padding:10px 0;flex:1;}
-.nav-item{display:flex;align-items:center;gap:10px;padding:11px 18px;cursor:pointer;color:rgba(255,255,255,.45);font-size:13px;font-weight:500;border-left:3px solid transparent;transition:all .15s;}
-.nav-item:hover{background:rgba(255,255,255,.05);color:rgba(255,255,255,.8);}
-.nav-item.active{background:rgba(59,130,246,.15);color:#fff;border-left-color:var(--blue);}
-.nav-item-main{background:rgba(255,255,255,.07);border-left:3px solid rgba(255,255,255,.25);margin:6px 10px;border-radius:8px;padding:12px 14px !important;}
-.nav-item-main:hover{background:rgba(255,255,255,.13) !important;}
-.nav-item-main.active{background:rgba(59,130,246,.25) !important;border-left-color:var(--blue) !important;}
-.nav-icon{font-size:15px;width:18px;text-align:center;}
-.nav-label{font-size:13px;font-weight:600;}
-.nav-sub{font-size:10px;color:rgba(255,255,255,.25);margin-top:2px;}
-.sidebar-footer{padding:14px 18px;border-top:1px solid rgba(255,255,255,.07);}
-.idx-title{font-size:10px;color:rgba(255,255,255,.35);font-weight:700;margin-bottom:8px;letter-spacing:.8px;}
-.idx-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;}
-.idx-name{font-size:11px;color:rgba(255,255,255,.4);}
-.idx-val{font-size:11px;font-weight:700;color:rgba(255,255,255,.65);}
-.idx-chg{font-size:10px;}
-.main{flex:1;padding:22px 26px;overflow:auto;margin-left:200px;}
-.topbar{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:20px;}
-.page-title{font-size:24px;font-weight:800;letter-spacing:-.5px;}
-.update-row{font-size:12px;color:var(--sub);margin-top:6px;display:flex;align-items:center;gap:7px;}
-.tag-status{font-size:11px;font-weight:700;padding:2px 9px;border-radius:4px;}
-.topbar-right{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
-.seg-btn{padding:7px 16px;border-radius:7px;font-size:13px;font-weight:600;cursor:pointer;border:1px solid var(--border);background:#fff;color:var(--sub);transition:all .15s;}
-.seg-btn.active{background:#1e3a5f;color:#fff;border-color:#1e3a5f;}
-.run-btn{padding:8px 18px;background:var(--blue);color:#fff;border:none;border-radius:7px;font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px;white-space:nowrap;}
-.run-btn:hover{opacity:.85;}
-.run-btn:disabled{opacity:.5;cursor:not-allowed;}
-.card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:18px;}
-.mkt-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:14px;}
-.mkt-card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px 16px;}
-.mkt-label{font-size:11px;color:var(--sub);margin-bottom:6px;font-weight:600;}
-.mkt-val{font-size:20px;font-weight:800;}
-.mkt-chg{font-size:12px;font-weight:600;margin-top:4px;}
-.up{color:#ef4444;} .dn{color:#3b82f6;}
-.fi-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;}
-.fear-bar{height:9px;border-radius:5px;background:linear-gradient(to right,#ef4444,#f59e0b,#eab308,#22c55e);position:relative;margin:12px 0 6px;}
-.fear-needle{position:absolute;top:-5px;width:18px;height:18px;background:#fff;border:3px solid #374151;border-radius:50%;transform:translateX(-50%);transition:left .6s ease;}
-.fear-labels{display:flex;justify-content:space-between;font-size:10px;color:var(--sub);}
-.fear-num{font-size:34px;font-weight:800;margin-top:10px;}
-.inv-row{display:flex;align-items:center;gap:10px;margin-bottom:10px;}
-.inv-name{font-size:12px;color:var(--sub);width:32px;font-weight:600;}
-.inv-bg{flex:1;height:8px;background:#f1f5f9;border-radius:4px;overflow:hidden;}
-.inv-fill{height:100%;border-radius:4px;transition:width .6s ease;}
-.inv-note{background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:10px 12px;font-size:12px;color:#92400e;margin-top:10px;line-height:1.6;}
-.model-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px;}
-.model-card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px;cursor:pointer;transition:box-shadow .15s;}
-.model-card:hover{box-shadow:0 4px 14px rgba(0,0,0,.09);}
-.model-head{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px;}
-.model-title{font-size:14px;font-weight:700;}
-.model-sub-text{font-size:11px;color:var(--sub);margin-top:2px;}
-.model-count{font-size:26px;font-weight:800;color:var(--blue);line-height:1;}
-.model-total{font-size:11px;color:var(--sub);}
-.stock-row{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);}
-.stock-row:last-of-type{border:none;}
-.sname{font-size:13px;font-weight:600;color:#1d4ed8;}
-.badge{font-size:11px;font-weight:700;padding:2px 9px;border-radius:4px;}
-.badge-sb{background:#dcfce7;color:#15803d;}
-.badge-b{background:#dbeafe;color:#1d4ed8;}
-.badge-h{background:#fef9c3;color:#854d0e;}
-.badge-w{background:#f1f5f9;color:#64748b;}
-.model-btn{width:100%;margin-top:12px;padding:9px;background:#f8fafc;border:1px solid var(--border);border-radius:7px;font-size:13px;color:var(--sub);cursor:pointer;font-weight:600;}
-.model-btn:hover{background:#f1f5f9;}
-.picks-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-bottom:14px;}
-.table-wrap{overflow-x:auto;}
-.stbl{width:100%;border-collapse:collapse;font-size:13px;}
-.stbl th{padding:10px 14px;text-align:left;font-size:12px;color:var(--sub);font-weight:700;border-bottom:1px solid var(--border);white-space:nowrap;}
-.stbl td{padding:12px 14px;border-bottom:1px solid var(--border);vertical-align:middle;}
-.stbl tr:hover td{background:#f8fafc;}
-.stbl tr:last-child td{border:none;}
-.tname{font-size:14px;font-weight:700;color:#1d4ed8;}
-.tcode{font-size:11px;color:var(--sub);margin-top:2px;}
-.score-bar-wrap{position:relative;padding-top:16px;width:100px;}
-.score-bar-num{position:absolute;top:0;right:0;font-size:12px;font-weight:700;color:#1d4ed8;}
-.score-bar-bg{height:6px;background:#f1f5f9;border-radius:3px;overflow:hidden;}
-.score-bar-fill{height:100%;border-radius:3px;background:linear-gradient(to right,#3b82f6,#06b6d4);}
-.weight-badge{display:inline-block;background:#eff6ff;color:#1d4ed8;font-size:12px;font-weight:700;padding:3px 10px;border-radius:5px;}
-.loading{text-align:center;padding:44px;color:var(--sub);}
-.spinner{width:34px;height:34px;border:3px solid var(--border);border-top-color:var(--blue);border-radius:50%;animation:spin .7s linear infinite;margin:0 auto 14px;}
-@keyframes spin{to{transform:rotate(360deg);}}
-.section-title{font-size:15px;font-weight:700;margin-bottom:14px;display:flex;align-items:center;gap:7px;}
-.section-right{font-size:11px;color:var(--sub);font-weight:400;margin-left:auto;}
-.empty{text-align:center;padding:32px;color:var(--sub);font-size:13px;}
-.back-btn{background:#fff;border:1px solid var(--border);border-radius:8px;padding:8px 18px;cursor:pointer;font-size:14px;font-weight:600;}
-.back-btn:hover{background:#f1f5f9;}
-.filter-btn{padding:5px 13px;border-radius:20px;border:1px solid var(--border);background:#fff;color:var(--sub);font-size:12px;font-weight:600;cursor:pointer;transition:all .15s;}
-.filter-btn.active{background:#eff6ff;color:#1d4ed8;border-color:#3b82f6;}
-.cond-step{border-radius:8px;padding:14px;flex:1;}
-.bt-summary-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:14px;}
-.bt-stat-card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px 18px;}
-.bt-stat-label{font-size:11px;color:var(--sub);margin-bottom:7px;font-weight:600;}
-.bt-stat-val{font-size:24px;font-weight:800;}
-.bt-select{padding:7px 12px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;border:1px solid var(--border);background:#fff;color:var(--text);outline:none;}
-.fred-chart-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;min-width:0;}
-@media(max-width:900px){.fred-chart-grid{grid-template-columns:1fr;}}
-.fred-chart-grid>div{min-width:0;overflow:hidden;}
-.fred-chart-wrap{position:relative;width:100%;height:200px;min-width:0;}
-.sector-heatmap{display:grid;grid-template-columns:repeat(11,1fr);gap:6px;margin-bottom:14px;}
-.sector-cell{border-radius:10px;padding:12px 6px;text-align:center;cursor:pointer;transition:transform .15s,box-shadow .15s;border:1.5px solid transparent;}
-.sector-cell:hover{transform:translateY(-3px);box-shadow:0 6px 18px rgba(0,0,0,.12);}
-.sector-cell .sc-emoji{font-size:20px;margin-bottom:4px;}
-.sector-cell .sc-name{font-size:10px;font-weight:700;margin-bottom:4px;line-height:1.2;}
-.sector-cell .sc-ret{font-size:13px;font-weight:800;}
-.sector-cell .sc-badge{font-size:9px;font-weight:700;padding:2px 5px;border-radius:3px;margin-top:4px;display:inline-block;}
-.sm-bar-chart{display:flex;flex-direction:column;gap:8px;}
-.sm-bar-row{display:flex;align-items:center;gap:10px;}
-.sm-bar-label{width:110px;font-size:12px;font-weight:600;text-align:right;flex-shrink:0;color:var(--sub);}
-.sm-bar-track{flex:1;height:24px;background:#f1f5f9;border-radius:6px;overflow:hidden;position:relative;}
-.sm-bar-fill{height:100%;border-radius:6px;transition:width .8s ease;display:flex;align-items:center;padding:0 8px;min-width:2px;}
-.sm-bar-val{font-size:11px;font-weight:700;white-space:nowrap;}
-.sm-bar-spy{position:absolute;top:0;bottom:0;width:2px;background:#374151;z-index:2;}
-.sm-period-btn{padding:4px 11px;border-radius:5px;font-size:12px;font-weight:600;cursor:pointer;border:1px solid var(--border);background:#fff;color:var(--sub);transition:all .15s;}
-.sm-period-btn.active{background:#1e3a5f;color:#fff;border-color:#1e3a5f;}
-.market-judge-card{border-radius:12px;padding:18px;margin-bottom:14px;border:2px solid;}
-.sm-toggle-box{display:flex;align-items:center;gap:10px;padding:14px 18px;background:linear-gradient(135deg,#f0fdf4,#dcfce7);border:1px solid #86efac;border-radius:12px;margin-bottom:14px;}
-</style>
-</head>
-<body>
+TICKERS_KR_BT = TICKERS_KR[:50]
 
-<div class="sidebar">
-  <div class="logo-area">
-    <div><span class="logo-name">WISEMAC STOCK</span><span class="logo-badge">MVP</span></div>
-    <div class="logo-sub">멀티모델 주식 스크리너</div>
-  </div>
-  <nav class="nav">
-    <div class="nav-item active" id="nav-liquidity" onclick="showPage('liquidity')">
-      <span class="nav-icon">💧</span>
-      <div><div class="nav-label">유동성 판단</div><div class="nav-sub">STEP 1 · 매매 환경</div></div>
-    </div>
-    <div class="nav-item" id="nav-smartmoney" onclick="showPage('smartmoney')">
-      <span class="nav-icon">🏦</span>
-      <div><div class="nav-label">스마트머니</div><div class="nav-sub">섹터 자금 흐름</div></div>
-    </div>
-    <div class="nav-item nav-item-main" id="nav-dashboard" onclick="showPage('dashboard')">
-      <span class="nav-icon">📊</span>
-      <div>
-        <div class="nav-label" style="color:#fff;">주식 종합 현황</div>
-        <div class="nav-sub">홈 대시보드</div>
-      </div>
-    </div>
-    <div class="nav-item" id="nav-classic" onclick="showPage('classic')">
-      <span class="nav-icon">📉</span>
-      <div><div class="nav-label">클래식 모델</div><div class="nav-sub">엘더 3중 스크린</div></div>
-    </div>
-    <div class="nav-item" id="nav-growth" onclick="showPage('growth')">
-      <span class="nav-icon">📈</span>
-      <div><div class="nav-label">성장 모델</div><div class="nav-sub">퀀트 펀더멘털</div></div>
-    </div>
-    <div class="nav-item" id="nav-modern" onclick="showPage('modern')">
-      <span class="nav-icon">🤖</span>
-      <div><div class="nav-label">모던 모델</div><div class="nav-sub">AI & 심리</div></div>
-    </div>
-    <div class="nav-item" id="nav-tenbagger" onclick="showPage('tenbagger')">
-      <span class="nav-icon">🚀</span>
-      <div><div class="nav-label">텐배거</div><div class="nav-sub">린치·오닐·미너비니</div></div>
-    </div>
-    <div class="nav-item" id="nav-backtest" onclick="showPage('backtest')">
-      <span class="nav-icon">📌</span>
-      <div><div class="nav-label">베스트픽 트래커</div><div class="nav-sub">실제 수익률 추적</div></div>
-    </div>
-  </nav>
-  <div class="sidebar-footer">
-    <div class="idx-title">시장 지수</div>
-    <div class="idx-row">
-      <span class="idx-name">S&P 500</span>
-      <div style="text-align:right;"><div class="idx-val" id="sp500-val">—</div><div class="idx-chg" id="sp500-chg"></div></div>
-    </div>
-    <div class="idx-row">
-      <span class="idx-name">나스닥</span>
-      <div style="text-align:right;"><div class="idx-val" id="nasdaq-val">—</div><div class="idx-chg" id="nasdaq-chg"></div></div>
-    </div>
-    <div class="idx-row">
-      <span class="idx-name">다우존스</span>
-      <div style="text-align:right;"><div class="idx-val" id="dow-val">—</div><div class="idx-chg" id="dow-chg"></div></div>
-    </div>
-    <div class="idx-row">
-      <span class="idx-name">러셀2000</span>
-      <div style="text-align:right;"><div class="idx-val" id="russell-val">—</div><div class="idx-chg" id="russell-chg"></div></div>
-    </div>
-  </div>
-</div>
+SECTOR_ETFS = [
+    {"ticker":"XLK","name":"기술","name_en":"Technology","emoji":"💻"},
+    {"ticker":"XLV","name":"헬스케어","name_en":"Health Care","emoji":"🏥"},
+    {"ticker":"XLF","name":"금융","name_en":"Financials","emoji":"🏦"},
+    {"ticker":"XLE","name":"에너지","name_en":"Energy","emoji":"⚡"},
+    {"ticker":"XLY","name":"경기소비재","name_en":"Consumer Discretionary","emoji":"🛍"},
+    {"ticker":"XLP","name":"필수소비재","name_en":"Consumer Staples","emoji":"🛒"},
+    {"ticker":"XLB","name":"소재","name_en":"Materials","emoji":"⚙️"},
+    {"ticker":"XLC","name":"통신서비스","name_en":"Communication Services","emoji":"📡"},
+    {"ticker":"XLI","name":"산업재","name_en":"Industrials","emoji":"🏭"},
+    {"ticker":"XLU","name":"유틸리티","name_en":"Utilities","emoji":"💡"},
+    {"ticker":"XLRE","name":"부동산","name_en":"Real Estate","emoji":"🏢"},
+]
 
-<div class="main">
-
-  <!-- ───────── 주식 종합 현황 ───────── -->
-  <div id="page-dashboard" style="display:none;">
-    <div class="topbar">
-      <div>
-        <div class="page-title">📊 주식 종합 현황</div>
-        <div class="update-row">⏱ 마지막 업데이트: <span id="last-update">—</span>
-          <span class="tag-status" id="market-status" style="background:#ecfdf5;color:#15803d;">로딩 중</span>
-        </div>
-      </div>
-      <div class="topbar-right">
-        <div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center;">
-          <button class="seg-btn active" id="btn-nasdaq" onclick="switchMarket('nasdaq')">🇺🇸 나스닥</button>
-          <button class="seg-btn" id="btn-sp500" onclick="switchMarket('sp500')">🇺🇸 S&P500</button>
-          <button class="seg-btn" id="btn-kospi" onclick="switchMarket('kospi')">🇰🇷 코스피</button>
-          <button class="seg-btn" id="btn-kosdaq" onclick="switchMarket('kosdaq')">🇰🇷 코스닥</button>
-        </div>
-        <button class="run-btn" id="run-btn" onclick="runScreener()">🔄 스크리닝 실행</button>
-        <button class="run-btn" id="merge-us-btn" onclick="mergeResults('us')" disabled style="background:#1e3a5f;opacity:0.4;">🇺🇸 미국 합산</button>
-        <button class="run-btn" id="merge-kr-btn" onclick="mergeResults('kr')" disabled style="background:#dc2626;opacity:0.4;">🇰🇷 한국 합산</button>
-      </div>
-    </div>
-
-    <div class="card" style="margin-bottom:14px;">
-      <div class="section-title">🔍 종목 점수 조회 <span class="section-right">티커 입력 후 Enter (미국: AAPL / 한국: 005930.KS)</span></div>
-      <div style="display:flex;gap:8px;align-items:center;">
-        <input id="stock-search-input" type="text" placeholder="티커 입력 (예: AAPL, TSLA, 005930.KS, 000660.KS)"
-          style="flex:1;padding:11px 15px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;outline:none;font-family:inherit;transition:border-color .15s;"
-          onkeydown="if(event.key==='Enter') searchStock()"
-          onfocus="this.style.borderColor='#3b82f6'" onblur="this.style.borderColor='var(--border)'">
-        <button class="run-btn" onclick="searchStock()" id="search-btn">🔍 조회</button>
-      </div>
-      <div id="stock-search-result" style="margin-top:14px;display:none;"></div>
-    </div>
-
-    <div class="mkt-grid">
-      <div class="mkt-card"><div class="mkt-label">🏅 금 (Gold)</div><div class="mkt-val" id="gold-val">—</div><div class="mkt-chg" id="gold-chg">—</div></div>
-      <div class="mkt-card"><div class="mkt-label">🛢 WTI 유가</div><div class="mkt-val" id="wti-val">—</div><div class="mkt-chg" id="wti-chg">—</div></div>
-      <div class="mkt-card"><div class="mkt-label">💱 달러/원</div><div class="mkt-val" id="krw-val">—</div><div class="mkt-chg" id="krw-chg">—</div></div>
-      <div class="mkt-card"><div class="mkt-label">🏦 미국 10년 국채</div><div class="mkt-val" id="bond-val">—</div><div class="mkt-chg" id="bond-chg">—</div></div>
-      <div class="mkt-card"><div class="mkt-label">📉 변동성지수 (VIX)</div><div class="mkt-val" id="vix-val">—</div><div class="mkt-chg" id="vix-chg">—</div></div>
-    </div>
-
-    <!-- ── 매크로 지표 4종 ──────────────────────────────────── -->
-    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px;">
-
-      <!-- 1. CNN 공포탐욕지수 -->
-      <div class="card" id="cnn-fg-card" style="border-top:3px solid #e4e8f0;transition:border-color .3s;">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-          <div style="font-size:11px;font-weight:700;color:var(--sub);letter-spacing:.5px;">CNN 공포·탐욕지수</div>
-          <div style="font-size:10px;color:var(--sub);" id="cnn-fg-updated">—</div>
-        </div>
-        <!-- 게이지 바 -->
-        <div style="position:relative;height:8px;border-radius:4px;background:linear-gradient(to right,#15803d,#22c55e,#eab308,#ef4444,#991b1b);margin-bottom:6px;">
-          <div id="fear-needle" style="position:absolute;top:-5px;width:18px;height:18px;background:#fff;border:3px solid #374151;border-radius:50%;transform:translateX(-50%);transition:left .6s ease;left:50%;"></div>
-        </div>
-        <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--sub);margin-bottom:10px;">
-          <span>극단공포</span><span>공포</span><span>중립</span><span>탐욕</span><span>극단탐욕</span>
-        </div>
-        <!-- 점수 + 신호 -->
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
-          <div style="font-size:36px;font-weight:800;line-height:1;" id="fear-num">—</div>
-          <div>
-            <div style="font-size:11px;font-weight:700;" id="fear-label">로딩 중...</div>
-            <div style="font-size:10px;color:var(--sub);margin-top:2px;">/ 100점</div>
-          </div>
-        </div>
-        <!-- 전일/주/월 비교 -->
-        <div style="display:flex;gap:0;border-top:1px solid var(--border);padding-top:8px;">
-          <div style="flex:1;text-align:center;border-right:1px solid var(--border);">
-            <div style="font-size:9px;color:var(--sub);margin-bottom:2px;">전일</div>
-            <div style="font-size:12px;font-weight:700;" id="fg-prev">—</div>
-          </div>
-          <div style="flex:1;text-align:center;border-right:1px solid var(--border);">
-            <div style="font-size:9px;color:var(--sub);margin-bottom:2px;">1주전</div>
-            <div style="font-size:12px;font-weight:700;" id="fg-week">—</div>
-          </div>
-          <div style="flex:1;text-align:center;">
-            <div style="font-size:9px;color:var(--sub);margin-bottom:2px;">1달전</div>
-            <div style="font-size:12px;font-weight:700;" id="fg-month">—</div>
-          </div>
-        </div>
-      </div>
-
-      <!-- 2. 하이일드 스프레드 -->
-      <div class="card" id="hy-card" style="border-top:3px solid #e4e8f0;transition:border-color .3s;">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-          <div style="font-size:11px;font-weight:700;color:var(--sub);letter-spacing:.5px;">하이일드 스프레드</div>
-          <div style="font-size:10px;color:var(--sub);">HYG vs LQD</div>
-        </div>
-        <!-- 신호 뱃지 -->
-        <div id="hy-signal-badge" style="display:inline-flex;align-items:center;gap:6px;padding:6px 14px;border-radius:8px;font-size:13px;font-weight:800;margin-bottom:10px;background:#f0fdf4;color:#15803d;">—</div>
-        <div style="font-size:10px;color:var(--sub);margin-bottom:10px;">5일 스프레드 추세 기준</div>
-        <!-- ETF 가격 -->
-        <div style="display:flex;gap:0;border-top:1px solid var(--border);padding-top:8px;">
-          <div style="flex:1;text-align:center;border-right:1px solid var(--border);">
-            <div style="font-size:9px;color:var(--sub);margin-bottom:2px;">HYG (하이일드)</div>
-            <div style="font-size:12px;font-weight:700;" id="hy-hyg">—</div>
-          </div>
-          <div style="flex:1;text-align:center;border-right:1px solid var(--border);">
-            <div style="font-size:9px;color:var(--sub);margin-bottom:2px;">LQD (투자등급)</div>
-            <div style="font-size:12px;font-weight:700;" id="hy-lqd">—</div>
-          </div>
-          <div style="flex:1;text-align:center;">
-            <div style="font-size:9px;color:var(--sub);margin-bottom:2px;">당일 스프레드</div>
-            <div style="font-size:12px;font-weight:700;" id="hy-spread1d">—</div>
-          </div>
-        </div>
-      </div>
-
-      <!-- 3. VIX + 방향성 -->
-      <div class="card" id="vix-card" style="border-top:3px solid #e4e8f0;transition:border-color .3s;">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-          <div style="font-size:11px;font-weight:700;color:var(--sub);letter-spacing:.5px;">VIX 공포지수</div>
-          <div style="font-size:10px;color:var(--sub);">5일 방향성</div>
-        </div>
-        <!-- VIX 수치 + 방향 화살표 -->
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
-          <div style="font-size:36px;font-weight:800;line-height:1;" id="vix-val">—</div>
-          <div id="vix-dir" style="font-size:28px;line-height:1;">—</div>
-        </div>
-        <!-- 신호 -->
-        <div style="font-size:12px;font-weight:700;margin-bottom:10px;" id="vix-signal">—</div>
-        <!-- 비교 -->
-        <div style="display:flex;gap:0;border-top:1px solid var(--border);padding-top:8px;">
-          <div style="flex:1;text-align:center;border-right:1px solid var(--border);">
-            <div style="font-size:9px;color:var(--sub);margin-bottom:2px;">전일 변화</div>
-            <div style="font-size:12px;font-weight:700;" id="vix-change">—</div>
-          </div>
-          <div style="flex:1;text-align:center;">
-            <div style="font-size:9px;color:var(--sub);margin-bottom:2px;">5일전</div>
-            <div style="font-size:12px;font-weight:700;" id="vix-prev5">—</div>
-          </div>
-        </div>
-      </div>
-
-      <!-- 4. MMTH 자체 시장 폭 (미국만) -->
-      <div class="card" id="mmth-card" style="border-top:3px solid #e4e8f0;transition:border-color .3s;">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-          <div style="font-size:11px;font-weight:700;color:var(--sub);letter-spacing:.5px;">시장 폭 (MMTH류)</div>
-          <div style="font-size:10px;color:var(--sub);">미국 200일선 위 비율</div>
-        </div>
-        <!-- 비율 + 신호 -->
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
-          <div style="font-size:36px;font-weight:800;line-height:1;" id="mmth-pct">—</div>
-          <div style="font-size:18px;font-weight:600;color:var(--sub);">%</div>
-        </div>
-        <!-- 프로그레스 바 -->
-        <div style="height:6px;background:#f1f5f9;border-radius:3px;overflow:hidden;margin-bottom:6px;">
-          <div id="mmth-bar" style="height:100%;border-radius:3px;background:#3b82f6;width:0%;transition:width .6s ease;"></div>
-        </div>
-        <div style="font-size:12px;font-weight:700;margin-bottom:10px;" id="mmth-signal">—</div>
-        <!-- 미국 마켓별 분포 -->
-        <div style="display:flex;gap:0;border-top:1px solid var(--border);padding-top:8px;">
-          <div style="flex:1;text-align:center;border-right:1px solid var(--border);">
-            <div style="font-size:9px;color:var(--sub);margin-bottom:2px;">나스닥</div>
-            <div style="font-size:12px;font-weight:700;" id="mmth-nasdaq">—</div>
-          </div>
-          <div style="flex:1;text-align:center;">
-            <div style="font-size:9px;color:var(--sub);margin-bottom:2px;">S&P500</div>
-            <div style="font-size:12px;font-weight:700;" id="mmth-sp500">—</div>
-          </div>
-        </div>
-      </div>
-
-    </div>
-
-    <!-- AI 투자 비중 (유지) -->
-    <div style="margin-bottom:14px;">
-      <div class="card">
-        <div class="section-title">📦 AI 투자 비중 추천</div>
-        <div class="inv-row">
-          <div class="inv-name">주식</div>
-          <div class="inv-bg"><div class="inv-fill" id="stock-fill" style="width:60%;background:#3b82f6;"></div></div>
-          <div style="font-size:12px;font-weight:700;width:36px;text-align:right;color:#3b82f6;" id="stock-pct">60%</div>
-        </div>
-        <div class="inv-row">
-          <div class="inv-name">현금</div>
-          <div class="inv-bg"><div class="inv-fill" id="cash-fill" style="width:30%;background:#22c55e;"></div></div>
-          <div style="font-size:12px;font-weight:700;width:36px;text-align:right;color:#22c55e;" id="cash-pct">30%</div>
-        </div>
-        <div class="inv-row">
-          <div class="inv-name">채권</div>
-          <div class="inv-bg"><div class="inv-fill" id="bond-fill" style="width:10%;background:#8b5cf6;"></div></div>
-          <div style="font-size:12px;font-weight:700;width:36px;text-align:right;color:#8b5cf6;" id="bond-pct">10%</div>
-        </div>
-        <div class="inv-note" id="inv-note">💡 스크리닝 실행 후 AI 추천 비중이 표시됩니다.</div>
-      </div>
-    </div>
-
-    <div class="model-grid">
-      <div class="model-card" onclick="showPage('classic')">
-        <div class="model-head">
-          <div style="display:flex;align-items:center;gap:8px;"><span style="font-size:20px;">📉</span>
-            <div><div class="model-title">클래식 모델</div><div class="model-sub-text">엘더 3중 스크린 (30점)</div></div></div>
-          <div style="text-align:right;"><div class="model-count" id="classic-count">—</div><div class="model-total">/ 30점</div></div>
-        </div>
-        <div id="classic-stocks"><div class="empty">스크리닝 실행 전</div></div>
-        <button class="model-btn">자세히 보기 →</button>
-      </div>
-      <div class="model-card" onclick="showPage('growth')">
-        <div class="model-head">
-          <div style="display:flex;align-items:center;gap:8px;"><span style="font-size:20px;">📈</span>
-            <div><div class="model-title">성장 모델</div><div class="model-sub-text">퀀트 펀더멘털 (40점)</div></div></div>
-          <div style="text-align:right;"><div class="model-count" id="growth-count">—</div><div class="model-total">/ 40점</div></div>
-        </div>
-        <div id="growth-stocks"><div class="empty">스크리닝 실행 전</div></div>
-        <button class="model-btn">자세히 보기 →</button>
-      </div>
-      <div class="model-card" onclick="showPage('modern')">
-        <div class="model-head">
-          <div style="display:flex;align-items:center;gap:8px;"><span style="font-size:20px;">🤖</span>
-            <div><div class="model-title">모던 모델</div><div class="model-sub-text">AI & 심리 (30점)</div></div></div>
-          <div style="text-align:right;"><div class="model-count" id="modern-count">—</div><div class="model-total">/ 30점</div></div>
-        </div>
-        <div id="modern-stocks"><div class="empty">스크리닝 실행 전</div></div>
-        <button class="model-btn">자세히 보기 →</button>
-      </div>
-    </div>
-
-    <div class="section-title">🏆 오늘의 베스트 픽 <span class="section-right">마구 스코어 상위 종목</span></div>
-    <div class="picks-grid" id="best-picks">
-      <div class="empty" style="grid-column:1/-1;">🔄 스크리닝 실행 버튼을 눌러주세요</div>
-    </div>
-
-    <div class="card">
-      <div class="section-title">전체 스크리닝 결과 <span class="section-right" id="screened-count"></span></div>
-      <div class="table-wrap">
-        <table class="stbl">
-          <thead><tr>
-            <th>종목</th><th>현재가</th><th>등락률</th>
-            <th>클래식 (30)</th><th>성장 (40)</th><th>모던 (30)</th>
-            <th>마구 스코어</th><th>추천</th><th>투자 비중</th>
-          </tr></thead>
-          <tbody id="result-table"><tr><td colspan="9" class="empty">스크리닝 실행 전입니다</td></tr></tbody>
-        </table>
-      </div>
-    </div>
-  </div>
-
-  <!-- ───────── 클래식 모델 ───────── -->
-  <div id="page-classic" style="display:none;">
-    <div style="display:flex;align-items:center;gap:14px;margin-bottom:22px;">
-      <button class="back-btn" onclick="showPage('dashboard')">← 종합 현황</button>
-      <div><div class="page-title">📉 클래식 모델</div><div style="font-size:12px;color:var(--sub);margin-top:4px;">알렉산더 엘더 3중 스크린 · 30점 만점</div></div>
-    </div>
-    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px;">
-      <div class="cond-step" style="background:#eff6ff;border:1px solid #bfdbfe;">
-        <div style="font-size:13px;font-weight:700;color:#1d4ed8;margin-bottom:7px;">1단계 — 조류 파악 (10점)</div>
-        <div style="font-size:12px;color:#3b82f6;line-height:1.7;">주봉 26주 EMA 상승 중<br>시장의 큰 흐름 확인</div>
-      </div>
-      <div class="cond-step" style="background:#eff6ff;border:1px solid #bfdbfe;">
-        <div style="font-size:13px;font-weight:700;color:#1d4ed8;margin-bottom:7px;">2단계 — 파도 확인 (10점)</div>
-        <div style="font-size:12px;color:#3b82f6;line-height:1.7;">일봉 스토캐스틱 과매도 구간<br>상승 추세 속 눌림목 포착</div>
-      </div>
-      <div class="cond-step" style="background:#eff6ff;border:1px solid #bfdbfe;">
-        <div style="font-size:13px;font-weight:700;color:#1d4ed8;margin-bottom:7px;">3단계 — 진입 시점 (10점)</div>
-        <div style="font-size:12px;color:#3b82f6;line-height:1.7;">전일 고가 돌파 시도<br>추세 재개 확인</div>
-      </div>
-    </div>
-    <div id="classic-page-content"><div class="empty" style="background:#fff;border-radius:12px;border:1px solid var(--border);padding:44px;">먼저 종합 현황에서 스크리닝을 실행해주세요</div></div>
-  </div>
-
-  <!-- ───────── 성장 모델 ───────── -->
-  <div id="page-growth" style="display:none;">
-    <div style="display:flex;align-items:center;gap:14px;margin-bottom:22px;">
-      <button class="back-btn" onclick="showPage('dashboard')">← 종합 현황</button>
-      <div><div class="page-title">📈 성장 모델</div><div style="font-size:12px;color:var(--sub);margin-top:4px;">퀀트 펀더멘털 성장주 스크린 · 40점 만점</div></div>
-    </div>
-    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px;">
-      <div class="cond-step" style="background:#f0fdf4;border:1px solid #bbf7d0;">
-        <div style="font-size:13px;font-weight:700;color:#15803d;margin-bottom:7px;">1단계 — 퀄리티 필터 (15점)</div>
-        <div style="font-size:12px;color:#16a34a;line-height:1.7;">ROE &gt; 15%<br>부채비율 &lt; 100%</div>
-      </div>
-      <div class="cond-step" style="background:#f0fdf4;border:1px solid #bbf7d0;">
-        <div style="font-size:13px;font-weight:700;color:#15803d;margin-bottom:7px;">2단계 — 성장성 + 가치 (15점)</div>
-        <div style="font-size:12px;color:#16a34a;line-height:1.7;">EPS 성장률 &gt; 20% (3년)<br>PEG &lt; 1.2</div>
-      </div>
-      <div class="cond-step" style="background:#f0fdf4;border:1px solid #bbf7d0;">
-        <div style="font-size:13px;font-weight:700;color:#15803d;margin-bottom:7px;">3단계 — 모멘텀 (10점)</div>
-        <div style="font-size:12px;color:#16a34a;line-height:1.7;">주가 &gt; 200일 이동평균<br>RSI(14) &gt; 50</div>
-      </div>
-    </div>
-    <div id="growth-page-content"><div class="empty" style="background:#fff;border-radius:12px;border:1px solid var(--border);padding:44px;">먼저 종합 현황에서 스크리닝을 실행해주세요</div></div>
-  </div>
-
-  <!-- ───────── 모던 모델 ───────── -->
-  <div id="page-modern" style="display:none;">
-    <div style="display:flex;align-items:center;gap:14px;margin-bottom:22px;">
-      <button class="back-btn" onclick="showPage('dashboard')">← 종합 현황</button>
-      <div><div class="page-title">🤖 모던 모델</div><div style="font-size:12px;color:var(--sub);margin-top:4px;">AI & 심리 스크린 · 30점 만점</div></div>
-    </div>
-    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px;">
-      <div class="cond-step" style="background:#fdf4ff;border:1px solid #e9d5ff;">
-        <div style="font-size:13px;font-weight:700;color:#7e22ce;margin-bottom:7px;">1단계 — 실적 상향 (10점)</div>
-        <div style="font-size:12px;color:#9333ea;line-height:1.7;">애널리스트 강력매수/매수<br>잭스 랭크 1~2 수준</div>
-      </div>
-      <div class="cond-step" style="background:#fdf4ff;border:1px solid #e9d5ff;">
-        <div style="font-size:13px;font-weight:700;color:#7e22ce;margin-bottom:7px;">2단계 — 상대적 강세 (10점)</div>
-        <div style="font-size:12px;color:#9333ea;line-height:1.7;">52주 수익률 &gt; 20%<br>S&P 500 대비 초과 성과</div>
-      </div>
-      <div class="cond-step" style="background:#fdf4ff;border:1px solid #e9d5ff;">
-        <div style="font-size:13px;font-weight:700;color:#7e22ce;margin-bottom:7px;">3단계 — 거래량 모멘텀 (10점)</div>
-        <div style="font-size:12px;color:#9333ea;line-height:1.7;">최근 거래량 &gt; 20일 평균<br>시장 관심도 확인</div>
-      </div>
-    </div>
-    <div id="modern-page-content"><div class="empty" style="background:#fff;border-radius:12px;border:1px solid var(--border);padding:44px;">먼저 종합 현황에서 스크리닝을 실행해주세요</div></div>
-  </div>
-
-  <!-- ───────── 백테스트 (베스트픽 실적 추적) ───────── -->
-  <div id="page-backtest" style="display:none;">
-    <div class="topbar">
-      <div>
-        <div class="page-title">📌 베스트픽 트래커</div>
-        <div class="update-row">스크리닝 결과에서 매일 5종목을 선정하고 실제 수익률을 추적합니다</div>
-      </div>
-      <div class="topbar-right">
-        <select id="bp-market" class="bt-select">
-          <option value="nasdaq">🇺🇸 나스닥</option>
-          <option value="sp500">🇺🇸 S&amp;P500</option>
-        </select>
-        <button class="run-btn" id="bp-save-btn" onclick="saveBestpick()">📌 오늘 베스트픽 기록</button>
-        <button class="run-btn" style="background:#6366f1;" onclick="loadBestpickHistory()">🔄 이력 새로고침</button>
-      </div>
-    </div>
-
-    <!-- 전체 통계 -->
-    <div class="bt-summary-grid" id="bp-stats-grid">
-      <div class="bt-stat-card"><div class="bt-stat-label">📊 총 기록 수</div><div class="bt-stat-val" id="bp-total">—</div></div>
-      <div class="bt-stat-card"><div class="bt-stat-label">📈 평균 수익률</div><div class="bt-stat-val" id="bp-avg-ret">—</div></div>
-      <div class="bt-stat-card"><div class="bt-stat-label">🏆 승률</div><div class="bt-stat-val" id="bp-winrate">—</div></div>
-      <div class="bt-stat-card"><div class="bt-stat-label">📅 추적 기간</div><div class="bt-stat-val" id="bp-period">—</div></div>
-    </div>
-
-    <!-- 안내 박스 -->
-    <div class="inv-note" style="margin-bottom:14px;">
-      💡 <b>사용법:</b> ① 스크리닝 탭에서 나스닥 스크리닝 실행 → ② 이 탭에서 <b>오늘 베스트픽 기록</b> 클릭 → ③ 매일 자동으로 수익률이 업데이트됩니다.<br>
-      같은 종목이 다음날 다시 선정되면 <b>연속선정 횟수</b>만 증가합니다 (중복 기록 없음). 데이터는 6개월간 보관됩니다.
-    </div>
-
-    <!-- 이력 테이블 -->
-    <div class="card">
-      <div class="section-title">베스트픽 이력 <span class="section-right" id="bp-updated"></span></div>
-      <div id="bp-history-wrap">
-        <div style="text-align:center;padding:40px;color:var(--sub);">🔄 이력 새로고침 버튼을 눌러주세요</div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ───────── 스마트머니 ───────── -->
-  <div id="page-smartmoney" style="display:none;">
-    <div class="topbar">
-      <div><div class="page-title">🏦 스마트머니</div><div class="update-row">SPDR 섹터 ETF 기반 기관 자금 흐름 분석 — <span id="sm-updated" style="color:var(--sub);">분석 전</span></div></div>
-      <div class="topbar-right"><button class="run-btn" id="sm-run-btn" onclick="loadSmartMoney()">🔄 섹터 트렌드 분석</button></div>
-    </div>
-
-    <!-- 장세 판단 카드 -->
-    <div class="market-judge-card" id="sm-judge-card" style="background:#f8fafc;border-color:#e4e8f0;display:none;">
-      <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
-        <div style="font-size:36px;" id="sm-judge-emoji">—</div>
-        <div style="flex:1;">
-          <div style="font-size:18px;font-weight:800;" id="sm-judge-title">—</div>
-          <div style="font-size:13px;color:var(--sub);margin-top:4px;" id="sm-judge-desc">—</div>
-        </div>
-        <div style="text-align:center;padding:12px 20px;border-radius:10px;background:rgba(255,255,255,.7);">
-          <div style="font-size:11px;color:var(--sub);font-weight:600;margin-bottom:4px;">주도 섹터</div>
-          <div style="font-size:13px;font-weight:800;" id="sm-lead-sector">—</div>
-        </div>
-        <div style="text-align:center;padding:12px 20px;border-radius:10px;background:rgba(255,255,255,.7);">
-          <div style="font-size:11px;color:var(--sub);font-weight:600;margin-bottom:4px;">이탈 섹터</div>
-          <div style="font-size:13px;font-weight:800;" id="sm-weak-sector">—</div>
-        </div>
-        <div style="text-align:center;padding:12px 20px;border-radius:10px;background:rgba(255,255,255,.7);">
-          <div style="font-size:11px;color:var(--sub);font-weight:600;margin-bottom:4px;">S&P500 1개월</div>
-          <div style="font-size:18px;font-weight:800;" id="sm-spy-ret">—</div>
-        </div>
-      </div>
-    </div>
-
-    <!-- 섹터 히트맵 -->
-    <div class="card" style="margin-bottom:14px;">
-      <div class="section-title">🗺 섹터 히트맵
-        <span style="margin-left:10px;display:flex;gap:6px;">
-          <button class="sm-period-btn active" onclick="renderHeatmap('1m',this)">1개월</button>
-          <button class="sm-period-btn" onclick="renderHeatmap('3m',this)">3개월</button>
-          <button class="sm-period-btn" onclick="renderHeatmap('6m',this)">6개월</button>
-          <button class="sm-period-btn" onclick="renderHeatmap('1y',this)">1년</button>
-        </span>
-        <span class="section-right">진한 녹색=강한유입 · 진한 빨간색=강한유출</span>
-      </div>
-      <div class="sector-heatmap" id="sm-heatmap">
-        <div class="empty" style="grid-column:1/-1;">🔄 섹터 트렌드 분석 버튼을 눌러주세요</div>
-      </div>
-    </div>
-
-    <!-- 상대강도 바 차트 -->
-    <div class="card" style="margin-bottom:14px;">
-      <div class="section-title">📊 섹터별 상대강도 (S&P500 대비)
-        <span class="section-right" id="sm-bar-period-label">1개월 기준</span>
-      </div>
-      <div class="sm-bar-chart" id="sm-bar-chart">
-        <div class="empty">분석 후 표시됩니다</div>
-      </div>
-    </div>
-
-    <!-- 스마트머니 가산점 토글 -->
-    <div class="sm-toggle-box">
-      <label style="display:flex;align-items:center;gap:12px;cursor:pointer;width:100%;">
-        <input type="checkbox" id="sm-score-toggle" onchange="toggleSmartMoneyScore(this.checked)" style="width:18px;height:18px;cursor:pointer;accent-color:#22c55e;">
-        <div>
-          <div style="font-size:14px;font-weight:700;color:#15803d;">🏦 스마트머니 점수 합산 모드</div>
-          <div style="font-size:12px;color:#166534;margin-top:3px;">ON 시: 기관 자금 유입 섹터 종목에 가산점 반영 — 종합 현황 스크리닝 결과에 즉시 적용</div>
-        </div>
-        <div style="margin-left:auto;" id="sm-toggle-status">
-          <span style="background:#f1f5f9;color:#64748b;padding:4px 14px;border-radius:6px;font-size:13px;font-weight:700;">OFF</span>
-        </div>
-      </label>
-    </div>
-
-    <!-- 상세 테이블 -->
-    <div class="card">
-      <div class="section-title">📋 섹터 ETF 상세 데이터 <span class="section-right">가산점: 강한유입 +10 / 유입 +5 / 소폭유입 +3 / 중립 0 / 소폭유출 -3 / 유출 -5 / 강한유출 -10</span></div>
-      <div class="table-wrap">
-        <table class="stbl" id="sm-etf-table">
-          <thead><tr>
-            <th style="min-width:180px;">섹터 ETF</th><th style="text-align:right;">현재가</th>
-            <th style="text-align:right;">1일</th><th style="text-align:right;">1주</th><th style="text-align:right;">1개월</th>
-            <th style="text-align:right;">3개월</th><th style="text-align:right;">6개월</th><th style="text-align:right;">1년</th>
-            <th style="text-align:center;">거래량</th><th style="text-align:center;">RSI</th>
-            <th style="text-align:center;">52주 고점</th><th style="text-align:center;">트렌드</th><th style="text-align:center;">가산점</th>
-          </tr></thead>
-          <tbody id="sm-etf-tbody"><tr><td colspan="13" class="empty">🔄 섹터 트렌드 분석 버튼을 눌러주세요</td></tr></tbody>
-        </table>
-      </div>
-    </div>
-  </div>
-
-  <!-- ───────── 텐배거 ───────── -->
-  <div id="page-tenbagger" style="display:none;">
-    <div class="topbar">
-      <div>
-        <div class="page-title">🚀 텐배거 스크리너</div>
-        <div class="update-row">피터 린치 · 윌리엄 오닐 CANSLIM · 마크 미너비니 SEPA — 거장 3인의 기준 종합
-          <span class="tag-status" style="background:#eff6ff;color:#1d4ed8;">📊 나스닥 중소형 전용</span></div>
-      </div>
-      <div class="topbar-right"><button class="run-btn" id="tb-run-btn" onclick="runTenbagger()">🚀 텐배거 스크리닝</button></div>
-    </div>
-    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px;">
-      <div class="card" style="border-left:4px solid #22c55e;">
-        <div style="font-size:13px;font-weight:800;color:#15803d;margin-bottom:8px;">📗 피터 린치 (35점)</div>
-        <div style="font-size:12px;color:var(--sub);line-height:1.8;"><b style="color:var(--text);">PEG &lt; 1.0</b> — 성장 대비 저평가<br><b style="color:var(--text);">EPS 성장 &gt; 25%</b> — 폭발적 이익 성장<br><b style="color:var(--text);">소형주 선호</b> — 시총 $10B 미만 우대<br><span style="font-size:10px;color:#94a3b8;">"PEG 1 이하면 공짜로 성장을 산다"</span></div>
-      </div>
-      <div class="card" style="border-left:4px solid #3b82f6;">
-        <div style="font-size:13px;font-weight:800;color:#1d4ed8;margin-bottom:8px;">📘 오닐 CANSLIM (35점)</div>
-        <div style="font-size:12px;color:var(--sub);line-height:1.8;"><b style="color:var(--text);">분기 EPS &gt; 25%↑</b> — 현재 실적 급등<br><b style="color:var(--text);">52주 신고가 돌파</b> — 새로운 고점 돌파<br><b style="color:var(--text);">거래량 폭증</b> — 기관 매수 신호<br><span style="font-size:10px;color:#94a3b8;">"신고가를 경신하는 주식이 더 오른다"</span></div>
-      </div>
-      <div class="card" style="border-left:4px solid #f59e0b;">
-        <div style="font-size:13px;font-weight:800;color:#b45309;margin-bottom:8px;">📙 미너비니 SEPA (30점)</div>
-        <div style="font-size:12px;color:var(--sub);line-height:1.8;"><b style="color:var(--text);">주가 &gt; 150MA · 200MA</b> — 추세 위에 존재<br><b style="color:var(--text);">150MA &gt; 200MA</b> — 골든크로스 구조<br><b style="color:var(--text);">52주 저점 대비 +30%↑</b> — 강한 탈출<br><span style="font-size:10px;color:#94a3b8;">"추세는 거짓말하지 않는다"</span></div>
-      </div>
-    </div>
-    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px;">
-      <div class="bt-stat-card"><div class="bt-stat-label">📊 분석 종목</div><div class="bt-stat-val" id="tb-total">—</div></div>
-      <div class="bt-stat-card"><div class="bt-stat-label">🔥 최상위 (75점+)</div><div class="bt-stat-val" style="color:#22c55e;" id="tb-top">—</div></div>
-      <div class="bt-stat-card"><div class="bt-stat-label">⭐ 유망 (60~74점)</div><div class="bt-stat-val" style="color:#3b82f6;" id="tb-mid">—</div></div>
-      <div class="bt-stat-card"><div class="bt-stat-label">👀 관심 (45~59점)</div><div class="bt-stat-val" style="color:#f59e0b;" id="tb-watch">—</div></div>
-    </div>
-    <div class="card">
-      <div class="section-title">텐배거 스크리닝 결과 <span class="section-right" id="tb-updated"></span></div>
-      <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;">
-        <button class="filter-btn active" onclick="filterTenbagger('all',this)">전체</button>
-        <button class="filter-btn" onclick="filterTenbagger('최상위',this)">🔥 최상위</button>
-        <button class="filter-btn" onclick="filterTenbagger('유망',this)">⭐ 유망</button>
-        <button class="filter-btn" onclick="filterTenbagger('관심',this)">👀 관심</button>
-        <button class="filter-btn" onclick="filterTenbagger('소형주',this)">🏷 소형주 ($2B↓)</button>
-      </div>
-      <div class="table-wrap">
-        <table class="stbl">
-          <thead><tr>
-            <th>종목</th><th>시총(B$)</th><th>현재가</th><th>등락률</th>
-            <th style="color:#15803d;">린치 (35)</th><th style="color:#1d4ed8;">오닐 (35)</th><th style="color:#b45309;">미너비니 (30)</th>
-            <th>종합 (100)</th><th>등급</th><th>세부 지표</th>
-          </tr></thead>
-          <tbody id="tb-table"><tr><td colspan="10" class="empty">🚀 텐배거 스크리닝 버튼을 눌러주세요</td></tr></tbody>
-        </table>
-      </div>
-    </div>
-  </div>
-
-  <!-- ───────── 💧 유동성 판단 ───────── -->
-  <div id="page-liquidity">
-    <div class="topbar">
-      <div>
-        <div class="page-title">💧 유동성 판단</div>
-        <div class="update-row">
-          STEP 1 — 시장에 돈이 있는가? 먼저 판단하고, STEP 2(종목 스크리닝)를 보세요.
-          <span class="tag-status" id="liq-status" style="background:#eff6ff;color:#1d4ed8;">분석 전</span>
-        </div>
-      </div>
-      <div class="topbar-right">
-        <button class="run-btn" id="liq-run-btn" onclick="loadLiquidity()">💧 유동성 분석</button>
-      </div>
-    </div>
-
-    <!-- STEP 안내 -->
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;">
-      <div style="background:linear-gradient(135deg,#eff6ff,#dbeafe);border:1px solid #93c5fd;border-radius:12px;padding:16px;display:flex;align-items:center;gap:12px;">
-        <div style="font-size:28px;">1️⃣</div>
-        <div>
-          <div style="font-size:14px;font-weight:800;color:#1d4ed8;">STEP 1 — 유동성 판단 (지금 여기)</div>
-          <div style="font-size:12px;color:#3b82f6;margin-top:4px;line-height:1.6;">연준·RRP·TGA·MMF 4개 지표로<br>시장 유동성 환경을 먼저 판단합니다.</div>
-        </div>
-      </div>
-      <div style="background:#f8fafc;border:1px solid var(--border);border-radius:12px;padding:16px;display:flex;align-items:center;gap:12px;">
-        <div style="font-size:28px;">2️⃣</div>
-        <div>
-          <div style="font-size:14px;font-weight:800;color:var(--sub);">STEP 2 — 종목 스크리닝 (이후 참고)</div>
-          <div style="font-size:12px;color:var(--sub);margin-top:4px;line-height:1.6;">유동성 단계 확인 후<br>종합현황 탭에서 스크리닝을 실행하세요.</div>
-        </div>
-      </div>
-    </div>
-
-    <!-- 유동성 단계 알림 카드 -->
-    <div id="liq-signal-card" style="background:linear-gradient(135deg,#f8fafc,#f1f5f9);border:2px solid var(--border);border-radius:16px;padding:28px 32px;margin-bottom:14px;display:flex;align-items:center;gap:24px;flex-wrap:wrap;">
-      <div style="font-size:56px;" id="liq-signal-emoji">⏳</div>
-      <div style="flex:1;min-width:200px;">
-        <div style="font-size:13px;font-weight:700;color:var(--sub);margin-bottom:6px;">현재 유동성 단계</div>
-        <div style="font-size:32px;font-weight:800;color:var(--text);margin-bottom:8px;" id="liq-signal-text">분석 전</div>
-        <div style="font-size:14px;color:var(--sub);line-height:1.6;" id="liq-signal-desc">유동성 분석 버튼을 눌러 시장 환경을 확인하세요.</div>
-      </div>
-      <div style="text-align:right;min-width:160px;">
-        <div style="font-size:11px;color:var(--sub);font-weight:600;margin-bottom:6px;">유동성 종합 점수</div>
-        <div style="font-size:56px;font-weight:800;line-height:1;" id="liq-total-score">—</div>
-        <div style="font-size:12px;color:var(--sub);">/ 100점</div>
-        <div style="width:160px;height:8px;background:#e2e8f0;border-radius:4px;margin-top:10px;overflow:hidden;">
-          <div id="liq-score-bar" style="height:100%;border-radius:4px;background:var(--blue);width:0%;transition:width .8s ease;"></div>
-        </div>
-      </div>
-    </div>
-
-    <!-- STEP 2 가이드 -->
-    <div id="liq-step2-guide" style="background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:14px 18px;margin-bottom:14px;font-size:13px;color:#92400e;display:none;">
-      <div style="font-weight:700;margin-bottom:4px;">📌 STEP 2 종목 스크리닝 가이드</div>
-      <div id="liq-step2-text">—</div>
-    </div>
-
-    <!-- 5단계 척도 -->
-    <div style="background:#fff;border:1px solid var(--border);border-radius:12px;padding:18px;margin-bottom:14px;">
-      <div class="section-title">📊 5단계 유동성 척도</div>
-      <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;">
-        <div id="stage-1" style="border-radius:10px;padding:14px 10px;text-align:center;border:2px solid #e2e8f0;transition:all .3s;">
-          <div style="font-size:20px;margin-bottom:6px;">🟢</div>
-          <div style="font-size:12px;font-weight:800;color:#15803d;">적극매수</div>
-          <div style="font-size:10px;color:#16a34a;margin-top:4px;">80점 이상</div>
-          <div style="font-size:10px;color:var(--sub);margin-top:4px;">유동성 최대</div>
-        </div>
-        <div id="stage-2" style="border-radius:10px;padding:14px 10px;text-align:center;border:2px solid #e2e8f0;transition:all .3s;">
-          <div style="font-size:20px;margin-bottom:6px;">🔵</div>
-          <div style="font-size:12px;font-weight:800;color:#1d4ed8;">매수우호</div>
-          <div style="font-size:10px;color:#3b82f6;margin-top:4px;">60~79점</div>
-          <div style="font-size:10px;color:var(--sub);margin-top:4px;">유동성 양호</div>
-        </div>
-        <div id="stage-3" style="border-radius:10px;padding:14px 10px;text-align:center;border:2px solid #e2e8f0;transition:all .3s;">
-          <div style="font-size:20px;margin-bottom:6px;">🟡</div>
-          <div style="font-size:12px;font-weight:800;color:#b45309;">중립관망</div>
-          <div style="font-size:10px;color:#d97706;margin-top:4px;">40~59점</div>
-          <div style="font-size:10px;color:var(--sub);margin-top:4px;">방향 불확실</div>
-        </div>
-        <div id="stage-4" style="border-radius:10px;padding:14px 10px;text-align:center;border:2px solid #e2e8f0;transition:all .3s;">
-          <div style="font-size:20px;margin-bottom:6px;">🟠</div>
-          <div style="font-size:12px;font-weight:800;color:#c2410c;">매수축소</div>
-          <div style="font-size:10px;color:#ea580c;margin-top:4px;">20~39점</div>
-          <div style="font-size:10px;color:var(--sub);margin-top:4px;">유동성 감소</div>
-        </div>
-        <div id="stage-5" style="border-radius:10px;padding:14px 10px;text-align:center;border:2px solid #e2e8f0;transition:all .3s;">
-          <div style="font-size:20px;margin-bottom:6px;">🔴</div>
-          <div style="font-size:12px;font-weight:800;color:#991b1b;">현금보유</div>
-          <div style="font-size:10px;color:#dc2626;margin-top:4px;">20점 미만</div>
-          <div style="font-size:10px;color:var(--sub);margin-top:4px;">유동성 경색</div>
-        </div>
-      </div>
-    </div>
-
-    <!-- 4개 지표 카드 -->
-    <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:14px;" id="liq-indicators">
-      <div class="card" style="opacity:.4;"><div class="section-title">🏛 연준 총자산 (WALCL)</div><div style="font-size:12px;color:var(--sub);">QE/QT 방향 · 4주 변화율 기준</div><div style="font-size:28px;font-weight:800;color:var(--sub);margin-top:12px;">—</div></div>
-      <div class="card" style="opacity:.4;"><div class="section-title">💵 역레포 RRP (RRPONTSYD)</div><div style="font-size:12px;color:var(--sub);">시중 여유자금 · RRP 감소 = 유동성 공급</div><div style="font-size:28px;font-weight:800;color:var(--sub);margin-top:12px;">—</div></div>
-      <div class="card" style="opacity:.4;"><div class="section-title">🏦 TGA 잔액 (WTREGEN)</div><div style="font-size:12px;color:var(--sub);">재무부 계정 · TGA 감소 = 정부 지출</div><div style="font-size:28px;font-weight:800;color:var(--sub);margin-top:12px;">—</div></div>
-      <div class="card" style="opacity:.4;"><div class="section-title">💰 MMF 잔액 (WRMFNS)</div><div style="font-size:12px;color:var(--sub);">대기 자금 · MMF 감소 = 위험자산 이동</div><div style="font-size:28px;font-weight:800;color:var(--sub);margin-top:12px;">—</div></div>
-    </div>
-
-    <div style="font-size:11px;color:var(--sub);text-align:right;" id="liq-updated"></div>
-
-    <!-- FRED 데이터 차트 (API 데이터로 직접 렌더링) -->
-    <div id="liq-fred-charts" style="display:none;margin-top:16px;">
-      <div class="card">
-        <div class="section-title">📈 FRED 데이터 차트
-          <span class="section-right">백엔드 FRED API 데이터 기반 · 분석 버튼 클릭 시 자동 갱신</span>
-        </div>
-        <div class="fred-chart-grid">
-
-          <!-- WALCL -->
-          <div>
-            <div style="font-size:12px;font-weight:700;margin-bottom:2px;">🏛 연준 총자산 (WALCL)</div>
-            <div style="font-size:11px;color:var(--sub);margin-bottom:8px;">증가=QE(유동성 공급) · 감소=QT(유동성 회수)</div>
-            <div class="fred-chart-wrap"><canvas id="chart-walcl"></canvas></div>
-          </div>
-
-          <!-- RRP -->
-          <div>
-            <div style="font-size:12px;font-weight:700;margin-bottom:2px;">💵 역레포 RRP (RRPONTSYD)</div>
-            <div style="font-size:11px;color:var(--sub);margin-bottom:8px;">감소=유동성 공급 완료 · 완전소진=버퍼 소멸</div>
-            <div class="fred-chart-wrap"><canvas id="chart-rrp"></canvas></div>
-          </div>
-
-          <!-- TGA -->
-          <div>
-            <div style="font-size:12px;font-weight:700;margin-bottom:2px;">🏦 TGA 재무부 계정 (WTREGEN)</div>
-            <div style="font-size:11px;color:var(--sub);margin-bottom:8px;">감소=정부지출로 유동성 공급 · $800B 초과 주의</div>
-            <div class="fred-chart-wrap"><canvas id="chart-tga"></canvas></div>
-          </div>
-
-          <!-- MMF -->
-          <div>
-            <div style="font-size:12px;font-weight:700;margin-bottom:2px;">💰 MMF 소매 잔액 (WRMFNS)</div>
-            <div style="font-size:11px;color:var(--sub);margin-bottom:8px;">감소=주식으로 이동 신호 · 증가=안전자산 선호</div>
-            <div class="fred-chart-wrap"><canvas id="chart-mmf"></canvas></div>
-          </div>
-
-        </div>
-        <div style="margin-top:12px;padding:8px 14px;background:#eff6ff;border-radius:8px;font-size:11px;color:#1d4ed8;">
-          💡 FRED API로 수집된 실제 데이터를 시각화합니다. 차트를 통해 추세 방향을 직관적으로 확인하세요.
-        </div>
-      </div>
-    </div>
-
-  </div>
-
-</div><!-- /main -->
-
-<script>
-const API = 'https://magu-stock-production.up.railway.app';
-let currentMarket = 'nasdaq';
-let _lastResults  = [];
-let _marketCache  = {};
-let _tbResults    = [];
-let _liqData      = null;
-
-// ── 페이지 전환 ──
-function showPage(page) {
-  ['dashboard','classic','growth','modern','tenbagger','backtest','smartmoney','liquidity'].forEach(p => {
-    document.getElementById('page-'+p).style.display = p===page?'block':'none';
-    const nav = document.getElementById('nav-'+p);
-    if(nav) nav.classList.toggle('active', p===page);
-  });
-  if(['classic','growth','modern'].includes(page)) {
-    if(_lastResults && _lastResults.length>0) renderModelPage(page);
-    else document.getElementById(page+'-page-content').innerHTML='<div class="empty" style="background:#fff;border-radius:12px;border:1px solid var(--border);padding:44px;">먼저 종합 현황에서 🔄 스크리닝을 실행해주세요</div>';
-  }
-  window.scrollTo(0,0);
+SECTOR_TO_ETF = {
+    "Technology":"XLK","Healthcare":"XLV","Health Care":"XLV",
+    "Financial Services":"XLF","Financials":"XLF","Energy":"XLE",
+    "Consumer Cyclical":"XLY","Consumer Discretionary":"XLY",
+    "Consumer Defensive":"XLP","Consumer Staples":"XLP",
+    "Basic Materials":"XLB","Materials":"XLB",
+    "Communication Services":"XLC","Industrials":"XLI",
+    "Utilities":"XLU","Real Estate":"XLRE",
 }
 
-function switchMarket(m) {
-  currentMarket = m;
-  ['nasdaq','sp500','kospi','kosdaq'].forEach(k=>{
-    const el=document.getElementById('btn-'+k);
-    if(el) el.classList.toggle('active',k===m);
-  });
-  if(_marketCache[m]) {
-    _lastResults=_marketCache[m].results;
-    renderResults(_marketCache[m]);
-    document.getElementById('last-update').textContent=_marketCache[m].updated_at;
-    document.getElementById('market-status').textContent=(_marketCache[m].market_label||m)+' 완료';
-  }
-}
+# ══════════════════════════════════════════════════════════════
+# 점수 계산 함수 (기존 그대로)
+# ══════════════════════════════════════════════════════════════
 
-function updateMergeBtns() {
-  const hasUS=!!(_marketCache['nasdaq']||_marketCache['sp500']);
-  const hasKR=!!(_marketCache['kospi']||_marketCache['kosdaq']);
-  const usBtn=document.getElementById('merge-us-btn');
-  const krBtn=document.getElementById('merge-kr-btn');
-  if(usBtn){usBtn.disabled=!hasUS;usBtn.style.opacity=hasUS?'1':'0.4';}
-  if(krBtn){krBtn.disabled=!hasKR;krBtn.style.opacity=hasKR?'1':'0.4';}
-}
+def score_ema_slope(hist_weekly):
+    try:
+        if len(hist_weekly) < 30: return 0
+        ema = hist_weekly['Close'].ewm(span=26).mean()
+        slopes = [(ema.iloc[-i]-ema.iloc[-i-1])/ema.iloc[-i-1]*100 for i in range(1,5) if len(ema)>i]
+        if not slopes: return 0
+        avg = sum(slopes)/len(slopes)
+        if avg>=1.0: return 10
+        elif avg>=0.5: return 8
+        elif avg>=0.2: return 6
+        elif avg>=0.05: return 4
+        elif avg>=0.0: return 2
+        else: return 0
+    except: return 0
 
-async function runScreener() {
-  const btn=document.getElementById('run-btn');
-  const market=currentMarket;
-  const labels={nasdaq:'나스닥',sp500:'S&P500',kospi:'코스피',kosdaq:'코스닥'};
-  const label=labels[market]||market;
-  btn.disabled=true; btn.textContent='⏳ 분석 중...';
-  document.getElementById('result-table').innerHTML=`<tr><td colspan="9"><div class="loading"><div class="spinner"></div>${label} 종목 분석 중... (1~2분 소요)</div></td></tr>`;
-  document.getElementById('best-picks').innerHTML=`<div class="empty" style="grid-column:1/-1;"><div class="spinner" style="margin:0 auto 8px;"></div>${label} 분석 중...</div>`;
-  try {
-    const res=await fetch(`${API}/api/screen/${market}`);
-    if(!res.ok) throw new Error('HTTP '+res.status);
-    const data=await res.json();
-    _marketCache[market]=data; _lastResults=data.results;
-    renderResults(data);
-    document.getElementById('last-update').textContent=data.updated_at;
-    document.getElementById('market-status').textContent=label+' 완료';
-    ['nasdaq','sp500','kospi','kosdaq'].forEach(k=>{
-      const el=document.getElementById('btn-'+k);
-      if(el) el.classList.toggle('active',k===market);
-    });
-    updateMergeBtns();
-  } catch(e) {
-    document.getElementById('result-table').innerHTML=`<tr><td colspan="9" class="empty">⚠️ 서버 연결 실패. 잠시 후 다시 시도해주세요.</td></tr>`;
-    document.getElementById('best-picks').innerHTML=`<div class="empty" style="grid-column:1/-1;">⚠️ 연결 실패</div>`;
-  }
-  btn.disabled=false; btn.innerHTML='🔄 스크리닝 실행';
-}
+def score_stochastic(hist_daily):
+    try:
+        if len(hist_daily)<14: return 0
+        ll=hist_daily['Low'].rolling(14).min(); hh=hist_daily['High'].rolling(14).max()
+        denom=hh-ll
+        if denom.iloc[-1]==0: return 0
+        k=float(100*(hist_daily['Close'].iloc[-1]-ll.iloc[-1])/denom.iloc[-1])
+        if 20<=k<=40: return 10
+        elif 40<k<=50: return 8
+        elif 15<=k<20: return 7
+        elif 50<k<=65: return 5
+        elif 10<=k<15: return 4
+        elif 65<k<=80: return 3
+        elif k>80: return 1
+        else: return 2
+    except: return 0
 
-function mergeResults(region) {
-  let merged=[];
-  if(region==='us') {
-    if(_marketCache['nasdaq']) merged=merged.concat(_marketCache['nasdaq'].results.map(r=>({...r,_src:'nasdaq'})));
-    if(_marketCache['sp500'])  merged=merged.concat(_marketCache['sp500'].results.map(r=>({...r,_src:'sp500'})));
-  } else {
-    if(_marketCache['kospi'])  merged=merged.concat(_marketCache['kospi'].results.map(r=>({...r,_src:'kospi'})));
-    if(_marketCache['kosdaq']) merged=merged.concat(_marketCache['kosdaq'].results.map(r=>({...r,_src:'kosdaq'})));
-  }
-  if(!merged.length){alert('먼저 해당 시장을 각각 스크리닝 실행해주세요.');return;}
-  const seen={};
-  merged=merged.filter(r=>{if(seen[r.ticker])return false;seen[r.ticker]=true;return true;});
-  merged.sort((a,b)=>b.total_score-a.total_score);
-  const buyScoreSum=merged.filter(r=>['Strong Buy','Buy'].includes(r.recommendation)).reduce((s,r)=>s+r.total_score,0);
-  merged.forEach(r=>{r.weight=['Strong Buy','Buy'].includes(r.recommendation)&&buyScoreSum>0?Math.round(r.total_score/buyScoreSum*1000)/10:0;});
-  _lastResults=merged;
-  const label=region==='us'?'🇺🇸 미국 합산 (나스닥+S&P500)':'🇰🇷 한국 합산 (코스피+코스닥)';
-  const currency=region==='us'?'USD':'KRW';
-  const now=new Date().toLocaleString('ko-KR');
-  renderResults({results:merged,market_label:label,currency,updated_at:now});
-  document.getElementById('last-update').textContent=now;
-  document.getElementById('market-status').textContent=label;
-  ['nasdaq','sp500','kospi','kosdaq'].forEach(k=>{
-    const el=document.getElementById('btn-'+k);
-    if(el) el.classList.toggle('active',k===currentMarket);
-  });
-}
+def score_breakout(hist_daily):
+    try:
+        if len(hist_daily)<3: return 0
+        prev_high=float(hist_daily['High'].iloc[-2]); latest=float(hist_daily['Close'].iloc[-1])
+        ratio=latest/prev_high
+        if ratio>=1.01: return 10
+        elif ratio>=1.002: return 8
+        elif ratio>=0.998: return 6
+        elif ratio>=0.99: return 4
+        elif ratio>=0.97: return 2
+        else: return 0
+    except: return 0
 
-function getBadge(rec) {
-  const map={'Strong Buy':['badge-sb','강력 매수'],'Buy':['badge-b','매수'],'Hold':['badge-h','보유'],'Watch':['badge-w','관망']};
-  const [cls,label]=map[rec]||['badge-w',rec];
-  return `<span class="badge ${cls}">${label}</span>`;
-}
-function getCircleColor(score){return score>=70?'#22c55e':score>=55?'#3b82f6':score>=40?'#f59e0b':'#94a3b8';}
+def calculate_classic_score(info, hist_weekly, hist_daily):
+    s1=score_ema_slope(hist_weekly); s2=score_stochastic(hist_daily); s3=score_breakout(hist_daily)
+    if s1==0: s2=s2//2; s3=s3//2
+    return s1+s2+s3
 
-function renderModelPage(modelKey) {
-  const configs={classic:{scoreKey:'classic_score',maxScore:30,color:'#3b82f6',label:'클래식'},growth:{scoreKey:'growth_score',maxScore:40,color:'#22c55e',label:'성장'},modern:{scoreKey:'modern_score',maxScore:30,color:'#8b5cf6',label:'모던'}};
-  const cfg=configs[modelKey];
-  const sorted=[..._lastResults].sort((a,b)=>b[cfg.scoreKey]-a[cfg.scoreKey]);
-  const html=`<div style="background:#fff;border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-    <span style="font-size:13px;font-weight:600;color:var(--sub);">필터:</span>
-    <button class="filter-btn active" onclick="applyFilter('${modelKey}','all',this)">전체 (${sorted.length})</button>
-    <button class="filter-btn" onclick="applyFilter('${modelKey}','Strong Buy',this)">강력 매수</button>
-    <button class="filter-btn" onclick="applyFilter('${modelKey}','Buy',this)">매수</button>
-    <button class="filter-btn" onclick="applyFilter('${modelKey}','Hold',this)">보유</button>
-    <input id="search-${modelKey}" type="text" placeholder="종목 검색..." oninput="applyFilter('${modelKey}','search',null)"
-      style="margin-left:auto;padding:7px 13px;border:1px solid var(--border);border-radius:8px;font-size:13px;outline:none;width:160px;"></div>
-    <div style="background:#fff;border:1px solid var(--border);border-radius:12px;overflow:hidden;">
-      <table class="stbl"><thead><tr><th>순위</th><th>종목</th><th>현재가</th><th>등락률</th><th>${cfg.label} 점수 (${cfg.maxScore}점)</th><th>마구 스코어</th><th>추천</th><th>조건 충족</th></tr></thead>
-      <tbody id="tbody-${modelKey}">${buildModelRows(sorted,cfg,modelKey)}</tbody></table></div>`;
-  document.getElementById(modelKey+'-page-content').innerHTML=html;
-}
+def score_roe(roe):
+    if roe>=0.30: return 10
+    elif roe>=0.20: return 8
+    elif roe>=0.15: return 6
+    elif roe>=0.10: return 3
+    elif roe>=0.05: return 1
+    else: return 0
 
-function buildModelRows(data,cfg,modelKey) {
-  if(!data.length) return '<tr><td colspan="8" class="empty">해당 조건의 종목이 없습니다</td></tr>';
-  return data.map((s,i)=>{
-    const score=s[cfg.scoreKey];
-    const pct=Math.round((score/cfg.maxScore)*100);
-    let s1,s2,s3;
-    if(modelKey==='classic'){s1=(s.c_ema??0)>=4?'✅':'❌';s2=(s.c_stoch??0)>=6?'✅':'❌';s3=(s.c_break??0)>=6?'✅':'❌';}
-    else if(modelKey==='growth'){s1=((s.g_roe??0)+(s.g_debt??0))>=8?'✅':'❌';s2=((s.g_eps??0)+(s.g_peg??0))>=6?'✅':'❌';s3=((s.g_ma200??0)+(s.g_rsi??0))>=6?'✅':'❌';}
-    else{s1=(s.m_anal??0)>=7?'✅':'❌';s2=(s.m_rs??0)>=6?'✅':'❌';s3=(s.m_obv??0)>=6?'✅':'❌';}
-    const chgClass=s.change_pct>=0?'up':'dn';
-    const chgSign=s.change_pct>=0?'▲':'▼';
-    return `<tr>
-      <td style="padding:11px 14px;font-weight:700;color:var(--sub);">${i+1}</td>
-      <td style="padding:11px 14px;"><div class="tname">${s.name.length>20?s.ticker:s.name}</div><div class="tcode">${s.ticker}</div></td>
-      <td style="padding:11px 14px;font-weight:600;">$${s.price.toLocaleString()}</td>
-      <td style="padding:11px 14px;" class="${chgClass}">${chgSign}${Math.abs(s.change_pct)}%</td>
-      <td style="padding:11px 14px;"><div style="display:flex;align-items:center;gap:8px;">
-        <div style="width:80px;height:6px;background:#f1f5f9;border-radius:3px;overflow:hidden;"><div style="height:100%;background:${cfg.color};width:${pct}%;border-radius:3px;"></div></div>
-        <span style="font-size:13px;font-weight:700;color:${cfg.color};">${score}점</span></div></td>
-      <td style="padding:11px 14px;"><div style="display:flex;align-items:center;gap:6px;">
-        <div style="width:70px;height:5px;background:#f1f5f9;border-radius:3px;overflow:hidden;"><div style="height:100%;background:linear-gradient(to right,#3b82f6,#06b6d4);width:${s.total_score}%;border-radius:3px;"></div></div>
-        <span style="font-size:13px;font-weight:700;color:#1d4ed8;">${s.total_score}</span></div></td>
-      <td style="padding:11px 14px;">${getBadge(s.recommendation)}</td>
-      <td style="padding:11px 14px;font-size:14px;letter-spacing:3px;">${s1}${s2}${s3}</td></tr>`;
-  }).join('');
-}
+def score_debt(debt_equity):
+    if debt_equity<=0: return 5
+    elif debt_equity<=30: return 5
+    elif debt_equity<=60: return 4
+    elif debt_equity<=100: return 3
+    elif debt_equity<=150: return 2
+    elif debt_equity<=200: return 1
+    else: return 0
 
-function applyFilter(modelKey,type,btn) {
-  if(btn){document.querySelectorAll(`#${modelKey}-page-content .filter-btn`).forEach(b=>b.classList.remove('active'));btn.classList.add('active');}
-  const configs={classic:{scoreKey:'classic_score',maxScore:30,color:'#3b82f6',label:'클래식'},growth:{scoreKey:'growth_score',maxScore:40,color:'#22c55e',label:'성장'},modern:{scoreKey:'modern_score',maxScore:30,color:'#8b5cf6',label:'모던'}};
-  const cfg=configs[modelKey];
-  let data=[..._lastResults].sort((a,b)=>b[cfg.scoreKey]-a[cfg.scoreKey]);
-  const search=document.getElementById('search-'+modelKey)?.value.toLowerCase()||'';
-  if(type==='search'||search) data=data.filter(s=>s.name.toLowerCase().includes(search)||s.ticker.toLowerCase().includes(search));
-  else if(type!=='all') data=data.filter(s=>s.recommendation===type);
-  document.getElementById('tbody-'+modelKey).innerHTML=buildModelRows(data,cfg,modelKey);
-}
+def score_eps_growth(info):
+    quarterly=info.get('earningsQuarterlyGrowth',None); annual=info.get('earningsGrowth',None)
+    if quarterly is None and annual is None: return 0
+    primary=quarterly if quarterly is not None else annual
+    primary=primary if primary is not None else 0
+    if primary>=0.40: base=10
+    elif primary>=0.25: base=8
+    elif primary>=0.15: base=6
+    elif primary>=0.10: base=4
+    elif primary>=0.05: base=2
+    elif primary>0: base=1
+    else: base=0
+    if quarterly is not None and annual is not None:
+        if quarterly>annual+0.05: base=min(base+1,10)
+    return base
 
-function renderResults(data) {
-  data._currency=data.currency||(currentMarket.startsWith('kos')?'KRW':'USD');
-  const results=data.results;
-  const topClassic=[...results].sort((a,b)=>b.classic_score-a.classic_score).slice(0,3);
-  const topGrowth=[...results].sort((a,b)=>b.growth_score-a.growth_score).slice(0,3);
-  const topModern=[...results].sort((a,b)=>b.modern_score-a.modern_score).slice(0,3);
-  document.getElementById('classic-count').textContent=topClassic[0]?.classic_score||0;
-  document.getElementById('growth-count').textContent=topGrowth[0]?.growth_score||0;
-  document.getElementById('modern-count').textContent=topModern[0]?.modern_score||0;
-  const renderStocks=(stocks)=>stocks.map(s=>`<div class="stock-row"><span class="sname">${s.name.length>16?s.ticker:s.name}</span>${getBadge(s.recommendation)}</div>`).join('');
-  document.getElementById('classic-stocks').innerHTML=renderStocks(topClassic);
-  document.getElementById('growth-stocks').innerHTML=renderStocks(topGrowth);
-  document.getElementById('modern-stocks').innerHTML=renderStocks(topModern);
-  const top5=results.slice(0,5);
-  const darkGradients=['linear-gradient(135deg,#0f2027,#203a43,#2c5364)','linear-gradient(135deg,#1a1a2e,#16213e,#0f3460)','linear-gradient(135deg,#0d1b2a,#1b2838,#2d4a6b)','linear-gradient(135deg,#1c1c2e,#2d2d44,#1a1a3e)','linear-gradient(135deg,#0a0a0a,#1a1a2e,#2c2c4e)'];
-  const rankIcons=['🥇','🥈','🥉','4️⃣','5️⃣'];
-  const scoreGlow=(score)=>score>=70?'0 0 12px rgba(34,197,94,0.5)':score>=55?'0 0 12px rgba(59,130,246,0.5)':'0 0 12px rgba(245,158,11,0.4)';
-  document.getElementById('best-picks').innerHTML=top5.map((s,i)=>`
-    <div style="background:${darkGradients[i]};border:1px solid rgba(255,255,255,0.08);border-radius:14px;padding:16px;position:relative;overflow:hidden;transition:transform .2s,box-shadow .2s;cursor:default;"
-      onmouseover="this.style.transform='translateY(-3px)';this.style.boxShadow='0 8px 24px rgba(0,0,0,0.4)'"
-      onmouseout="this.style.transform='';this.style.boxShadow=''">
-      <div style="font-size:13px;font-weight:700;color:rgba(255,255,255,0.5);margin-bottom:8px;">${rankIcons[i]} #${i+1}</div>
-      <div style="font-size:14px;font-weight:800;color:#fff;margin-bottom:2px;line-height:1.3;">${s.name.length>12?s.name.substring(0,12)+'...':s.name}</div>
-      <div style="font-size:11px;color:rgba(255,255,255,0.35);margin-bottom:12px;">${s.ticker}</div>
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-        <div style="width:52px;height:52px;border-radius:50%;border:3px solid ${getCircleColor(s.total_score)};display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:800;color:${getCircleColor(s.total_score)};box-shadow:${scoreGlow(s.total_score)};">${s.total_score}</div>
-        <div>${getBadge(s.recommendation)}</div>
-      </div>
-      <div style="display:flex;flex-direction:column;gap:4px;">
-        <div style="display:flex;align-items:center;gap:5px;"><div style="font-size:9px;color:rgba(255,255,255,0.4);width:14px;">클</div><div style="flex:1;height:3px;background:rgba(255,255,255,0.1);border-radius:2px;"><div style="height:100%;background:#3b82f6;border-radius:2px;width:${Math.round(s.classic_score/30*100)}%;"></div></div><div style="font-size:9px;color:rgba(255,255,255,0.4);width:16px;text-align:right;">${s.classic_score}</div></div>
-        <div style="display:flex;align-items:center;gap:5px;"><div style="font-size:9px;color:rgba(255,255,255,0.4);width:14px;">성</div><div style="flex:1;height:3px;background:rgba(255,255,255,0.1);border-radius:2px;"><div style="height:100%;background:#22c55e;border-radius:2px;width:${Math.round(s.growth_score/40*100)}%;"></div></div><div style="font-size:9px;color:rgba(255,255,255,0.4);width:16px;text-align:right;">${s.growth_score}</div></div>
-        <div style="display:flex;align-items:center;gap:5px;"><div style="font-size:9px;color:rgba(255,255,255,0.4);width:14px;">모</div><div style="flex:1;height:3px;background:rgba(255,255,255,0.1);border-radius:2px;"><div style="height:100%;background:#8b5cf6;border-radius:2px;width:${Math.round(s.modern_score/30*100)}%;"></div></div><div style="font-size:9px;color:rgba(255,255,255,0.4);width:16px;text-align:right;">${s.modern_score}</div></div>
-      </div></div>`).join('');
-  updateInvestWeight(data);
-  const marketLabel=data.market_label?`[${data.market_label}] `:'';
-  document.getElementById('screened-count').textContent=`${marketLabel}총 ${results.length}개 종목 · 클래식 30 + 성장 40 + 모던 30 = 100점 만점`;
-  document.getElementById('result-table').innerHTML=results.map(s=>`
-    <tr>
-      <td><div class="tname">${s.name.length>20?s.ticker:s.name}</div><div class="tcode">${s.ticker}</div></td>
-      <td><strong>${data._currency==='KRW'?'₩':'$'}${s.price.toLocaleString()}</strong></td>
-      <td class="${s.change_pct>=0?'up':'dn'}">${s.change_pct>=0?'▲':'▼'}${Math.abs(s.change_pct)}%</td>
-      <td><strong>${s.classic_score}</strong></td><td><strong>${s.growth_score}</strong></td><td><strong>${s.modern_score}</strong></td>
-      <td><div class="score-bar-wrap"><span class="score-bar-num">${s.total_score}</span><div class="score-bar-bg"><div class="score-bar-fill" style="width:${s.total_score}%;"></div></div></div></td>
-      <td>${getBadge(s.recommendation)}</td>
-      <td>${s.weight>0?`<span class="weight-badge">${s.weight}%</span>`:'—'}</td></tr>`).join('');
-}
+def score_peg(peg):
+    if peg is None or peg<=0 or peg>=50: return 2
+    elif peg<=0.8: return 5
+    elif peg<=1.0: return 4
+    elif peg<=1.5: return 3
+    elif peg<=2.0: return 2
+    elif peg<=3.0: return 1
+    else: return 0
 
-function updateInvestWeight(data) {
-  const buyCount=data.results.filter(r=>['Strong Buy','Buy'].includes(r.recommendation)).length;
-  const total=data.results.length;
-  const bullRatio=total>0?buyCount/total:0.5;
-  const stockPct=Math.round(40+bullRatio*40);
-  const cashPct=Math.round((100-stockPct)*0.6);
-  const bondPct=100-stockPct-cashPct;
-  document.getElementById('stock-fill').style.width=stockPct+'%';
-  document.getElementById('cash-fill').style.width=cashPct+'%';
-  document.getElementById('bond-fill').style.width=bondPct+'%';
-  document.getElementById('stock-pct').textContent=stockPct+'%';
-  document.getElementById('cash-pct').textContent=cashPct+'%';
-  document.getElementById('bond-pct').textContent=bondPct+'%';
-  const note=stockPct>=70?'🚀 매수 신호 강함 — 주식 비중을 높이세요.':stockPct>=55?'💡 중립 — 기존 포트폴리오를 유지하세요.':'⚠️ 방어적 시장 — 현금 비중을 늘리세요.';
-  document.getElementById('inv-note').textContent=note;
-  // ※ 자체 공포탐욕 계산 제거 → CNN 공포탐욕지수로 대체됨
-}
+def score_ma200(hist_daily):
+    try:
+        if len(hist_daily)<200: return 0
+        ma200=float(hist_daily['Close'].rolling(200).mean().iloc[-1]); current=float(hist_daily['Close'].iloc[-1])
+        ratio=current/ma200
+        if ratio>=1.20: return 5
+        elif ratio>=1.10: return 4
+        elif ratio>=1.03: return 3
+        elif ratio>=1.00: return 2
+        elif ratio>=0.95: return 1
+        else: return 0
+    except: return 0
 
-async function saveBestpick() {
-  const btn = document.getElementById('bp-save-btn');
-  const market = document.getElementById('bp-market').value;
-  btn.disabled = true;
-  btn.textContent = '⏳ 스크리닝 중... (최대 2분)';
-  // 결과 영역에 로딩 표시
-  document.getElementById('bp-history-wrap').innerHTML = `
-    <div style="text-align:center;padding:40px;color:var(--sub);">
-      <div class="spinner" style="margin:0 auto 12px;"></div>
-      <div style="font-weight:600;margin-bottom:6px;">베스트픽 선정 중...</div>
-      <div style="font-size:12px;">DB 캐시가 없으면 실시간 스크리닝을 실행합니다 (1~2분 소요)</div>
-    </div>`;
-  try {
-    const res = await fetch(`${API}/api/bestpick/save?market=${market}`, {method:'POST'});
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    const data = await res.json();
-    if (data.error) {
-      document.getElementById('bp-history-wrap').innerHTML = `<div style="padding:20px;color:var(--red);font-weight:600;">❌ ${data.error}</div>`;
-      return;
-    }
-    const saved = data.saved || 0;
-    const skipped = data.skipped || 0;
-    const picks = data.picks || [];
-    // 저장 결과를 화면에 바로 표시
-    let picksHtml = picks.map((p,i) => `
-      <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);">
-        <span style="font-size:16px;font-weight:800;color:var(--blue);">${i+1}</span>
-        <div style="flex:1;">
-          <div style="font-weight:700;">${p.name||p.ticker} <span style="font-size:11px;color:var(--sub);">${p.ticker||''}</span></div>
-          <div style="font-size:12px;color:var(--sub);">${p.sector||'—'}</div>
-        </div>
-        <span style="font-weight:800;color:#1d4ed8;">${p.total_score}점</span>
-        <span style="font-size:12px;font-weight:600;">$${(p.price||0).toLocaleString()}</span>
-      </div>`).join('');
-    document.getElementById('bp-history-wrap').innerHTML = `
-      <div style="padding:16px;background:#f0fdf4;border:1px solid #86efac;border-radius:10px;margin-bottom:16px;">
-        <div style="font-weight:700;color:#15803d;margin-bottom:12px;">✅ 저장 완료 — 신규 ${saved}종목 / 중복 스킵 ${skipped}종목</div>
-        ${picksHtml}
-      </div>`;
-    // 이력도 자동 새로고침
-    await loadBestpickHistory();
-  } catch(e) {
-    document.getElementById('bp-history-wrap').innerHTML = `<div style="padding:20px;color:var(--red);font-weight:600;">❌ 서버 연결 실패: ${e.message}</div>`;
-  }
-  btn.disabled = false; btn.textContent = '📌 오늘 베스트픽 기록';
-}
+def score_rsi(hist_daily):
+    try:
+        if len(hist_daily)<14: return 0
+        rsi=float(ta.momentum.RSIIndicator(hist_daily['Close'],window=14).rsi().iloc[-1])
+        if 50<=rsi<=65: return 5
+        elif 40<=rsi<50: return 4
+        elif 65<rsi<=75: return 3
+        elif 30<=rsi<40: return 2
+        elif 75<rsi<=80: return 1
+        else: return 0
+    except: return 0
 
-async function loadBestpickHistory() {
-  document.getElementById('bp-history-wrap').innerHTML = '<div style="text-align:center;padding:30px;color:var(--sub);"><div class="spinner" style="margin:0 auto 8px;"></div>이력 불러오는 중...</div>';
-  try {
-    const res = await fetch(`${API}/api/bestpick/history`);
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    const data = await res.json();
-    if (data.error) {
-      document.getElementById('bp-history-wrap').innerHTML = `<div style="padding:20px;color:var(--red);">❌ ${data.error}</div>`;
-      return;
+def calculate_growth_score(info, hist_daily):
+    return (score_roe(info.get('returnOnEquity',0) or 0)
+          + score_debt(info.get('debtToEquity',999) or 999)
+          + score_eps_growth(info)
+          + score_peg(info.get('pegRatio',None))
+          + score_ma200(hist_daily)
+          + score_rsi(hist_daily))
+
+def score_analyst(rec):
+    if not rec: return 0
+    return {'strong_buy':10,'buy':7,'hold':4,'underperform':1,'sell':0}.get(rec.lower(),0)
+
+def score_relative_strength(hist_daily):
+    try:
+        n=min(len(hist_daily)-1,252)
+        if n<60: return 0
+        stock_ret=float((hist_daily['Close'].iloc[-1]/hist_daily['Close'].iloc[-n]-1)*100)
+        excess=stock_ret-10.0*(n/252)
+        if excess>=30: return 10
+        elif excess>=20: return 8
+        elif excess>=10: return 6
+        elif excess>=0: return 4
+        elif excess>=-10: return 2
+        else: return 0
+    except: return 0
+
+def score_obv_momentum(hist_daily):
+    try:
+        if len(hist_daily)<20: return 0
+        close=hist_daily['Close']; volume=hist_daily['Volume']
+        obv=[0]
+        for i in range(1,len(close)):
+            if close.iloc[i]>close.iloc[i-1]: obv.append(obv[-1]+volume.iloc[i])
+            elif close.iloc[i]<close.iloc[i-1]: obv.append(obv[-1]-volume.iloc[i])
+            else: obv.append(obv[-1])
+        obv_s=pd.Series(obv,index=close.index)
+        obv_ma5=obv_s.iloc[-5:].mean(); obv_ma20=obv_s.iloc[-20:].mean()
+        if obv_ma20==0: return 0
+        ratio=obv_ma5/obv_ma20; rising=obv_s.iloc[-5:].mean()>obv_s.iloc[-10:-5].mean()
+        if ratio>=1.3 and rising: return 10
+        elif ratio>=1.1 and rising: return 8
+        elif ratio>=1.0 and rising: return 6
+        elif ratio>=1.0: return 4
+        elif ratio>=0.9: return 2
+        else: return 0
+    except: return 0
+
+def calculate_modern_score(info, hist_daily):
+    rec=info.get('recommendationKey','') or ''
+    return score_analyst(rec)+score_relative_strength(hist_daily)+score_obv_momentum(hist_daily)
+
+def get_recommendation(total_score, classic=None, growth=None, modern=None):
+    if classic is not None and growth is not None and modern is not None:
+        if classic<10 or growth<15 or modern<8:
+            return "Hold" if total_score>=70 else "Watch"
+    if total_score>=70: return "Strong Buy"
+    elif total_score>=55: return "Buy"
+    elif total_score>=40: return "Hold"
+    else: return "Watch"
+
+def get_portfolio_weight(results):
+    buy_stocks=[r for r in results if r['recommendation'] in ['Strong Buy','Buy']]
+    total_score=sum(r['total_score'] for r in buy_stocks)
+    for r in results:
+        if r['recommendation'] in ['Strong Buy','Buy'] and total_score>0:
+            r['weight']=round((r['total_score']/total_score)*100,1)
+        else: r['weight']=0
+    return results
+
+def fetch_single_stock(ticker, market):
+    try:
+        stock=yf.Ticker(ticker); info=stock.info
+        hist_daily=stock.history(period="1y"); hist_weekly=stock.history(period="2y",interval="1wk")
+        if hist_daily.empty or len(hist_daily)<20: return None
+        c_ema=score_ema_slope(hist_weekly); c_stoch=score_stochastic(hist_daily); c_break=score_breakout(hist_daily)
+        classic=c_ema+(c_stoch//2 if c_ema==0 else c_stoch)+(c_break//2 if c_ema==0 else c_break)
+        g_roe=score_roe(info.get('returnOnEquity',0) or 0); g_debt=score_debt(info.get('debtToEquity',999) or 999)
+        g_eps=score_eps_growth(info); g_peg=score_peg(info.get('pegRatio',None))
+        g_ma200=score_ma200(hist_daily); g_rsi=score_rsi(hist_daily)
+        growth=g_roe+g_debt+g_eps+g_peg+g_ma200+g_rsi
+        m_anal=score_analyst(info.get('recommendationKey','') or '')
+        m_rs=score_relative_strength(hist_daily); m_obv=score_obv_momentum(hist_daily)
+        modern=m_anal+m_rs+m_obv; total=classic+growth+modern
+        current_price=float(hist_daily['Close'].iloc[-1]); prev_price=float(hist_daily['Close'].iloc[-2])
+        change_pct=(current_price/prev_price-1)*100
+        rsi_val=0.0
+        if len(hist_daily)>=14:
+            rsi_val=round(float(ta.momentum.RSIIndicator(hist_daily['Close'],window=14).rsi().iloc[-1]),1)
+        name=KR_NAMES.get(ticker) or info.get('longName',ticker); sector=info.get('sector') or 'Unknown'
+        return {
+            "ticker":ticker,"name":name,"sector":sector,"etf":SECTOR_TO_ETF.get(sector,""),
+            "market":market,
+            "price":round(current_price,2),"change_pct":round(change_pct,2),
+            "classic_score":classic,"growth_score":growth,"modern_score":modern,
+            "total_score":total,"recommendation":get_recommendation(total,classic,growth,modern),
+            "weight":0,"rsi":rsi_val,
+            "roe":round((info.get('returnOnEquity',0) or 0)*100,1),"peg":round(info.get('pegRatio',0) or 0,2),
+            "c_ema":c_ema,"c_stoch":c_stoch,"c_break":c_break,
+            "g_roe":g_roe,"g_debt":g_debt,"g_eps":g_eps,"g_peg":g_peg,"g_ma200":g_ma200,"g_rsi":g_rsi,
+            "m_anal":m_anal,"m_rs":m_rs,"m_obv":m_obv,
+        }
+    except: return None
+
+# ══════════════════════════════════════════════════════════════
+# DB 저장 / 조회
+# ══════════════════════════════════════════════════════════════
+
+def save_screening_to_db(results: list):
+    if not results or not DATABASE_URL: return
+    try:
+        conn = get_conn(); cur = conn.cursor()
+        for r in results:
+            cur.execute("""
+                INSERT INTO screening_cache
+                    (ticker,market,name,sector,etf,price,change_pct,
+                     classic_score,growth_score,modern_score,total_score,
+                     recommendation,weight,rsi,roe,peg,
+                     c_ema,c_stoch,c_break,g_roe,g_debt,g_eps,g_peg,g_ma200,g_rsi,
+                     m_anal,m_rs,m_obv,screened_at)
+                VALUES
+                    (%(ticker)s,%(market)s,%(name)s,%(sector)s,%(etf)s,%(price)s,%(change_pct)s,
+                     %(classic_score)s,%(growth_score)s,%(modern_score)s,%(total_score)s,
+                     %(recommendation)s,%(weight)s,%(rsi)s,%(roe)s,%(peg)s,
+                     %(c_ema)s,%(c_stoch)s,%(c_break)s,%(g_roe)s,%(g_debt)s,%(g_eps)s,
+                     %(g_peg)s,%(g_ma200)s,%(g_rsi)s,%(m_anal)s,%(m_rs)s,%(m_obv)s,NOW())
+                ON CONFLICT (ticker, market) DO UPDATE SET
+                    name=EXCLUDED.name, sector=EXCLUDED.sector, etf=EXCLUDED.etf,
+                    price=EXCLUDED.price, change_pct=EXCLUDED.change_pct,
+                    classic_score=EXCLUDED.classic_score, growth_score=EXCLUDED.growth_score,
+                    modern_score=EXCLUDED.modern_score, total_score=EXCLUDED.total_score,
+                    recommendation=EXCLUDED.recommendation, weight=EXCLUDED.weight,
+                    rsi=EXCLUDED.rsi, roe=EXCLUDED.roe, peg=EXCLUDED.peg,
+                    c_ema=EXCLUDED.c_ema, c_stoch=EXCLUDED.c_stoch, c_break=EXCLUDED.c_break,
+                    g_roe=EXCLUDED.g_roe, g_debt=EXCLUDED.g_debt, g_eps=EXCLUDED.g_eps,
+                    g_peg=EXCLUDED.g_peg, g_ma200=EXCLUDED.g_ma200, g_rsi=EXCLUDED.g_rsi,
+                    m_anal=EXCLUDED.m_anal, m_rs=EXCLUDED.m_rs, m_obv=EXCLUDED.m_obv,
+                    screened_at=NOW()
+            """, r)
+        conn.commit(); cur.close(); conn.close()
+        logger.info(f"DB 저장 완료: {len(results)}건 [{results[0]['market']}]")
+    except Exception as e:
+        logger.error(f"DB 저장 오류: {e}")
+
+def load_screening_from_db(market: str):
+    if not DATABASE_URL: return None
+    try:
+        conn = get_conn(); cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        # 25시간 이내 데이터만 사용 (새벽 스크리닝 실패 시 오래된 캐시 방지)
+        freshness = "AND screened_at > NOW() - INTERVAL '25 hours'"
+        if market in ("nasdaq","sp500","kospi","kosdaq"):
+            cur.execute(f"SELECT * FROM screening_cache WHERE market=%s {freshness} ORDER BY total_score DESC", (market,))
+        elif market == "us":
+            cur.execute(f"SELECT * FROM screening_cache WHERE market IN ('nasdaq','sp500') {freshness} ORDER BY total_score DESC")
+        elif market == "kr":
+            cur.execute(f"SELECT * FROM screening_cache WHERE market IN ('kospi','kosdaq') {freshness} ORDER BY total_score DESC")
+        else:
+            cur.execute(f"SELECT * FROM screening_cache WHERE 1=1 {freshness} ORDER BY total_score DESC")
+        rows = cur.fetchall(); cur.close(); conn.close()
+        if not rows:
+            logger.info(f"DB 캐시 없음 또는 만료 ({market}) → 실시간 계산")
+            return None
+        results = []
+        for r in rows:
+            d = dict(r)
+            if d.get("screened_at"): d["screened_at"] = d["screened_at"].strftime("%Y-%m-%d %H:%M")
+            results.append(d)
+        return results
+    except Exception as e:
+        logger.error(f"DB 조회 오류: {e}")
+        return None
+
+def save_tenbagger_to_db(results: list):
+    if not results or not DATABASE_URL: return
+    try:
+        conn = get_conn(); cur = conn.cursor()
+        for r in results:
+            cur.execute("""
+                INSERT INTO tenbagger_cache
+                    (ticker,name,sector,market_cap_b,price,change_pct,
+                     lynch_score,oneil_score,minervini_score,total_score,grade,
+                     lynch_detail,oneil_detail,minervini_detail,screened_at)
+                VALUES
+                    (%(ticker)s,%(name)s,%(sector)s,%(market_cap_b)s,%(price)s,%(change_pct)s,
+                     %(lynch_score)s,%(oneil_score)s,%(minervini_score)s,%(total_score)s,%(grade)s,
+                     %(lynch_detail)s,%(oneil_detail)s,%(minervini_detail)s,NOW())
+                ON CONFLICT (ticker) DO UPDATE SET
+                    name=EXCLUDED.name, sector=EXCLUDED.sector, market_cap_b=EXCLUDED.market_cap_b,
+                    price=EXCLUDED.price, change_pct=EXCLUDED.change_pct,
+                    lynch_score=EXCLUDED.lynch_score, oneil_score=EXCLUDED.oneil_score,
+                    minervini_score=EXCLUDED.minervini_score, total_score=EXCLUDED.total_score,
+                    grade=EXCLUDED.grade, lynch_detail=EXCLUDED.lynch_detail,
+                    oneil_detail=EXCLUDED.oneil_detail, minervini_detail=EXCLUDED.minervini_detail,
+                    screened_at=NOW()
+            """, {**r,
+                  "lynch_detail": json.dumps(r.get("lynch_detail",{})),
+                  "oneil_detail": json.dumps(r.get("oneil_detail",{})),
+                  "minervini_detail": json.dumps(r.get("minervini_detail",{}))})
+        conn.commit(); cur.close(); conn.close()
+        logger.info(f"텐배거 DB 저장: {len(results)}건")
+    except Exception as e:
+        logger.error(f"텐배거 DB 저장 오류: {e}")
+
+# ══════════════════════════════════════════════════════════════
+# 새벽 스케줄러 작업
+# ══════════════════════════════════════════════════════════════
+
+def run_full_screening_job():
+    """매일 KST 04:00 전체 스크리닝 → DB 저장"""
+    logger.info("=== MAGU STOCK 새벽 스크리닝 시작 ===")
+    start = datetime.now()
+
+    sp500 = get_sp500_tickers()
+    if sp500:
+        global _sp500_cache
+        _sp500_cache = sp500
+
+    markets = {
+        "nasdaq": TICKERS_NASDAQ,
+        "sp500":  get_tickers_sp500(),
+        "kospi":  TICKERS_KOSPI,
+        "kosdaq": TICKERS_KOSDAQ,
     }
 
-    // 통계 업데이트
-    document.getElementById('bp-total').textContent = (data.total_records || 0) + '건';
-    const avgEl = document.getElementById('bp-avg-ret');
-    const avg = data.overall_avg_return;
-    avgEl.textContent = avg !== null && avg !== undefined ? (avg >= 0 ? '+' : '') + avg + '%' : '—';
-    avgEl.className = 'bt-stat-val ' + (avg >= 0 ? 'up' : 'dn');
-    document.getElementById('bp-winrate').textContent = data.overall_win_rate !== null ? data.overall_win_rate + '%' : '—';
-    const history = data.history || [];
-    document.getElementById('bp-period').textContent = history.length + '일치';
-    document.getElementById('bp-updated').textContent = data.updated_at || '';
+    for market, tickers in markets.items():
+        logger.info(f"[{market}] {len(tickers)}개 스크리닝 중...")
+        results = []
+        with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
+            futures = {executor.submit(fetch_single_stock, t, market): t for t in tickers}
+            for f in concurrent.futures.as_completed(futures, timeout=300):
+                try:
+                    r = f.result(timeout=30)
+                    if r: results.append(r)
+                except concurrent.futures.TimeoutError:
+                    logger.warning(f"[{market}] 종목 타임아웃 스킵")
+                except Exception as e:
+                    logger.warning(f"[{market}] 종목 오류 스킵: {e}")
+        results.sort(key=lambda x: x['total_score'], reverse=True)
+        results = get_portfolio_weight(results)
+        save_screening_to_db(results)
+        logger.info(f"[{market}] {len(results)}개 완료")
 
-    if (!history.length) {
-      document.getElementById('bp-history-wrap').innerHTML = '<div style="text-align:center;padding:40px;color:var(--sub);">아직 기록된 베스트픽이 없습니다.<br>스크리닝 후 <b>오늘 베스트픽 기록</b>을 눌러주세요.</div>';
-      return;
+    _run_tenbagger_job()
+    cleanup_old_data()
+    elapsed = int((datetime.now() - start).total_seconds() // 60)
+    logger.info(f"=== 스크리닝 완료: 소요 {elapsed}분 ===")
+
+def _run_tenbagger_job():
+    results = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+        futures = {executor.submit(fetch_tenbagger_stock, t): t for t in TICKERS_TENBAGGER}
+        for f in concurrent.futures.as_completed(futures, timeout=300):
+            try:
+                r = f.result(timeout=20)
+                if r: results.append(r)
+            except: continue
+    results.sort(key=lambda x: x['total_score'], reverse=True)
+    save_tenbagger_to_db(results)
+
+# ══════════════════════════════════════════════════════════════
+# 텐배거 스크리너 (기존 그대로)
+# ══════════════════════════════════════════════════════════════
+
+def score_lynch(info, hist_daily):
+    score=0; detail={}
+    peg=info.get('pegRatio',999) or 999
+    if peg<=0: peg_score=0
+    elif peg<=0.5: peg_score=15
+    elif peg<=0.75: peg_score=12
+    elif peg<=1.0: peg_score=9
+    elif peg<=1.5: peg_score=5
+    elif peg<=2.0: peg_score=2
+    else: peg_score=0
+    score+=peg_score; detail['peg']=round(peg if peg!=999 else 0,2); detail['peg_score']=peg_score
+    eps_growth=info.get('earningsGrowth',0) or 0
+    if eps_growth>=0.50: eps_score=10
+    elif eps_growth>=0.35: eps_score=8
+    elif eps_growth>=0.25: eps_score=6
+    elif eps_growth>=0.15: eps_score=3
+    else: eps_score=0
+    score+=eps_score; detail['eps_growth']=round(eps_growth*100,1); detail['eps_score']=eps_score
+    mcap=info.get('marketCap',0) or 0; mcap_b=mcap/1e9
+    if mcap_b<=0: mcap_score=0
+    elif mcap_b<=0.3: mcap_score=10
+    elif mcap_b<=2.0: mcap_score=8
+    elif mcap_b<=10.0: mcap_score=5
+    elif mcap_b<=50.0: mcap_score=2
+    else: mcap_score=0
+    score+=mcap_score; detail['market_cap_b']=round(mcap_b,1); detail['mcap_score']=mcap_score
+    return score,detail
+
+def score_oneil(info, hist_daily, hist_weekly):
+    score=0; detail={}
+    eps_growth=info.get('earningsGrowth',0) or 0; quarterly=info.get('earningsQuarterlyGrowth',0) or 0
+    c_val=max(eps_growth,quarterly)
+    if c_val>=0.50: c_score=10
+    elif c_val>=0.35: c_score=8
+    elif c_val>=0.25: c_score=6
+    elif c_val>=0.15: c_score=3
+    else: c_score=0
+    score+=c_score; detail['quarterly_eps_growth']=round(c_val*100,1); detail['c_score']=c_score
+    try:
+        if len(hist_daily)>=252:
+            high_52w=float(hist_daily['High'].rolling(252).max().iloc[-1]); current=float(hist_daily['Close'].iloc[-1])
+            from_high=(current/high_52w-1)*100; detail['from_52w_high']=round(from_high,1)
+            if from_high>=0: n_score=10
+            elif from_high>=-3: n_score=8
+            elif from_high>=-8: n_score=5
+            elif from_high>=-15: n_score=2
+            else: n_score=0
+        else: n_score=0; detail['from_52w_high']=0
+    except: n_score=0; detail['from_52w_high']=0
+    score+=n_score; detail['n_score']=n_score
+    try:
+        if len(hist_daily)>=50:
+            avg_50d=float(hist_daily['Volume'].rolling(50).mean().iloc[-1]); recent_5=float(hist_daily['Volume'].iloc[-5:].mean())
+            vol_ratio=recent_5/avg_50d if avg_50d>0 else 1.0; detail['vol_ratio_50d']=round(vol_ratio,2)
+            if vol_ratio>=2.5: s_score=10
+            elif vol_ratio>=2.0: s_score=8
+            elif vol_ratio>=1.5: s_score=6
+            elif vol_ratio>=1.2: s_score=3
+            else: s_score=0
+        else: s_score=0; detail['vol_ratio_50d']=0
+    except: s_score=0; detail['vol_ratio_50d']=0
+    score+=s_score; detail['s_score']=s_score
+    rec=info.get('recommendationKey','') or ''
+    l_score=5 if rec=='strong_buy' else 3 if rec=='buy' else 0
+    score+=l_score; detail['l_score']=l_score
+    return score,detail
+
+def score_minervini(info, hist_daily):
+    score=0; detail={}
+    try:
+        close=hist_daily['Close']; current=float(close.iloc[-1]); ma150=ma200=None
+        if len(hist_daily)>=200:
+            ma150=float(close.rolling(150).mean().iloc[-1]); ma200=float(close.rolling(200).mean().iloc[-1])
+            detail['ma150']=round(ma150,2); detail['ma200']=round(ma200,2)
+            above_both=(current>ma150) and (current>ma200)
+            if above_both:
+                ratio=current/((ma150+ma200)/2)
+                if ratio>=1.15: cond1=8
+                elif ratio>=1.08: cond1=6
+                elif ratio>=1.02: cond1=4
+                else: cond1=2
+            else: cond1=0
+        else: cond1=0; detail['ma150']=0; detail['ma200']=0
+        score+=cond1; detail['above_ma_score']=cond1
+        if ma150 and ma200:
+            if ma150>ma200:
+                r=ma150/ma200
+                if r>=1.05: cond2=7
+                elif r>=1.02: cond2=5
+                else: cond2=3
+            else: cond2=0
+        else: cond2=0
+        score+=cond2; detail['ma_cross_score']=cond2
+        if len(hist_daily)>=220:
+            ma200_1m=float(close.rolling(200).mean().iloc[-22])
+            if ma200 and ma200>ma200_1m:
+                sp=(ma200/ma200_1m-1)*100
+                if sp>=3.0: cond3=7
+                elif sp>=1.5: cond3=5
+                elif sp>=0.5: cond3=3
+                else: cond3=1
+            else: cond3=0
+        else: cond3=0
+        score+=cond3; detail['ma200_slope_score']=cond3
+        if len(hist_daily)>=252:
+            low_52w=float(hist_daily['Low'].rolling(252).min().iloc[-1]); from_low=(current/low_52w-1)*100
+            detail['from_52w_low']=round(from_low,1)
+            if from_low>=100: cond4=8
+            elif from_low>=60: cond4=6
+            elif from_low>=30: cond4=4
+            elif from_low>=15: cond4=2
+            else: cond4=0
+        else: cond4=0; detail['from_52w_low']=0
+        score+=cond4; detail['from_low_score']=cond4
+    except: detail={'above_ma_score':0,'ma_cross_score':0,'ma200_slope_score':0,'from_low_score':0}
+    return score,detail
+
+def fetch_tenbagger_stock(ticker):
+    try:
+        stock=yf.Ticker(ticker); info=stock.info
+        hist_daily=stock.history(period="1y"); hist_weekly=stock.history(period="2y",interval="1wk")
+        if hist_daily.empty or len(hist_daily)<60: return None
+        price_check=info.get('regularMarketPrice') or info.get('currentPrice') or info.get('previousClose')
+        if not price_check: return None
+        lynch_score,lynch_detail=score_lynch(info,hist_daily)
+        oneil_score,oneil_detail=score_oneil(info,hist_daily,hist_weekly)
+        minervini_score,minervini_detail=score_minervini(info,hist_daily)
+        total=lynch_score+oneil_score+minervini_score
+        current_price=float(hist_daily['Close'].iloc[-1]); prev_price=float(hist_daily['Close'].iloc[-2])
+        change_pct=(current_price/prev_price-1)*100
+        if total>=75: grade="🔥 최상위"
+        elif total>=60: grade="⭐ 유망"
+        elif total>=45: grade="👀 관심"
+        else: grade="💤 미해당"
+        mcap=info.get('marketCap',0) or 0
+        return {
+            "ticker":ticker,"name":info.get('longName',ticker),"sector":info.get('sector','Unknown'),
+            "market_cap_b":round(mcap/1e9,1),"price":round(current_price,2),"change_pct":round(change_pct,2),
+            "lynch_score":lynch_score,"oneil_score":oneil_score,"minervini_score":minervini_score,
+            "total_score":total,"grade":grade,
+            "lynch_detail":lynch_detail,"oneil_detail":oneil_detail,"minervini_detail":minervini_detail,
+        }
+    except: return None
+
+TICKERS_TENBAGGER = list(dict.fromkeys([
+    "PLTR","AI","SOUN","BBAI","RBRK","CWAN","ALKT","AEIS",
+    "AMBA","LSCC","SITM","ONTO","ACLS","ICHR","KLIC","MTSI",
+    "AFRM","UPST","BILL","TOST","GTLB","DDOG","ZS","DUOL",
+    "HIMS","RDDT","APP","SMAR","ASAN","MNDY","RELY","BRZE",
+    "RXRX","BEAM","CRSP","ARWR","KYMR","VKTX","NVCR","INSM",
+    "FSLR","ENPH","ARRY","RKLB","ASTS","JOBY","ACHR",
+    "CELH","BROS","CAVA","WING","FRPT","YETI",
+]))
+
+# ══════════════════════════════════════════════════════════════
+# 유동성 모듈 (기존 그대로)
+# ══════════════════════════════════════════════════════════════
+
+FRED_API_KEY = os.environ.get("FRED_API_KEY", "")
+FRED_BASE    = "https://api.stlouisfed.org/fred/series/observations"
+_liquidity_cache: dict = {}
+
+def fetch_fred(series_id: str, limit: int = 20):
+    if not FRED_API_KEY: return None
+    try:
+        params = {"series_id":series_id,"api_key":FRED_API_KEY,"file_type":"json",
+                  "sort_order":"desc","limit":limit,
+                  "observation_start":(datetime.now()-timedelta(days=2200)).strftime("%Y-%m-%d")}
+        resp = requests.get(FRED_BASE, params=params, timeout=10)
+        if resp.status_code != 200: return None
+        result = [{"date":obs["date"],"value":float(obs["value"])}
+                  for obs in resp.json().get("observations",[]) if obs["value"]!="."]
+        if len(result)>=2: _liquidity_cache[series_id]=result
+        return result if result else None
+    except: return None
+
+def fetch_fred_cached(series_id: str, limit: int = 20):
+    fresh = fetch_fred(series_id, limit)
+    if fresh is not None: return fresh, False
+    cached = _liquidity_cache.get(series_id)
+    return (cached, True) if cached else (None, False)
+
+def _err_ind(label, fred_id, max_score, is_cached):
+    return {"label":label,"fred_id":fred_id,"score":None,"max_score":max_score,
+            "error":True,"is_cached":is_cached,"status":"⚠️ 데이터 수집 실패 — 점수 산정 제외",
+            "value":0,"value_unit":"—","change_pct":0,"history":[],"context":""}
+
+MMF_RETAIL_RATIO = 0.394
+
+def score_net_liquidity(walcl_data, rrp_data, tga_data):
+    label="Fed 순유동성 (WALCL − RRP − TGA)"
+    if walcl_data is None or rrp_data is None or tga_data is None:
+        return {"label":label,"score":None,"max_score":40,"error":True,
+                "status":"⚠️ 데이터 부족 — 순유동성 계산 불가","value":0,"value_unit":"조 달러",
+                "walcl_t":0,"rrp_t":0,"tga_t":0,"change_t":0,"change_pct":0,"history":[],"context":""}
+    walcl=walcl_data[0]["value"]/1e6; rrp=rrp_data[0]["value"]/1e6; tga=tga_data[0]["value"]/1e6
+    net=round(walcl-rrp-tga,2)
+    walcl_4w=(walcl_data[4]["value"] if len(walcl_data)>4 else walcl_data[-1]["value"])/1e6
+    rrp_4w=(rrp_data[4]["value"] if len(rrp_data)>4 else rrp_data[-1]["value"])/1e6
+    tga_4w=(tga_data[4]["value"] if len(tga_data)>4 else tga_data[-1]["value"])/1e6
+    net_4w=round(walcl_4w-rrp_4w-tga_4w,2)
+    change_t=round(net-net_4w,2); change_pct=round((net-net_4w)/abs(net_4w)*100,2) if net_4w!=0 else 0
+    if net>=6.0:   level_s,level_d=25,"순유동성 매우 풍부 ($6조+)"
+    elif net>=5.0: level_s,level_d=20,"순유동성 풍부 ($5~6조)"
+    elif net>=4.0: level_s,level_d=14,f"순유동성 보통 (${net}조)"
+    elif net>=3.0: level_s,level_d=8,"순유동성 타이트 ($3~4조)"
+    else:          level_s,level_d=2,"순유동성 경색 ($3조 미만)"
+    if change_t>=0.3:    dir_s,dir_d=15,f"증가 ({change_t:+.2f}조) — 유동성 공급 가속"
+    elif change_t>=0.1:  dir_s,dir_d=12,f"소폭 증가 ({change_t:+.2f}조)"
+    elif change_t>=-0.1: dir_s,dir_d=8,"보합"
+    elif change_t>=-0.3: dir_s,dir_d=4,f"소폭 감소 ({change_t:+.2f}조)"
+    else:                dir_s,dir_d=0,f"감소 ({change_t:+.2f}조) — 유동성 회수"
+    return {"label":label,"score":level_s+dir_s,"max_score":40,"error":False,
+            "status":f"{level_d} / {dir_d}","value":net,"value_unit":"조 달러",
+            "walcl_t":round(walcl,2),"rrp_t":round(rrp,3),"tga_t":round(tga,3),
+            "change_t":change_t,"change_pct":change_pct,"history":[],
+            "context":f"WALCL ${walcl:.2f}조 − RRP ${rrp:.3f}조 − TGA ${tga:.3f}조 = ${net}조"}
+
+def score_mmf(data, is_cached=False):
+    label,fred_id="MMF 총잔액 (소매 기반 전체 추정)","WRMFNS"
+    if data is None or len(data)<5: return _err_ind(label,fred_id,20,is_cached)
+    latest=data[0]["value"]; prev4w=data[4]["value"] if len(data)>4 else data[-1]["value"]
+    prev12w=data[12]["value"] if len(data)>12 else data[-1]["value"]
+    total_est_t=round(latest/MMF_RETAIL_RATIO/1000,2); retail_b=round(latest,1)
+    change_4w=round((latest-prev4w)/prev4w*100,2) if prev4w>0 else 0
+    change_12w=round((latest-prev12w)/prev12w*100,2) if prev12w>0 else 0
+    if change_4w<-1.5:   score,status=20,"MMF 빠른 감소 — 위험자산으로 자금 이동, 강한 매수 환경"
+    elif change_4w<-0.3: score,status=16,"MMF 감소 전환 — 위험선호 회복, 매수 우호"
+    elif change_4w<=0.5:
+        if change_12w<-0.5:   score,status=13,"MMF 보합 (중장기 감소 추세) — 완만한 위험선호 회복"
+        elif change_12w>1.0:  score,status=6,"MMF 보합이나 중장기 증가 추세 — 위험회피 지속"
+        else:                 score,status=10,"MMF 보합 — 대기 자금 유지, 중립"
+    elif change_4w<=2.0: score,status=5,"MMF 증가 — 안전자산 선호, 위험회피 강화"
+    else:                score,status=2,"MMF 급증 — 강한 위험회피, 공포 자금 대피 중"
+    return {"label":label,"fred_id":fred_id,"score":score,"max_score":20,
+            "error":False,"is_cached":is_cached,"status":status,
+            "value":total_est_t,"value_unit":"조 달러 (추정)","value_retail":retail_b,
+            "change_pct":change_4w,
+            "history":[{"date":d["date"],"value":round(d["value"]/MMF_RETAIL_RATIO/1000,2)} for d in data[:260]],
+            "context":(f"소매 실측: ${retail_b:.0f}B / 전체 추정: ~${total_est_t}조 / 12주 추세: {change_12w:+.1f}%"),
+            "note":"기관 MMF(WIMFNS) 2021년 폐기 → 소매 기반 추정. 방향성 신호 기준."}
+
+TGA_SEASONAL_ADJ={1:-100,2:-50,3:0,4:250,5:100,6:0,7:-50,8:-50,9:100,10:0,11:-50,12:-100}
+
+def detail_walcl(data, is_cached=False):
+    label,fred_id="연준 총자산 (WALCL)","WALCL"
+    if data is None or len(data)<5: return _err_ind(label,fred_id,0,is_cached)
+    latest=data[0]["value"]; prev4w=data[4]["value"] if len(data)>4 else data[-1]["value"]
+    prev12w=data[12]["value"] if len(data)>12 else data[-1]["value"]
+    chg4w=round((latest-prev4w)/prev4w*100,3) if prev4w else 0
+    chg12w=round((latest-prev12w)/prev12w*100,3) if prev12w else 0
+    mon_b=round((latest-prev4w)/1000,1); total_t=round(latest/1e6,2)
+    if chg4w>0.3:    st="QE — 연준 자산 증가, 유동성 공급"
+    elif chg4w>0:    st="소폭 증가 — 유동성 유지 (QT 종료 후 정상)"
+    elif mon_b>=-25: st="완만한 감소 (월 $250억↓) — 시장 충격 제한적"
+    elif mon_b>=-60: st="중간 QT (월 $250~600억) — 유동성 점진적 감소"
+    else:            st="강한 QT (월 $600억+) — 유동성 급속 회수"
+    return {"label":label,"fred_id":fred_id,"score":None,"max_score":0,
+            "error":False,"is_cached":is_cached,"status":st,
+            "value":total_t,"value_unit":"조 달러","change_pct":chg4w,"monthly_change_b":mon_b,
+            "history":[{"date":d["date"],"value":round(d["value"]/1e6,2)} for d in data[:260]],
+            "context":f"4주: {chg4w:+.3f}% / 12주: {chg12w:+.3f}% / 월 변화: ${mon_b:+.0f}B"}
+
+def detail_rrp(data, is_cached=False):
+    label,fred_id="역레포(RRP) 잔액","RRPONTSYD"
+    if data is None or len(data)<2: return _err_ind(label,fred_id,0,is_cached)
+    latest=data[0]["value"]
+    # RRP 일별 데이터 → 4주 전 = index 20
+    prev4w=data[20]["value"] if len(data)>20 else data[-1]["value"]
+    latest_b=round(latest/1000,1)
+    # $10B 미만 = 완전 소진 → 변화율 계산 무의미 (분모≈0 → 수천% 왜곡)
+    if latest_b <= 10:
+        chg_pct=0
+        st="완전 소진 — RRP 버퍼 소멸. 지급준비금에 의존하는 단계."
+        ctx="피크($2.5조) 대비 100% 소진 — 잔액 $0, 변화율 표시 불가"
+    else:
+        chg_pct=round((latest-prev4w)/prev4w*100,2) if prev4w>0 else 0
+        rising=latest>prev4w; depl=round((1-latest_b/2500)*100,1)
+        if latest_b>500:   st="감소 중 → 유동성 유입 (버퍼 충분)" if not rising else "증가 중 → 유동성 흡수"
+        elif latest_b>100: st="소진 진행 중 → 유입 지속" if not rising else "소진 단계에서 재증가 → 주의"
+        else:              st="거의 소진 — 추가 공급 여력 없음 (중립)"
+        ctx=f"피크($2.5조) 대비 {depl}% 소진 / 4주 변화: {chg_pct:+.1f}%"
+    return {"label":label,"fred_id":fred_id,"score":None,"max_score":0,
+            "error":False,"is_cached":is_cached,"status":st,
+            "value":latest_b,"value_unit":"십억 달러","change_pct":chg_pct,
+            "history":[{"date":d["date"],"value":round(d["value"]/1000,1)} for d in data[:1300]],
+            "context":ctx}
+
+def detail_tga(data, is_cached=False):
+    label,fred_id="TGA(재무부 계정) 잔액","WTREGEN"
+    if data is None or len(data)<2: return _err_ind(label,fred_id,0,is_cached)
+    latest=data[0]["value"]; prev4w=data[4]["value"] if len(data)>4 else data[-1]["value"]
+    latest_b=round(latest/1000,1); chg_pct=round((latest-prev4w)/prev4w*100,2) if prev4w>0 else 0
+    chg_b=round((latest-prev4w)/1000,1)
+    sadj=TGA_SEASONAL_ADJ.get(datetime.now().month,0); eff_b=latest_b-sadj
+    sadj_note=f" (계절조정 {sadj:+d}B → 실효 ${eff_b:.0f}B)" if sadj!=0 else ""
+    if eff_b<300:    lv="낮음 — 정부 지출, 유동성 공급"
+    elif eff_b<500:  lv="정상 수준 ($300~500B)"
+    elif eff_b<800:  lv="높음 ($500~800B) — 유동성 소폭 압박"
+    elif eff_b<1000: lv="⚠️ 임계점 초과 ($800B+) — 레포 긴축 위험"
+    else:            lv="🚨 위험 구간 ($1조+) — 심각한 유동성 압박"
+    gap=800-latest_b
+    ctx=f"$800B 임계점 ${abs(gap):.0f}B {'여유' if gap>0 else '초과 ⚠️'}"
+    return {"label":label,"fred_id":fred_id,"score":None,"max_score":0,
+            "error":False,"is_cached":is_cached,
+            "status":f"{lv} / 4주 변화 {chg_b:+.0f}B{sadj_note}",
+            "value":latest_b,"value_unit":"십억 달러","change_pct":chg_pct,
+            "seasonal_adj":sadj,"effective_b":eff_b,
+            "history":[{"date":d["date"],"value":round(d["value"]/1000,1)} for d in data[:260]],
+            "context":ctx}
+
+def get_liquidity_signal(total_score: int) -> dict:
+    if total_score>=75:
+        return {"stage":1,"signal":"적극매수","emoji":"🟢","color":"#15803d","bg_color":"#dcfce7","border_color":"#86efac",
+                "description":"순유동성이 풍부하고 MMF 자금이 위험자산으로 이동 중입니다.",
+                "action":"스크리닝 신호를 적극 반영하세요. 마구스코어 65점+ 종목 분할 매수 고려.",
+                "step2_guide":"✅ 스크리닝 신호 적극 반영 — 분할 매수 진입 권장"}
+    elif total_score>=55:
+        return {"stage":2,"signal":"매수우호","emoji":"🔵","color":"#1d4ed8","bg_color":"#dbeafe","border_color":"#93c5fd",
+                "description":"순유동성이 양호합니다. 시장 환경이 매수에 우호적입니다.",
+                "action":"스크리닝 결과를 참고하여 선별적으로 매수하세요.",
+                "step2_guide":"✅ 스크리닝 신호 참고 — 마구스코어 70점+ 종목 위주 선별 매수"}
+    elif total_score>=38:
+        return {"stage":3,"signal":"중립관망","emoji":"🟡","color":"#b45309","bg_color":"#fef9c3","border_color":"#fde68a",
+                "description":"순유동성 방향이 불확실합니다. 긍정/부정 신호가 혼재합니다.",
+                "action":"신규 매수 자제. 기존 포지션 유지하며 방향 확인 후 판단하세요.",
+                "step2_guide":"⚠️ 스크리닝 참고만 — 신규 매수 자제, 기존 보유 종목 유지"}
+    elif total_score>=20:
+        return {"stage":4,"signal":"매수축소","emoji":"🟠","color":"#c2410c","bg_color":"#ffedd5","border_color":"#fdba74",
+                "description":"순유동성이 감소하고 있습니다. 위험 관리가 필요합니다.",
+                "action":"신규 매수 중단. 보유 종목 비중 축소 및 손절 기준 점검하세요.",
+                "step2_guide":"🚫 스크리닝 결과 무시 — 포지션 축소, 현금 비중 확대"}
+    else:
+        return {"stage":5,"signal":"현금보유","emoji":"🔴","color":"#991b1b","bg_color":"#fee2e2","border_color":"#fca5a5",
+                "description":"순유동성이 심각하게 경색되어 있습니다.",
+                "action":"전량 현금 보유 권고. 스크리닝 결과와 무관하게 매수 금지.",
+                "step2_guide":"🔴 스크리닝 결과 무시 — 전량 현금 보유, 매수 금지"}
+
+# ══════════════════════════════════════════════════════════════
+# API 엔드포인트
+# ══════════════════════════════════════════════════════════════
+
+@app.get("/")
+def root():
+    return {"status":"MAGU STOCK API 실행 중","version":"2.0"}
+
+@app.get("/api/market")
+def get_market_data():
+    try:
+        tickers={"gold":"GC=F","wti":"CL=F","usdkrw":"KRW=X","us10y":"^TNX",
+                 "vix":"^VIX","sp500":"^GSPC","nasdaq":"^IXIC","dow":"^DJI","russell":"^RUT"}
+        result={}
+        for key,symbol in tickers.items():
+            try:
+                t=yf.Ticker(symbol); hist=t.history(period="10d")
+                if len(hist)>=2:
+                    current=hist['Close'].iloc[-1]; prev=hist['Close'].iloc[-2]
+                    row={"value":round(current,2),"change":round((current/prev-1)*100,2)}
+                    # VIX: 5일 전 대비 방향성 추가
+                    if key=="vix" and len(hist)>=6:
+                        prev5=hist['Close'].iloc[-6]
+                        row["direction"]="up" if current>prev5 else "down"
+                        row["prev5"]=round(prev5,2)
+                    result[key]=row
+            except: result[key]={"value":0,"change":0}
+
+        # ── 하이일드 스프레드 (HYG vs LQD) ──────────────────────
+        try:
+            hyg=yf.Ticker("HYG").history(period="10d")
+            lqd=yf.Ticker("LQD").history(period="10d")
+            if len(hyg)>=6 and len(lqd)>=6:
+                # 스프레드 = LQD수익률 - HYG수익률 (클수록 하이일드 불리)
+                hyg_ret  = (hyg['Close'].iloc[-1]/hyg['Close'].iloc[-2]-1)*100
+                lqd_ret  = (lqd['Close'].iloc[-1]/lqd['Close'].iloc[-2]-1)*100
+                spread_now  = lqd_ret - hyg_ret          # 당일
+                hyg_5d = (hyg['Close'].iloc[-1]/hyg['Close'].iloc[-6]-1)*100
+                lqd_5d = (lqd['Close'].iloc[-1]/lqd['Close'].iloc[-6]-1)*100
+                spread_5d   = lqd_5d - hyg_5d            # 5일 추세
+                # 방향: 스프레드 좁아지면(음수) 리스크온, 벌어지면 리스크오프
+                direction = "narrowing" if spread_5d < 0 else "widening"
+                signal    = "리스크온 🟢" if direction=="narrowing" else "리스크오프 🔴"
+                result["high_yield"]={
+                    "hyg": round(hyg['Close'].iloc[-1],2),
+                    "lqd": round(lqd['Close'].iloc[-1],2),
+                    "spread_1d": round(spread_now,3),
+                    "spread_5d": round(spread_5d,3),
+                    "direction": direction,
+                    "signal": signal
+                }
+        except Exception as e:
+            logger.warning(f"하이일드 스프레드 오류: {e}")
+            result["high_yield"]={"direction":"unknown","signal":"데이터 없음"}
+
+        return result
+    except: return {}
+
+
+@app.get("/api/fear_greed")
+def get_fear_greed():
+    """CNN 공포탐욕지수 — CNN 내부 API 직접 호출"""
+    try:
+        url="https://production.dataviz.cnn.io/index/fearandgreed/graphdata/"
+        headers={
+            "User-Agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Referer":"https://edition.cnn.com/markets/fear-and-greed",
+            "Accept":"application/json, text/plain, */*",
+            "Origin":"https://edition.cnn.com",
+        }
+        resp=requests.get(url, headers=headers, timeout=15)
+        resp.raise_for_status()
+        data=resp.json()
+        fg=data.get("fear_and_greed",{})
+
+        score       = round(float(fg.get("score", 50)), 1)
+        rating      = fg.get("rating", "neutral")
+        prev_close  = round(float(fg.get("previous_close", score)), 1)
+        week_ago    = round(float(fg.get("previous_1_week", score)), 1)
+        month_ago   = round(float(fg.get("previous_1_month", score)), 1)
+
+        # 신호 판단 (말씀하신 기준 반영)
+        if score <= 10:   signal, color = "🟢 극단적 공포 — 적극 매수 구간", "#15803d"
+        elif score <= 25: signal, color = "🟠 공포 — 분할 매수 고려", "#f59e0b"
+        elif score <= 45: signal, color = "🟡 중립 하단", "#b45309"
+        elif score <= 55: signal, color = "⚪ 중립", "#6b7280"
+        elif score <= 75: signal, color = "🔵 탐욕 — 매수 자제", "#1d4ed8"
+        else:             signal, color = "🔴 극단적 탐욕 — 비중 축소", "#991b1b"
+
+        return {
+            "score": score, "rating": rating,
+            "signal": signal, "color": color,
+            "prev_close": prev_close,
+            "week_ago": week_ago,
+            "month_ago": month_ago,
+            "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M")
+        }
+    except Exception as e:
+        logger.warning(f"CNN 공포탐욕 오류: {e}")
+        return {"score": None, "signal": "데이터 수집 실패", "error": str(e)}
+
+
+@app.get("/api/breadth")
+def get_market_breadth():
+    """MMTH 자체 계산 — DB 스크리닝 결과 기반 시장 폭 지표"""
+    if not DATABASE_URL:
+        return {"error":"DATABASE_URL 없음"}
+    try:
+        conn=get_conn(); cur=conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        # 전체 + 마켓별 200일선 위 비율
+        cur.execute("""
+            SELECT
+                market,
+                COUNT(*) AS total,
+                SUM(CASE WHEN g_ma200 >= 2 THEN 1 ELSE 0 END) AS above_ma200,
+                ROUND(SUM(CASE WHEN g_ma200 >= 2 THEN 1 ELSE 0 END)*100.0/COUNT(*),1) AS pct
+            FROM screening_cache
+            WHERE screened_at > NOW() - INTERVAL '25 hours'
+            GROUP BY market
+        """)
+        rows=[dict(r) for r in cur.fetchall()]
+        cur.execute("""
+            SELECT
+                COUNT(*) AS total,
+                SUM(CASE WHEN g_ma200 >= 2 THEN 1 ELSE 0 END) AS above_ma200,
+                ROUND(SUM(CASE WHEN g_ma200 >= 2 THEN 1 ELSE 0 END)*100.0/COUNT(*),1) AS pct
+            FROM screening_cache
+            WHERE screened_at > NOW() - INTERVAL '25 hours'
+        """)
+        total=dict(cur.fetchone())
+        cur.close(); conn.close()
+
+        pct=float(total.get("pct") or 0)
+        if pct>=70:   signal,color="🟢 시장 폭 양호 — 광범위한 강세","#15803d"
+        elif pct>=40: signal,color="🟡 혼조 — 선별적 접근","#b45309"
+        elif pct>=20: signal,color="🟠 시장 폭 붕괴 주의","#c2410c"
+        else:         signal,color="🔴 극단 공포 — 역발상 매수 고려","#991b1b"
+
+        return {
+            "total_stocks": int(total.get("total") or 0),
+            "above_ma200":  int(total.get("above_ma200") or 0),
+            "pct": pct,
+            "signal": signal,
+            "color": color,
+            "by_market": rows,
+            "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M")
+        }
+    except Exception as e:
+        logger.error(f"시장 폭 오류: {e}")
+        return {"error":str(e)}
+
+def _market_label(market):
+    return {"nasdaq":"나스닥","sp500":"S&P500","kospi":"코스피","kosdaq":"코스닥","us":"미국 전체","kr":"한국 전체"}.get(market,market)
+
+def _currency(market):
+    return "KRW" if market in ("kospi","kosdaq","kr") else "USD"
+
+@app.get("/api/screen/{market}")
+def screen_stocks(market: str = "nasdaq"):
+    """DB 캐시 우선 → 없으면 실시간 계산 (기존 방식)"""
+    cached = load_screening_from_db(market)
+    if cached:
+        updated_at = cached[0].get("screened_at","–") if cached else "–"
+        return {"market":market,"market_label":_market_label(market),"currency":_currency(market),
+                "updated_at":updated_at,"total_screened":len(cached),"results":cached,"from_cache":True}
+
+    market_map={"nasdaq":TICKERS_NASDAQ,"sp500":get_tickers_sp500(),
+                "kospi":TICKERS_KOSPI,"kosdaq":TICKERS_KOSDAQ,"us":TICKERS_US,"kr":TICKERS_KR}
+    tickers=market_map.get(market,TICKERS_NASDAQ)
+    results=[]
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        futures={executor.submit(fetch_single_stock,t,market):t for t in tickers}
+        for f in concurrent.futures.as_completed(futures):
+            r=f.result()
+            if r: results.append(r)
+    results.sort(key=lambda x:x['total_score'],reverse=True)
+    results=get_portfolio_weight(results)
+    return {"market":market,"market_label":_market_label(market),"currency":_currency(market),
+            "updated_at":datetime.now().strftime("%Y-%m-%d %H:%M"),
+            "total_screened":len(results),"results":results,"from_cache":False}
+
+@app.post("/api/screen/run")
+def trigger_screening(background_tasks: BackgroundTasks):
+    """수동으로 전체 스크리닝 즉시 실행 (백그라운드)"""
+    background_tasks.add_task(run_full_screening_job)
+    return {"message":"스크리닝 시작됨. 나스닥200+S&P500+코스피200+코스닥150 약 10~15분 소요. /api/screen/status 로 확인하세요."}
+
+@app.get("/api/screen/status")
+def screening_status():
+    if not DATABASE_URL: return {"error":"DATABASE_URL 없음"}
+    try:
+        conn=get_conn(); cur=conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("SELECT market, COUNT(*) as cnt, MAX(screened_at) as last_run FROM screening_cache GROUP BY market ORDER BY market")
+        rows=cur.fetchall(); cur.close(); conn.close()
+        return {"status":[dict(r) for r in rows]}
+    except Exception as e: return {"error":str(e)}
+
+@app.get("/api/stock/{ticker}")
+def get_stock_score(ticker: str):
+    ticker=ticker.upper().strip()
+    try:
+        stock=yf.Ticker(ticker); info=stock.info
+        price_check=info.get('regularMarketPrice') or info.get('currentPrice') or info.get('previousClose')
+        if not info or not price_check: return {"error":f"종목을 찾을 수 없습니다: {ticker}"}
+        hist_daily=stock.history(period="1y"); hist_weekly=stock.history(period="2y",interval="1wk")
+        if hist_daily.empty or len(hist_daily)<20: return {"error":"데이터가 부족합니다"}
+        c_ema=score_ema_slope(hist_weekly); c_stoch=score_stochastic(hist_daily); c_break=score_breakout(hist_daily)
+        classic=c_ema+(c_stoch//2 if c_ema==0 else c_stoch)+(c_break//2 if c_ema==0 else c_break)
+        g_roe=score_roe(info.get('returnOnEquity',0) or 0); g_debt=score_debt(info.get('debtToEquity',999) or 999)
+        g_eps=score_eps_growth(info); g_peg=score_peg(info.get('pegRatio',None))
+        g_ma200=score_ma200(hist_daily); g_rsi=score_rsi(hist_daily)
+        growth=g_roe+g_debt+g_eps+g_peg+g_ma200+g_rsi
+        m_anal=score_analyst(info.get('recommendationKey','') or '')
+        m_rs=score_relative_strength(hist_daily); m_obv=score_obv_momentum(hist_daily)
+        modern=m_anal+m_rs+m_obv; total=classic+growth+modern
+        current_price=float(hist_daily['Close'].iloc[-1]); prev_price=float(hist_daily['Close'].iloc[-2])
+        change_pct=(current_price/prev_price-1)*100
+        rsi_val=0.0
+        if len(hist_daily)>=14:
+            rsi_val=round(float(ta.momentum.RSIIndicator(hist_daily['Close'],window=14).rsi().iloc[-1]),1)
+        year_return=0.0
+        if len(hist_daily)>=252:
+            year_return=round((hist_daily['Close'].iloc[-1]/hist_daily['Close'].iloc[-252]-1)*100,1)
+        name=KR_NAMES.get(ticker) or info.get('longName') or ticker
+        return {"ticker":ticker,"name":name,"sector":info.get('sector') or '—',
+                "currency":info.get('currency','USD'),"price":round(current_price,2),
+                "change_pct":round(change_pct,2),"classic_score":classic,
+                "growth_score":growth,"modern_score":modern,"total_score":total,
+                "recommendation":get_recommendation(total,classic,growth,modern),
+                "detail":{"roe":round((info.get('returnOnEquity') or 0)*100,1),
+                          "debt_equity":round(info.get('debtToEquity') or 0,1),
+                          "eps_growth":round((info.get('earningsGrowth') or 0)*100,1),
+                          "peg":round(info.get('pegRatio') or 0,2),
+                          "rsi":rsi_val,"year_return":year_return,
+                          "analyst_rec":info.get('recommendationKey') or '—',
+                          "market_cap":info.get('marketCap') or 0}}
+    except Exception as e: return {"error":f"조회 실패: {str(e)}"}
+
+def analyze_etf(etf_info: dict):
+    ticker=etf_info["ticker"]
+    try:
+        t=yf.Ticker(ticker); info=t.info; hist=t.history(period="2y")
+        if hist.empty or len(hist)<60: return None
+        price=float(hist['Close'].iloc[-1])
+        p1d=float(hist['Close'].iloc[-2])  if len(hist)>=2   else price
+        p1w=float(hist['Close'].iloc[-6])  if len(hist)>=6   else price
+        p1m=float(hist['Close'].iloc[-22]) if len(hist)>=22  else price
+        p3m=float(hist['Close'].iloc[-66]) if len(hist)>=66  else price
+        p6m=float(hist['Close'].iloc[-132])if len(hist)>=132 else price
+        p1y=float(hist['Close'].iloc[-252])if len(hist)>=252 else float(hist['Close'].iloc[0])
+        r1d=round((price/p1d-1)*100,2); r1w=round((price/p1w-1)*100,2)
+        r1m=round((price/p1m-1)*100,2); r3m=round((price/p3m-1)*100,2)
+        r6m=round((price/p6m-1)*100,2); r1y=round((price/p1y-1)*100,2)
+        vol5d=float(hist['Volume'].iloc[-5:].mean()); vol20d=float(hist['Volume'].iloc[-20:].mean())
+        vol_ratio=round(vol5d/vol20d,2) if vol20d>0 else 1.0
+        rsi_val=0.0
+        if len(hist)>=14: rsi_val=round(float(ta.momentum.RSIIndicator(hist['Close'],window=14).rsi().iloc[-1]),1)
+        high_52w=float(hist['High'].iloc[-252:].max()) if len(hist)>=252 else float(hist['High'].max())
+        from_high=round((price/high_52w-1)*100,1)
+        inst_pct=round(float(info.get('heldPercentInstitutions') or 0)*100,1)
+        sc=0
+        if r1m>5:sc+=3
+        elif r1m>2:sc+=2
+        elif r1m>0:sc+=1
+        elif r1m<-5:sc-=3
+        elif r1m<-2:sc-=2
+        elif r1m<0:sc-=1
+        if r3m>10:sc+=2
+        elif r3m>3:sc+=1
+        elif r3m<-10:sc-=2
+        elif r3m<-3:sc-=1
+        if vol_ratio>1.3:sc+=2
+        elif vol_ratio>1.1:sc+=1
+        elif vol_ratio<0.7:sc-=2
+        elif vol_ratio<0.9:sc-=1
+        if rsi_val>60:sc+=1
+        elif rsi_val<40:sc-=1
+        if sc>=5:    trend,ts="강한유입",10
+        elif sc>=3:  trend,ts="유입",5
+        elif sc>=1:  trend,ts="소폭유입",3
+        elif sc>=-1: trend,ts="중립",0
+        elif sc>=-3: trend,ts="소폭유출",-3
+        elif sc>=-5: trend,ts="유출",-5
+        else:        trend,ts="강한유출",-10
+        return {"ticker":ticker,"name":etf_info["name"],"name_en":etf_info["name_en"],"emoji":etf_info["emoji"],
+                "price":round(price,2),"ret_1d":r1d,"ret_1w":r1w,"ret_1m":r1m,
+                "ret_3m":r3m,"ret_6m":r6m,"ret_1y":r1y,
+                "vol_ratio":vol_ratio,"rsi":rsi_val,"from_52w_high":from_high,
+                "inst_pct":inst_pct,"trend":trend,"trend_score":ts,"momentum_score":sc}
+    except: return None
+
+@app.get("/api/smartmoney")
+def get_smart_money():
+    results=[]
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        futures={executor.submit(analyze_etf,etf):etf for etf in SECTOR_ETFS}
+        for f in concurrent.futures.as_completed(futures):
+            r=f.result()
+            if r: results.append(r)
+    results.sort(key=lambda x:x["momentum_score"],reverse=True)
+    if results:
+        avg=sum(r["ret_1m"] for r in results)/len(results)
+        for r in results: r["rel_strength"]=round(r["ret_1m"]-avg,2)
+    try:
+        spy=yf.Ticker("SPY").history(period="3mo")
+        spy_1m=round(float((spy['Close'].iloc[-1]/spy['Close'].iloc[-22]-1)*100),2) if len(spy)>=22 else 0
+        spy_3m=round(float((spy['Close'].iloc[-1]/spy['Close'].iloc[0]-1)*100),2)
+    except: spy_1m=spy_3m=0
+    return {"updated_at":datetime.now().strftime("%Y-%m-%d %H:%M"),
+            "spy_ret_1m":spy_1m,"spy_ret_3m":spy_3m,"sectors":results,"total":len(results)}
+
+@app.get("/api/tenbagger")
+def get_tenbagger():
+    if DATABASE_URL:
+        try:
+            conn=get_conn(); cur=conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            cur.execute("SELECT * FROM tenbagger_cache ORDER BY total_score DESC")
+            rows=cur.fetchall(); cur.close(); conn.close()
+            if rows:
+                results=[]
+                for r in rows:
+                    d=dict(r)
+                    if d.get("screened_at"): d["screened_at"]=d["screened_at"].strftime("%Y-%m-%d %H:%M")
+                    results.append(d)
+                return {"updated_at":results[0].get("screened_at","–"),
+                        "total":len(results),"universe":f"나스닥 중소형 성장주 {len(TICKERS_TENBAGGER)}개",
+                        "results":results,"from_cache":True}
+        except: pass
+    results=[]
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+        futures={executor.submit(fetch_tenbagger_stock,t):t for t in TICKERS_TENBAGGER}
+        for f in concurrent.futures.as_completed(futures,timeout=180):
+            try:
+                r=f.result(timeout=20)
+                if r: results.append(r)
+            except: continue
+    results.sort(key=lambda x:x['total_score'],reverse=True)
+    return {"updated_at":datetime.now().strftime("%Y-%m-%d %H:%M"),
+            "total":len(results),"universe":f"나스닥 중소형 성장주 {len(TICKERS_TENBAGGER)}개",
+            "results":results,"from_cache":False}
+
+@app.get("/api/liquidity")
+def get_liquidity():
+    if not FRED_API_KEY:
+        return {"error":"FRED_API_KEY 환경변수가 설정되지 않았습니다.",
+                "guide":"https://fred.stlouisfed.org/docs/api/api_key.html 에서 무료 발급 후 Railway 환경변수에 추가하세요.",
+                "updated_at":datetime.now().strftime("%Y-%m-%d %H:%M")}
+    series_map={"walcl":"WALCL","rrp":"RRPONTSYD","tga":"WTREGEN","mmf":"WRMFNS"}
+    # 차트용: 주별 260개(5년), RRP 일별 1300개(5년)
+    limit_map={"walcl":260,"rrp":1300,"tga":260,"mmf":260}
+    raw,is_cache={},{}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+        futures={executor.submit(fetch_fred_cached,sid,limit_map[key]):key for key,sid in series_map.items()}
+        for f in concurrent.futures.as_completed(futures):
+            key=futures[f]; data,cached=f.result()
+            raw[key]=data; is_cache[key]=cached
+    net_liq=score_net_liquidity(raw.get("walcl"),raw.get("rrp"),raw.get("tga"))
+    mmf=score_mmf(raw.get("mmf"),is_cache.get("mmf",False))
+    walcl_d=detail_walcl(raw.get("walcl"),is_cache.get("walcl",False))
+    rrp_d=detail_rrp(raw.get("rrp"),is_cache.get("rrp",False))
+    tga_d=detail_tga(raw.get("tga"),is_cache.get("tga",False))
+    scored=[i for i in [net_liq,mmf] if i.get("score") is not None]
+    if not scored:
+        return {"error":"모든 지표 데이터 수집 실패. FRED API 키 및 네트워크를 확인하세요.",
+                "updated_at":datetime.now().strftime("%Y-%m-%d %H:%M")}
+    raw_score=sum(i["score"] for i in scored); raw_max=sum(i["max_score"] for i in scored)
+    total_score=round(raw_score/raw_max*100) if raw_max>0 else 0
+    signal=get_liquidity_signal(total_score)
+    for ind in [net_liq,mmf,walcl_d,rrp_d,tga_d]:
+        if ind.get("score") is None and ind.get("error"):
+            ind["score"]="N/A"; ind["status"]="⚠️ 데이터 없음"
+    cached_list=[k.upper() for k,v in is_cache.items() if v]
+    data_note=(f"⚠️ 캐시 데이터 사용 중: {', '.join(cached_list)}" if cached_list else "✅ 전체 지표 실시간 데이터")
+    return {"updated_at":datetime.now().strftime("%Y-%m-%d %H:%M"),
+            "total_score":total_score,"max_score":100,"signal":signal,
+            "net_liquidity":net_liq,"mmf":mmf,"indicators":[walcl_d,rrp_d,tga_d],
+            "data_quality":data_note,"version":"최종판 — 순유동성(WALCL-RRP-TGA) + MMF",
+            "scoring_structure":{"순유동성 (40점)":"WALCL-RRP-TGA / 절대수준 25 + 방향성 15",
+                                 "MMF (20점)":"소매 WRMFNS×2.54 추정 / 방향성 기준","합계":"60점 → 100점 환산"},
+            "sources":["TradingView: Fed Net Liquidity = WALCL-RRP-TGA",
+                       "뉴욕 연준 / BlackRock / Cleveland Fed 공식 문헌 2025",
+                       "ICI MMF 공식 데이터 (2026.03 $7.86조)",
+                       "Babypips: TGA $800B 임계점","McClellan Financial: RRP 소진 분석"],
+            "scoring_guide":{"75~100":"🟢 적극매수","55~74":"🔵 매수우호",
+                             "38~54":"🟡 중립관망","20~37":"🟠 매수축소","0~19":"🔴 현금보유"}}
+
+# ══════════════════════════════════════════════════════════════
+# 베스트픽 백테스트 — 실제 추적 방식
+# ══════════════════════════════════════════════════════════════
+
+def select_bestpick_5(screening_results: list) -> list:
+    """총점 상위 + 섹터 분산: 섹터별 최고점 1개씩, 부족하면 총점 순으로 채움"""
+    candidates = [r for r in screening_results if r.get("recommendation") in ("Strong Buy", "Buy")]
+    if not candidates:
+        candidates = sorted(screening_results, key=lambda x: x["total_score"], reverse=True)
+
+    # 섹터별 최고점 1개씩 선택
+    seen_sectors = {}
+    for r in sorted(candidates, key=lambda x: x["total_score"], reverse=True):
+        sector = r.get("sector") or "Unknown"
+        if sector not in seen_sectors:
+            seen_sectors[sector] = r
+        if len(seen_sectors) >= 5:
+            break
+
+    picks = list(seen_sectors.values())
+
+    # 5개 미만이면 이미 선택된 종목 제외하고 총점 순으로 채움
+    if len(picks) < 5:
+        picked_tickers = {p["ticker"] for p in picks}
+        for r in sorted(candidates, key=lambda x: x["total_score"], reverse=True):
+            if r["ticker"] not in picked_tickers:
+                picks.append(r)
+                picked_tickers.add(r["ticker"])
+            if len(picks) >= 5:
+                break
+
+    return picks[:5]
+
+
+def save_bestpick_to_db(picks: list) -> dict:
+    """베스트픽 5종목을 DB에 저장. 중복 종목은 consecutive_count만 증가."""
+    if not picks or not DATABASE_URL:
+        return {"saved": 0, "skipped": 0, "error": "DB 없음"}
+    today = datetime.now(pytz.timezone("Asia/Seoul")).date()
+    saved = 0; skipped = 0
+    try:
+        conn = get_conn(); cur = conn.cursor()
+        for p in picks:
+            ticker = p["ticker"]
+            # 오늘 이미 기록됐는지 확인
+            cur.execute("SELECT id FROM bestpick_records WHERE ticker=%s AND picked_at=%s", (ticker, today))
+            if cur.fetchone():
+                skipped += 1
+                continue
+            # 연속 선정 횟수 계산 (어제 기록이 있으면 +1)
+            cur.execute("""
+                SELECT consecutive_count FROM bestpick_records
+                WHERE ticker=%s AND picked_at = %s - INTERVAL '1 day'
+            """, (ticker, today))
+            row = cur.fetchone()
+            consecutive = (row[0] + 1) if row else 1
+
+            cur.execute("""
+                INSERT INTO bestpick_records
+                    (ticker, name, sector, entry_price, total_score,
+                     classic_score, growth_score, modern_score,
+                     recommendation, consecutive_count, picked_at)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                RETURNING id
+            """, (
+                ticker, p.get("name", ticker), p.get("sector", "Unknown"),
+                p.get("price", 0), p.get("total_score", 0),
+                p.get("classic_score", 0), p.get("growth_score", 0),
+                p.get("modern_score", 0), p.get("recommendation", ""),
+                consecutive, today
+            ))
+            record_id = cur.fetchone()[0]
+            # 매수 당일 가격도 bestpick_prices에 기록
+            cur.execute("""
+                INSERT INTO bestpick_prices (record_id, ticker, price_date, price, return_pct)
+                VALUES (%s,%s,%s,%s,%s)
+                ON CONFLICT DO NOTHING
+            """, (record_id, ticker, today, p.get("price", 0), 0.0))
+            saved += 1
+        conn.commit(); cur.close(); conn.close()
+        logger.info(f"베스트픽 저장: {saved}개 신규, {skipped}개 중복 스킵")
+        return {"saved": saved, "skipped": skipped}
+    except Exception as e:
+        logger.error(f"베스트픽 저장 오류: {e}")
+        return {"saved": 0, "skipped": 0, "error": str(e)}
+
+
+def update_bestpick_prices_job():
+    """매일 장 마감 후 보유 중인 베스트픽 종목들의 현재가 업데이트"""
+    if not DATABASE_URL: return
+    try:
+        conn = get_conn(); cur = conn.cursor()
+        # 아직 6개월 이내 기록된 모든 레코드의 ticker + entry_price 조회
+        cur.execute("""
+            SELECT id, ticker, entry_price FROM bestpick_records
+            WHERE picked_at >= CURRENT_DATE - INTERVAL '180 days'
+        """)
+        records = cur.fetchall()
+        if not records:
+            cur.close(); conn.close(); return
+
+        today = datetime.now(pytz.timezone("Asia/Seoul")).date()
+        tickers = list({r[1] for r in records})
+
+        # yfinance로 현재가 일괄 조회
+        prices = {}
+        for ticker in tickers:
+            try:
+                hist = yf.Ticker(ticker).history(period="2d")
+                if not hist.empty:
+                    prices[ticker] = float(hist["Close"].iloc[-1])
+            except: pass
+
+        for record_id, ticker, entry_price in records:
+            current = prices.get(ticker)
+            if current is None: continue
+            ret = round((current / entry_price - 1) * 100, 2) if entry_price else 0
+            cur.execute("""
+                INSERT INTO bestpick_prices (record_id, ticker, price_date, price, return_pct)
+                VALUES (%s,%s,%s,%s,%s)
+                ON CONFLICT (record_id, price_date) DO UPDATE SET price=EXCLUDED.price, return_pct=EXCLUDED.return_pct
+            """, (record_id, ticker, today, current, ret))
+
+        conn.commit(); cur.close(); conn.close()
+        logger.info(f"베스트픽 가격 업데이트 완료: {len(records)}건")
+    except Exception as e:
+        logger.error(f"베스트픽 가격 업데이트 오류: {e}")
+
+
+@app.post("/api/bestpick/save")
+def save_bestpick(market: str = "nasdaq"):
+    """스크리닝 결과에서 베스트픽 5종목을 즉시 선정 후 DB 저장
+    DB 캐시가 없으면 실시간 스크리닝으로 fallback"""
+    # 1) DB 캐시 우선 조회
+    candidates = load_screening_from_db(market)
+
+    # 2) DB 캐시 없으면 실시간 스크리닝 (나스닥 상위 50개만 빠르게)
+    if not candidates:
+        logger.info(f"[베스트픽] DB 캐시 없음 → 실시간 스크리닝 ({market})")
+        market_map = {
+            "nasdaq": TICKERS_NASDAQ[:50],
+            "sp500":  TICKERS_SP500_FALLBACK[:50],
+            "kospi":  TICKERS_KOSPI[:50],
+            "kosdaq": TICKERS_KOSDAQ[:50],
+        }
+        tickers = market_map.get(market, TICKERS_NASDAQ[:50])
+        results = []
+        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+            futures = {executor.submit(fetch_single_stock, t, market): t for t in tickers}
+            for f in concurrent.futures.as_completed(futures, timeout=120):
+                try:
+                    r = f.result(timeout=20)
+                    if r: results.append(r)
+                except Exception as e:
+                    logger.warning(f"[베스트픽 실시간] 오류: {e}")
+        if not results:
+            return {"error": "스크리닝 결과를 가져올 수 없습니다. 잠시 후 다시 시도해 주세요."}
+        results.sort(key=lambda x: x["total_score"], reverse=True)
+        candidates = get_portfolio_weight(results)
+        # DB에도 저장 (다음번엔 캐시 사용)
+        save_screening_to_db(candidates)
+
+    picks = select_bestpick_5(candidates)
+    result = save_bestpick_to_db(picks)
+    return {
+        "picks": [{"ticker": p["ticker"], "name": p.get("name"), "sector": p.get("sector"),
+                   "total_score": p.get("total_score"), "price": p.get("price"),
+                   "recommendation": p.get("recommendation")} for p in picks],
+        **result
     }
 
-    let html = '';
-    history.forEach(day => {
-      const avgR = day.avg_return_latest;
-      const avgStr = avgR !== null && avgR !== undefined ? (avgR >= 0 ? '+' : '') + avgR + '%' : '추적중';
-      const avgClass = avgR >= 0 ? 'up' : (avgR < 0 ? 'dn' : '');
-      html += `<div style="margin-bottom:18px;">
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;padding-bottom:6px;border-bottom:2px solid var(--border);">
-          <span style="font-size:14px;font-weight:800;color:var(--text);">📅 ${day.date}</span>
-          <span style="font-size:12px;color:var(--sub);">${day.count}종목</span>
-          <span style="font-size:13px;font-weight:700;" class="${avgClass}">현재 평균 ${avgStr}</span>
-        </div>
-        <div class="table-wrap"><table class="stbl">
-          <thead><tr>
-            <th>종목</th><th>섹터</th><th>점수</th><th>매수가</th>
-            <th>+1일</th><th>+7일</th><th>+30일</th><th>현재</th><th>연속선정</th>
-          </tr></thead><tbody>`;
-      day.picks.forEach(p => {
-        const fmt = (v) => v !== null && v !== undefined ? `<span class="${v>=0?'up':'dn'}">${v>=0?'+':''}${v}%</span>` : '<span style="color:var(--sub)">추적중</span>';
-        const consec = p.consecutive_count > 1 ? `<span style="background:#fef9c3;color:#854d0e;padding:2px 7px;border-radius:4px;font-size:11px;font-weight:700;">🔥 ${p.consecutive_count}일 연속</span>` : '—';
-        html += `<tr>
-          <td><div class="tname">${p.name||p.ticker}</div><div style="font-size:11px;color:var(--sub);">${p.ticker}</div></td>
-          <td style="font-size:12px;">${p.sector||'—'}</td>
-          <td><span style="font-weight:700;color:#1d4ed8;">${p.total_score}점</span></td>
-          <td style="font-weight:600;">$${(p.entry_price||0).toLocaleString()}</td>
-          <td>${fmt(p.return_1d)}</td>
-          <td>${fmt(p.return_7d)}</td>
-          <td>${fmt(p.return_30d)}</td>
-          <td>${fmt(p.return_latest)}</td>
-          <td>${consec}</td>
-        </tr>`;
-      });
-      html += `</tbody></table></div></div>`;
-    });
-    document.getElementById('bp-history-wrap').innerHTML = html;
-  } catch(e) {
-    document.getElementById('bp-history-wrap').innerHTML = `<div style="padding:20px;color:var(--red);">❌ 서버 연결 실패: ${e.message}</div>`;
-  }
-}
 
-async function searchStock() {
-  const input=document.getElementById('stock-search-input');
-  const ticker=input.value.trim().toUpperCase();
-  if(!ticker) return;
-  const btn=document.getElementById('search-btn');
-  const resultBox=document.getElementById('stock-search-result');
-  btn.disabled=true; btn.textContent='⏳';
-  resultBox.style.display='block';
-  resultBox.innerHTML=`<div style="text-align:center;padding:16px;color:var(--sub);"><div class="spinner" style="margin:0 auto 8px;"></div>${ticker} 조회 중...</div>`;
-  try {
-    const res=await fetch(`${API}/api/stock/${ticker}`);
-    const d=await res.json();
-    if(d.error){resultBox.innerHTML=`<div style="padding:12px;color:var(--red);font-weight:600;">❌ ${d.error}</div>`;}
-    else {
-      const chgClass=d.change_pct>=0?'up':'dn';
-      const chgSign=d.change_pct>=0?'▲':'▼';
-      const currency=d.currency==='KRW'?'₩':'$';
-      const scoreColor=d.total_score>=70?'#22c55e':d.total_score>=55?'#3b82f6':d.total_score>=40?'#f59e0b':'#94a3b8';
-      resultBox.innerHTML=`<div style="background:#f8fafc;border:1px solid var(--border);border-radius:10px;padding:16px;display:flex;gap:18px;flex-wrap:wrap;align-items:center;">
-        <div style="min-width:150px;"><div style="font-size:17px;font-weight:800;color:#1d4ed8;">${d.name}</div><div style="font-size:12px;color:var(--sub);margin-top:3px;">${d.ticker} · ${d.sector}</div><div style="font-size:20px;font-weight:700;margin-top:7px;">${currency}${d.price.toLocaleString()}</div><div style="font-size:13px;font-weight:600;margin-top:3px;" class="${chgClass}">${chgSign}${Math.abs(d.change_pct)}%</div></div>
-        <div style="text-align:center;"><div style="width:68px;height:68px;border-radius:50%;border:4px solid ${scoreColor};display:flex;align-items:center;justify-content:center;flex-direction:column;"><div style="font-size:22px;font-weight:800;color:${scoreColor};line-height:1;">${d.total_score}</div><div style="font-size:9px;color:var(--sub);">/ 100</div></div><div style="margin-top:6px;">${getBadge(d.recommendation)}</div></div>
-        <div style="flex:1;min-width:220px;">
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;"><div style="font-size:12px;color:#3b82f6;font-weight:600;width:72px;">📉 클래식</div><div style="flex:1;height:7px;background:#e2e8f0;border-radius:3px;overflow:hidden;"><div style="height:100%;background:#3b82f6;border-radius:3px;width:${Math.round(d.classic_score/30*100)}%;"></div></div><div style="font-size:13px;font-weight:700;color:#3b82f6;width:34px;text-align:right;">${d.classic_score}/30</div></div>
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;"><div style="font-size:12px;color:#22c55e;font-weight:600;width:72px;">📈 성장</div><div style="flex:1;height:7px;background:#e2e8f0;border-radius:3px;overflow:hidden;"><div style="height:100%;background:#22c55e;border-radius:3px;width:${Math.round(d.growth_score/40*100)}%;"></div></div><div style="font-size:13px;font-weight:700;color:#22c55e;width:34px;text-align:right;">${d.growth_score}/40</div></div>
-          <div style="display:flex;align-items:center;gap:8px;"><div style="font-size:12px;color:#8b5cf6;font-weight:600;width:72px;">🤖 모던</div><div style="flex:1;height:7px;background:#e2e8f0;border-radius:3px;overflow:hidden;"><div style="height:100%;background:#8b5cf6;border-radius:3px;width:${Math.round(d.modern_score/30*100)}%;"></div></div><div style="font-size:13px;font-weight:700;color:#8b5cf6;width:34px;text-align:right;">${d.modern_score}/30</div></div>
-        </div>
-        <div style="min-width:170px;font-size:12px;"><div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;"><div style="color:var(--sub);font-weight:600;">자기자본이익률</div><div style="font-weight:700;">${d.detail.roe}%</div><div style="color:var(--sub);font-weight:600;">부채비율</div><div style="font-weight:700;">${d.detail.debt_equity}%</div><div style="color:var(--sub);font-weight:600;">EPS 성장</div><div style="font-weight:700;">${d.detail.eps_growth}%</div><div style="color:var(--sub);font-weight:600;">PEG 비율</div><div style="font-weight:700;">${d.detail.peg}</div><div style="color:var(--sub);font-weight:600;">RSI(14)</div><div style="font-weight:700;">${d.detail.rsi}</div><div style="color:var(--sub);font-weight:600;">52주 수익률</div><div style="font-weight:700;" class="${d.detail.year_return>=0?'up':'dn'}">${d.detail.year_return>0?'+':''}${d.detail.year_return}%</div></div></div>
-      </div>`;
-    }
-  } catch(e){resultBox.innerHTML=`<div style="padding:12px;color:var(--red);font-weight:600;">❌ 서버 오류</div>`;}
-  btn.disabled=false; btn.innerHTML='🔍 조회';
-}
+@app.get("/api/bestpick/history")
+def get_bestpick_history():
+    """베스트픽 전체 이력 + 현재까지 수익률 추적"""
+    if not DATABASE_URL:
+        return {"error": "DATABASE_URL 없음"}
+    try:
+        conn = get_conn(); cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("""
+            SELECT
+                r.id, r.ticker, r.name, r.sector,
+                r.entry_price, r.total_score, r.classic_score, r.growth_score, r.modern_score,
+                r.recommendation, r.consecutive_count,
+                r.picked_at::text AS picked_at,
+                -- 다음날 (T+1)
+                p1.price        AS price_1d,
+                p1.return_pct   AS return_1d,
+                -- 일주일 뒤 (T+5 거래일 ≈ 7일)
+                p7.price        AS price_7d,
+                p7.return_pct   AS return_7d,
+                -- 한달 뒤 (T+21 거래일 ≈ 30일)
+                p30.price       AS price_30d,
+                p30.return_pct  AS return_30d,
+                -- 최신 가격
+                pl.price        AS price_latest,
+                pl.return_pct   AS return_latest,
+                pl.price_date::text AS latest_date
+            FROM bestpick_records r
+            LEFT JOIN bestpick_prices p1
+                ON p1.record_id = r.id
+                AND p1.price_date = r.picked_at + INTERVAL '1 day'
+            LEFT JOIN bestpick_prices p7
+                ON p7.record_id = r.id
+                AND p7.price_date = r.picked_at + INTERVAL '7 days'
+            LEFT JOIN bestpick_prices p30
+                ON p30.record_id = r.id
+                AND p30.price_date = r.picked_at + INTERVAL '30 days'
+            LEFT JOIN LATERAL (
+                SELECT price, return_pct, price_date
+                FROM bestpick_prices
+                WHERE record_id = r.id
+                ORDER BY price_date DESC LIMIT 1
+            ) pl ON TRUE
+            WHERE r.picked_at >= CURRENT_DATE - INTERVAL '180 days'
+            ORDER BY r.picked_at DESC, r.total_score DESC
+        """)
+        rows = [dict(r) for r in cur.fetchall()]
 
-let _smSectorData=[]; let _smScoreOn=false; let _smCurrentPeriod='1m'; let _smSpyRet={};
+        # 날짜별 그룹핑
+        from collections import defaultdict
+        grouped = defaultdict(list)
+        for row in rows:
+            grouped[row["picked_at"]].append(row)
 
-function getHeatmapColors(ret) {
-  if(ret>=8)  return {bg:'#14532d',color:'#86efac',border:'#166534'};
-  if(ret>=4)  return {bg:'#dcfce7',color:'#15803d',border:'#86efac'};
-  if(ret>=1)  return {bg:'#f0fdf4',color:'#16a34a',border:'#bbf7d0'};
-  if(ret>=-1) return {bg:'#f8fafc',color:'#64748b',border:'#e2e8f0'};
-  if(ret>=-4) return {bg:'#fff1f2',color:'#be123c',border:'#fda4af'};
-  if(ret>=-8) return {bg:'#fee2e2',color:'#991b1b',border:'#fca5a5'};
-  return       {bg:'#7f1d1d',color:'#fca5a5',border:'#991b1b'};
-}
+        # 날짜별 평균 수익률 계산
+        summary_by_date = []
+        for date, items in sorted(grouped.items(), reverse=True):
+            avg_latest = None
+            valid = [i["return_latest"] for i in items if i["return_latest"] is not None]
+            if valid:
+                avg_latest = round(sum(valid) / len(valid), 2)
+            summary_by_date.append({
+                "date": date,
+                "count": len(items),
+                "avg_return_latest": avg_latest,
+                "picks": items
+            })
 
-function renderHeatmap(period, btn) {
-  _smCurrentPeriod = period;
-  document.querySelectorAll('.sm-period-btn').forEach(b=>b.classList.remove('active'));
-  if(btn) btn.classList.add('active');
-  const fieldMap = {'1m':'ret_1m','3m':'ret_3m','6m':'ret_6m','1y':'ret_1y'};
-  const lblMap = {'1m':'1개월','3m':'3개월','6m':'6개월','1y':'1년'};
-  const field = fieldMap[period]||'ret_1m';
-  document.getElementById('sm-bar-period-label').textContent = lblMap[period]+' 기준';
-  if(!_smSectorData.length) return;
-  const sorted = [..._smSectorData].sort((a,b)=>b[field]-a[field]);
-  const trendIcon = {'강한유입':'▲▲','유입':'▲','소폭유입':'↗','중립':'→','소폭유출':'↘','유출':'▼','강한유출':'▼▼'};
+        # 전체 통계
+        all_returns = [r["return_latest"] for r in rows if r["return_latest"] is not None]
+        overall_avg = round(sum(all_returns) / len(all_returns), 2) if all_returns else None
+        win_count = sum(1 for r in all_returns if r > 0)
+        win_rate = round(win_count / len(all_returns) * 100, 1) if all_returns else None
 
-  // 히트맵
-  document.getElementById('sm-heatmap').innerHTML = sorted.map(s=>{
-    const ret=s[field]; const c=getHeatmapColors(ret);
-    return `<div class="sector-cell" style="background:${c.bg};border-color:${c.border};">
-      <div class="sc-emoji">${s.emoji}</div>
-      <div class="sc-name" style="color:${c.color};">${s.name}</div>
-      <div class="sc-ret" style="color:${c.color};">${ret>=0?'+':''}${ret}%</div>
-      <div class="sc-badge" style="background:${c.border};color:${c.color};">${trendIcon[s.trend]||''} ${s.trend}</div>
-    </div>`;
-  }).join('');
-
-  // 바 차트
-  const spyRet = _smSpyRet[field]||0;
-  const maxAbs = Math.max(...sorted.map(s=>Math.abs(s[field]-spyRet)),1);
-  const mid=50;
-  document.getElementById('sm-bar-chart').innerHTML = sorted.map(s=>{
-    const ret=s[field]; const rel=ret-spyRet;
-    const barPct=Math.min(Math.abs(rel)/maxAbs*45,45);
-    const isPos=rel>=0; const barColor=isPos?'#16a34a':'#dc2626';
-    const startPct=isPos?mid:mid-barPct;
-    return `<div class="sm-bar-row">
-      <div class="sm-bar-label">${s.emoji} ${s.name}</div>
-      <div class="sm-bar-track">
-        <div class="sm-bar-fill" style="margin-left:${startPct}%;width:${barPct}%;background:${barColor};">
-          ${barPct>8?`<span class="sm-bar-val" style="color:#fff;">${rel>=0?'+':''}${rel.toFixed(1)}%</span>`:''}
-        </div>
-        <div class="sm-bar-spy" style="left:${mid}%;"></div>
-      </div>
-      <div style="width:54px;text-align:right;font-size:12px;font-weight:700;" class="${ret>=0?'up':'dn'}">${ret>=0?'+':''}${ret}%</div>
-      <div style="width:44px;text-align:right;font-size:11px;color:var(--sub);">RSI ${s.rsi}</div>
-    </div>`;
-  }).join('');
-}
-
-async function loadSmartMoney() {
-  const btn=document.getElementById('sm-run-btn');
-  btn.disabled=true; btn.textContent='⏳ 분석 중...';
-  document.getElementById('sm-etf-tbody').innerHTML='<tr><td colspan="13"><div class="loading"><div class="spinner"></div>섹터 ETF 데이터 수집 중...</div></td></tr>';
-  document.getElementById('sm-heatmap').innerHTML='<div class="empty" style="grid-column:1/-1;"><div class="spinner" style="margin:0 auto 8px;"></div>수집 중...</div>';
-  try {
-    const res=await fetch(`${API}/api/smartmoney`);
-    const data=await res.json();
-    if(data.error) throw new Error(data.error);
-    _smSectorData=data.sectors||[];
-    _smSpyRet={ret_1m:data.spy_ret_1m||0,ret_3m:data.spy_ret_3m||0,ret_6m:0,ret_1y:0};
-
-    // S&P500
-    const spy1m=data.spy_ret_1m||0;
-    const spyEl=document.getElementById('sm-spy-ret');
-    spyEl.textContent=(spy1m>=0?'+':'')+spy1m+'%';
-    spyEl.className='mkt-val '+(spy1m>=0?'up':'dn');
-    document.getElementById('sm-updated').textContent='업데이트: '+data.updated_at;
-
-    // 장세 판단
-    const inflow=_smSectorData.filter(s=>['강한유입','유입','소폭유입'].includes(s.trend));
-    const outflow=_smSectorData.filter(s=>['강한유출','유출','소폭유출'].includes(s.trend));
-    const ratio=inflow.length/_smSectorData.length;
-    let jEmoji,jTitle,jDesc,jBg,jBorder;
-    if(ratio>=0.7){jEmoji='🚀';jTitle='광범위 상승장 — 대부분 섹터에 자금 유입';jDesc='리스크 온 환경. 스크리닝 신호를 적극 반영하세요. (1개월+3개월 수익률+거래량 종합 판단)';jBg='#f0fdf4';jBorder='#86efac';}
-    else if(ratio>=0.5){jEmoji='📈';jTitle='부분 강세 — 주도 섹터 중심 상승';jDesc='선별적 접근 필요. 유입 섹터 종목을 우선 고려하세요. (1개월+3개월 수익률+거래량 종합 판단)';jBg='#eff6ff';jBorder='#93c5fd';}
-    else if(ratio>=0.35){jEmoji='🌊';jTitle='혼조세 — 섹터 로테이션 진행 중';jDesc='섹터 간 자금 이동이 활발합니다. 주도 섹터 파악 후 진입하세요. (1개월+3개월 수익률+거래량 종합 판단)';jBg='#fefce8';jBorder='#fde047';}
-    else{jEmoji='🛡';jTitle='방어적 장세 — 유출 섹터 우세';jDesc='리스크 오프 신호. 방어주·현금 비중을 높이는 것을 고려하세요. (1개월+3개월 수익률+거래량 종합 판단)';jBg='#fff1f2';jBorder='#fca5a5';}
-    const bySorted=[..._smSectorData].sort((a,b)=>b.ret_1m-a.ret_1m);
-    document.getElementById('sm-judge-card').style.display='block';
-    document.getElementById('sm-judge-card').style.background=jBg;
-    document.getElementById('sm-judge-card').style.borderColor=jBorder;
-    document.getElementById('sm-judge-emoji').textContent=jEmoji;
-    document.getElementById('sm-judge-title').textContent=jTitle;
-    document.getElementById('sm-judge-desc').textContent=jDesc;
-    document.getElementById('sm-lead-sector').textContent=bySorted.slice(0,3).map(s=>s.emoji+s.name).join(' ');
-    document.getElementById('sm-weak-sector').textContent=bySorted.slice(-3).reverse().map(s=>s.emoji+s.name).join(' ');
-
-    // 히트맵 + 바차트
-    renderHeatmap(_smCurrentPeriod, null);
-
-    // 상세 테이블
-    const trendStyle={'강한유입':'background:#14532d;color:#86efac;','유입':'background:#dcfce7;color:#15803d;','소폭유입':'background:#f0fdf4;color:#16a34a;','중립':'background:#f1f5f9;color:#64748b;','소폭유출':'background:#fff1f2;color:#9f1239;','유출':'background:#fee2e2;color:#991b1b;','강한유출':'background:#7f1d1d;color:#fca5a5;'};
-    const trendIcon2={'강한유입':'▲▲▲','유입':'▲▲','소폭유입':'▲','중립':'➡','소폭유출':'▼','유출':'▼▼','강한유출':'▼▼▼'};
-    const tblSorted=[..._smSectorData].sort((a,b)=>b.momentum_score-a.momentum_score);
-    document.getElementById('sm-etf-tbody').innerHTML=tblSorted.map(s=>{
-      const rc=(v)=>{const cls=v>=0?'up':'dn';const sign=v>=0?'+':'';return `<td style="font-weight:600;text-align:right;" class="${cls}">${sign}${v}%</td>`;};
-      const vc=s.vol_ratio>1.2?'#22c55e':s.vol_ratio<0.8?'#ef4444':'var(--sub)';
-      const bc=s.trend_score>0?'#22c55e':s.trend_score<0?'#ef4444':'#94a3b8';
-      const rsiC=s.rsi>65?'#ef4444':s.rsi<35?'#3b82f6':'var(--text)';
-      return `<tr><td style="min-width:180px;padding:13px 16px;"><div style="display:flex;align-items:center;gap:10px;"><div style="font-size:22px;width:28px;text-align:center;flex-shrink:0;">${s.emoji}</div><div><div style="font-size:14px;font-weight:800;">${s.name}</div><div style="display:flex;align-items:center;gap:5px;margin-top:2px;"><span style="font-size:11px;font-weight:700;color:#fff;background:#1d4ed8;padding:1px 6px;border-radius:4px;">${s.ticker}</span><span style="font-size:11px;color:var(--sub);">${s.name_en}</span></div></div></div></td>
-      <td style="font-weight:700;text-align:right;">$${s.price.toLocaleString()}</td>
-      ${rc(s.ret_1d)}${rc(s.ret_1w)}${rc(s.ret_1m)}${rc(s.ret_3m)}${rc(s.ret_6m)}${rc(s.ret_1y)}
-      <td style="font-weight:700;color:${vc};text-align:center;">${s.vol_ratio}배</td>
-      <td style="font-weight:700;color:${rsiC};text-align:center;">${s.rsi}</td>
-      <td style="text-align:center;" class="${s.from_52w_high>-5?'up':'dn'}">${s.from_52w_high}%</td>
-      <td style="text-align:center;"><span style="padding:4px 10px;border-radius:6px;font-size:12px;font-weight:700;white-space:nowrap;${trendStyle[s.trend]||''}">${trendIcon2[s.trend]||''} ${s.trend}</span></td>
-      <td style="font-weight:800;color:${bc};font-size:14px;text-align:center;">${s.trend_score>0?'+':''}${s.trend_score}점</td></tr>`;
-    }).join('');
-  } catch(e){
-    document.getElementById('sm-etf-tbody').innerHTML=`<tr><td colspan="13" class="empty">❌ 오류: ${e.message}</td></tr>`;
-    document.getElementById('sm-heatmap').innerHTML=`<div class="empty" style="grid-column:1/-1;">❌ ${e.message}</div>`;
-  }
-  btn.disabled=false; btn.innerHTML='🔄 섹터 트렌드 분석';
-}
-function toggleSmartMoneyScore(isOn) {
-  _smScoreOn=isOn;
-  const el=document.getElementById('sm-toggle-status');
-  el.innerHTML=isOn?'<span style="background:#dcfce7;color:#15803d;padding:4px 14px;border-radius:6px;font-size:13px;font-weight:700;">ON ✅</span>':'<span style="background:#f1f5f9;color:#64748b;padding:4px 14px;border-radius:6px;font-size:13px;font-weight:700;">OFF</span>';
-  if(_lastResults.length>0) applySmartMoneyBonus(_lastResults);
-}
-
-function applySmartMoneyBonus(results) {
-  if(!_smScoreOn||!_smSectorData.length) return;
-  const etfBonus={};
-  _smSectorData.forEach(s=>{etfBonus[s.ticker]=s.trend_score||0;});
-  const adjusted=results.map(r=>{const bonus=etfBonus[r.etf||'']||0;return{...r,total_score:r.total_score+bonus,sm_bonus:bonus,recommendation:getRecommendationJS(r.total_score+bonus)};});
-  adjusted.sort((a,b)=>b.total_score-a.total_score);
-  document.getElementById('result-table').innerHTML=adjusted.map(s=>`
-    <tr><td><div class="tname">${s.name.length>20?s.ticker:s.name}</div><div class="tcode">${s.ticker}${s.sm_bonus?` <span style="color:${s.sm_bonus>0?'#22c55e':'#ef4444'};font-weight:700;font-size:10px;">${s.sm_bonus>0?'+':''}${s.sm_bonus}점</span>`:''}</div></td>
-    <td><strong>${s.price.toLocaleString()}</strong></td>
-    <td class="${s.change_pct>=0?'up':'dn'}">${s.change_pct>=0?'▲':'▼'}${Math.abs(s.change_pct)}%</td>
-    <td><strong>${s.classic_score}</strong></td><td><strong>${s.growth_score}</strong></td><td><strong>${s.modern_score}</strong></td>
-    <td><div class="score-bar-wrap"><span class="score-bar-num" style="${s.sm_bonus?`color:${s.sm_bonus>0?'#22c55e':'#ef4444'}`:''}">${s.total_score}</span><div class="score-bar-bg"><div class="score-bar-fill" style="width:${Math.min(s.total_score,100)}%;"></div></div></div></td>
-    <td>${getBadge(s.recommendation)}</td><td>${s.weight>0?`<span class="weight-badge">${s.weight}%</span>`:'—'}</td></tr>`).join('');
-  document.getElementById('screened-count').textContent=`총 ${adjusted.length}개 종목 · 🏦 스마트머니 보정 적용 중`;
-}
-
-function getRecommendationJS(score){if(score>=70)return'Strong Buy';if(score>=55)return'Buy';if(score>=40)return'Hold';return'Watch';}
-
-async function loadMarketData() {
-  try {
-    const res=await fetch(`${API}/api/market`);
-    const d=await res.json();
-    const chgHtml=(c)=>`<span class="${c>=0?'up':'dn'}">${c>=0?'▲':'▼'}${Math.abs(c).toFixed(2)}%</span>`;
-    if(d.gold){document.getElementById('gold-val').textContent='$'+d.gold.value.toLocaleString();document.getElementById('gold-chg').innerHTML=chgHtml(d.gold.change);}
-    if(d.wti){document.getElementById('wti-val').textContent='$'+d.wti.value.toFixed(1);document.getElementById('wti-chg').innerHTML=chgHtml(d.wti.change);}
-    if(d.usdkrw){document.getElementById('krw-val').textContent='₩'+Math.round(d.usdkrw.value).toLocaleString();document.getElementById('krw-chg').innerHTML=chgHtml(d.usdkrw.change);}
-    if(d.us10y){document.getElementById('bond-val').textContent=d.us10y.value.toFixed(2)+'%';document.getElementById('bond-chg').innerHTML=chgHtml(d.us10y.change);}
-    if(d.sp500){document.getElementById('sp500-val').textContent=d.sp500.value.toLocaleString();document.getElementById('sp500-chg').innerHTML=chgHtml(d.sp500.change);}
-    if(d.nasdaq){document.getElementById('nasdaq-val').textContent=d.nasdaq.value.toLocaleString();document.getElementById('nasdaq-chg').innerHTML=chgHtml(d.nasdaq.change);}
-
-    // ── VIX + 방향성 ──────────────────────────────────────────
-    if(d.vix){
-      const v=d.vix;
-      document.getElementById('vix-val').textContent=v.value.toFixed(1);
-      const isUp=v.direction==='up';
-      const dirIcon=isUp?'↑':'↓';
-      const dirColor=isUp?'#ef4444':'#22c55e';
-      document.getElementById('vix-dir').innerHTML=`<span style="color:${dirColor};">${dirIcon}</span>`;
-      document.getElementById('vix-change').innerHTML=chgHtml(v.change);
-      document.getElementById('vix-prev5').textContent=v.prev5??'—';
-      let vixSig,vixCol,vixBorder;
-      if(v.value>=30&&isUp)     {vixSig='🔴 위험 상승 — 신규 매수 금지';vixCol='#991b1b';vixBorder='#ef4444';}
-      else if(v.value>=30&&!isUp){vixSig='🟡 안정화 중 — 분할 매수 고려';vixCol='#b45309';vixBorder='#f59e0b';}
-      else if(v.value>=20)       {vixSig='🟡 주의 구간';vixCol='#b45309';vixBorder='#fde68a';}
-      else                       {vixSig='🟢 정상 — 매수 우호';vixCol='#15803d';vixBorder='#22c55e';}
-      const sigEl=document.getElementById('vix-signal');
-      sigEl.textContent=vixSig; sigEl.style.color=vixCol;
-      document.getElementById('vix-card').style.borderTopColor=vixBorder;
-    }
-
-    // ── 하이일드 스프레드 ─────────────────────────────────────
-    if(d.high_yield){
-      const hy=d.high_yield;
-      const isNarrowing=hy.direction==='narrowing';
-      const badge=document.getElementById('hy-signal-badge');
-      if(isNarrowing){
-        badge.textContent='🟢 리스크온 — 스프레드 축소 중';
-        badge.style.background='#f0fdf4'; badge.style.color='#15803d';
-        document.getElementById('hy-card').style.borderTopColor='#22c55e';
-      } else {
-        badge.textContent='🔴 리스크오프 — 스프레드 확대 중';
-        badge.style.background='#fff1f2'; badge.style.color='#991b1b';
-        document.getElementById('hy-card').style.borderTopColor='#ef4444';
-      }
-      document.getElementById('hy-hyg').textContent=hy.hyg?'$'+hy.hyg:'—';
-      document.getElementById('hy-lqd').textContent=hy.lqd?'$'+hy.lqd:'—';
-      const s1d=hy.spread_1d;
-      const s1dEl=document.getElementById('hy-spread1d');
-      s1dEl.textContent=s1d!=null?(s1d>0?'+':'')+s1d:'—';
-      s1dEl.style.color=s1d!=null?(s1d<0?'#15803d':'#991b1b'):'';
-    }
-
-  } catch(e){ console.error('loadMarketData 오류',e); }
-}
-
-// ── CNN 공포탐욕지수 로드 ─────────────────────────────────────
-async function loadFearGreed() {
-  try {
-    const res=await fetch(`${API}/api/fear_greed`);
-    const d=await res.json();
-    if(d.score==null){
-      document.getElementById('fear-num').textContent='—';
-      document.getElementById('fear-label').textContent='데이터 없음';
-      return;
-    }
-    const score=d.score;
-    document.getElementById('fear-num').textContent=score;
-    document.getElementById('fear-needle').style.left=Math.min(Math.max(score,2),98)+'%';
-    document.getElementById('fear-label').textContent=d.signal||'—';
-    document.getElementById('fear-label').style.color=d.color||'var(--sub)';
-    document.getElementById('cnn-fg-updated').textContent=d.updated_at||'';
-    document.getElementById('fg-prev').textContent=d.prev_close??'—';
-    document.getElementById('fg-week').textContent=d.week_ago??'—';
-    document.getElementById('fg-month').textContent=d.month_ago??'—';
-
-    // 10 이하 극단 공포 → 카드 강조
-    const card=document.getElementById('cnn-fg-card');
-    if(score<=10)       {card.style.borderTopColor='#15803d';}
-    else if(score<=25)  {card.style.borderTopColor='#f59e0b';}
-    else if(score>=75)  {card.style.borderTopColor='#991b1b';}
-    else                {card.style.borderTopColor='#e4e8f0';}
-  } catch(e){ console.error('CNN 공포탐욕 오류',e); }
-}
-
-// ── MMTH 자체 시장 폭 로드 ───────────────────────────────────
-async function loadBreadth() {
-  try {
-    const res=await fetch(`${API}/api/breadth`);
-    const d=await res.json();
-    if(d.error){ document.getElementById('mmth-signal').textContent='DB 데이터 없음'; return; }
-
-    // 미국만 필터 (나스닥 + S&P500)
-    const usMarkets=(d.by_market||[]).filter(m=>m.market==='nasdaq'||m.market==='sp500');
-    const usAbove=usMarkets.reduce((s,m)=>s+parseInt(m.above_ma200||0),0);
-    const usTotal=usMarkets.reduce((s,m)=>s+parseInt(m.total||0),0);
-    const usPct=usTotal>0?Math.round(usAbove/usTotal*1000)/10:0;
-
-    document.getElementById('mmth-pct').textContent=usPct;
-    document.getElementById('mmth-bar').style.width=usPct+'%';
-
-    // 색상
-    let barColor,borderColor;
-    if(usPct>=70)       barColor='#22c55e', borderColor='#22c55e';
-    else if(usPct>=40)  barColor='#f59e0b', borderColor='#f59e0b';
-    else if(usPct>=20)  barColor='#ef4444', borderColor='#ef4444';
-    else                barColor='#991b1b', borderColor='#991b1b';
-    document.getElementById('mmth-bar').style.background=barColor;
-    document.getElementById('mmth-card').style.borderTopColor=borderColor;
-
-    // 신호
-    let signal,color;
-    if(usPct>=70)       {signal='🟢 시장 폭 양호 — 광범위한 강세';color='#15803d';}
-    else if(usPct>=40)  {signal='🟡 혼조 — 선별적 접근';color='#b45309';}
-    else if(usPct>=20)  {signal='🟠 시장 폭 붕괴 주의';color='#c2410c';}
-    else                {signal='🔴 극단 공포 — 역발상 매수 고려';color='#991b1b';}
-    const sigEl=document.getElementById('mmth-signal');
-    sigEl.textContent=signal; sigEl.style.color=color;
-
-    // 나스닥 / S&P500 개별
-    const nasdaq=usMarkets.find(m=>m.market==='nasdaq');
-    const sp500=usMarkets.find(m=>m.market==='sp500');
-    const nasdaqPct=nasdaq?nasdaq.pct+'%':'—';
-    const sp500Pct=sp500?sp500.pct+'%':'—';
-    const nasdaqEl=document.getElementById('mmth-nasdaq');
-    const sp500El=document.getElementById('mmth-sp500');
-    nasdaqEl.textContent=nasdaqPct;
-    nasdaqEl.style.color=nasdaq&&nasdaq.pct>=50?'#15803d':'#991b1b';
-    sp500El.textContent=sp500Pct;
-    sp500El.style.color=sp500&&sp500.pct>=50?'#15803d':'#991b1b';
-
-  } catch(e){ console.error('MMTH 오류',e); }
-}
-
-const now=new Date();const h=now.getHours();
-document.getElementById('market-status').textContent=(h>=9&&h<16)?'장중':'장 마감';
-loadMarketData();
-loadFearGreed();
-loadBreadth();
-setInterval(loadMarketData,300000);
-setInterval(loadFearGreed,600000);   // 10분마다
-setInterval(loadBreadth,1800000);    // 30분마다
+        cur.close(); conn.close()
+        return {
+            "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+            "total_records": len(rows),
+            "overall_avg_return": overall_avg,
+            "overall_win_rate": win_rate,
+            "history": summary_by_date
+        }
+    except Exception as e:
+        logger.error(f"베스트픽 이력 조회 오류: {e}")
+        return {"error": str(e)}
 
 
-async function runTenbagger() {
-  const btn=document.getElementById('tb-run-btn');
-  btn.disabled=true; btn.textContent='⏳ 분석 중...';
-  document.getElementById('tb-table').innerHTML=`<tr><td colspan="10"><div class="loading"><div class="spinner"></div>나스닥 중소형 성장주 분석 중... (1~2분 소요)</div></td></tr>`;
-  ['tb-total','tb-top','tb-mid','tb-watch'].forEach(id=>{document.getElementById(id).textContent='...';});
-  try {
-    const res=await fetch(`${API}/api/tenbagger`);
-    if(!res.ok) throw new Error('HTTP '+res.status);
-    const data=await res.json();
-    _tbResults=data.results||[];
-    document.getElementById('tb-total').textContent=_tbResults.length+'개';
-    document.getElementById('tb-top').textContent=_tbResults.filter(r=>r.total_score>=75).length+'개';
-    document.getElementById('tb-mid').textContent=_tbResults.filter(r=>r.total_score>=60&&r.total_score<75).length+'개';
-    document.getElementById('tb-watch').textContent=_tbResults.filter(r=>r.total_score>=45&&r.total_score<60).length+'개';
-    document.getElementById('tb-updated').textContent=`업데이트: ${data.updated_at} · ${data.universe||''}`;
-    renderTenbaggerTable(_tbResults);
-  } catch(e){
-    document.getElementById('tb-table').innerHTML=`<tr><td colspan="10" class="empty">❌ 서버 연결 실패</td></tr>`;
-    ['tb-total','tb-top','tb-mid','tb-watch'].forEach(id=>{document.getElementById(id).textContent='—';});
-  }
-  btn.disabled=false; btn.innerHTML='🚀 텐배거 스크리닝';
-}
+# ══════════════════════════════════════════════════════════════
+# APScheduler — 매일 KST 04:00 자동 실행
+# ══════════════════════════════════════════════════════════════
 
-function renderTenbaggerTable(data) {
-  if(!data.length){document.getElementById('tb-table').innerHTML='<tr><td colspan="10" class="empty">해당 조건의 종목이 없습니다.</td></tr>';return;}
-  document.getElementById('tb-table').innerHTML=data.map((s,i)=>{
-    const chgClass=s.change_pct>=0?'up':'dn';const chgSign=s.change_pct>=0?'▲':'▼';
-    const gradeColor=s.total_score>=75?'#22c55e':s.total_score>=60?'#3b82f6':s.total_score>=45?'#f59e0b':'#94a3b8';
-    const ld=s.lynch_detail||{};const od=s.oneil_detail||{};const md=s.minervini_detail||{};
-    const details=[ld.peg?`PEG ${ld.peg}`:'',ld.eps_growth!=null?`EPS+${ld.eps_growth}%`:'',od.from_52w_high!=null?`52주고점${od.from_52w_high>0?'돌파':od.from_52w_high+'%'}`:'',md.from_52w_low!=null?`저점+${md.from_52w_low}%`:''].filter(Boolean).join(' · ');
-    const lPct=Math.round(s.lynch_score/35*100);const oPct=Math.round(s.oneil_score/35*100);const mPct=Math.round(s.minervini_score/30*100);
-    const mcap=s.market_cap_b>0?`$${s.market_cap_b}B`:'—';
-    return `<tr>
-      <td><div style="font-size:13px;font-weight:800;color:#1d4ed8;">${s.name.length>18?s.ticker:s.name}</div><div style="font-size:11px;color:var(--sub);">${s.ticker} · ${s.sector||'—'}</div></td>
-      <td style="font-size:12px;font-weight:600;">${mcap}</td><td><strong>$${s.price.toLocaleString()}</strong></td>
-      <td class="${chgClass}">${chgSign}${Math.abs(s.change_pct)}%</td>
-      <td><div style="display:flex;align-items:center;gap:6px;"><div style="width:60px;height:6px;background:#f1f5f9;border-radius:3px;overflow:hidden;"><div style="height:100%;background:#22c55e;border-radius:3px;width:${lPct}%;"></div></div><span style="font-size:12px;font-weight:700;color:#15803d;">${s.lynch_score}</span></div></td>
-      <td><div style="display:flex;align-items:center;gap:6px;"><div style="width:60px;height:6px;background:#f1f5f9;border-radius:3px;overflow:hidden;"><div style="height:100%;background:#3b82f6;border-radius:3px;width:${oPct}%;"></div></div><span style="font-size:12px;font-weight:700;color:#1d4ed8;">${s.oneil_score}</span></div></td>
-      <td><div style="display:flex;align-items:center;gap:6px;"><div style="width:60px;height:6px;background:#f1f5f9;border-radius:3px;overflow:hidden;"><div style="height:100%;background:#f59e0b;border-radius:3px;width:${mPct}%;"></div></div><span style="font-size:12px;font-weight:700;color:#b45309;">${s.minervini_score}</span></div></td>
-      <td><div style="display:flex;align-items:center;gap:6px;"><div style="width:60px;height:6px;background:#f1f5f9;border-radius:3px;overflow:hidden;"><div style="height:100%;background:${gradeColor};border-radius:3px;width:${s.total_score}%;"></div></div><span style="font-size:13px;font-weight:800;color:${gradeColor};">${s.total_score}</span></div></td>
-      <td><span style="font-size:12px;font-weight:700;padding:3px 10px;border-radius:6px;background:${s.total_score>=75?'#dcfce7':s.total_score>=60?'#dbeafe':s.total_score>=45?'#fef9c3':'#f1f5f9'};color:${gradeColor};">${s.grade}</span></td>
-      <td style="font-size:11px;color:var(--sub);max-width:180px;">${details||'—'}</td></tr>`;
-  }).join('');
-}
+scheduler = BackgroundScheduler(timezone=pytz.utc)
+scheduler.add_job(
+    run_full_screening_job,
+    CronTrigger(hour=19, minute=0, timezone=pytz.utc),  # UTC 19:00 = KST 04:00
+    id="daily_screening",
+    replace_existing=True,
+    misfire_grace_time=3600
+)
+# 매일 KST 08:00 (UTC 23:00) — 전날 장 마감 후 베스트픽 가격 업데이트
+scheduler.add_job(
+    update_bestpick_prices_job,
+    CronTrigger(hour=23, minute=0, timezone=pytz.utc),
+    id="daily_bestpick_price",
+    replace_existing=True,
+    misfire_grace_time=3600
+)
 
-function filterTenbagger(type,btn) {
-  document.querySelectorAll('#page-tenbagger .filter-btn').forEach(b=>b.classList.remove('active'));
-  btn.classList.add('active');
-  let data=[..._tbResults];
-  if(type==='최상위') data=data.filter(r=>r.total_score>=75);
-  else if(type==='유망') data=data.filter(r=>r.total_score>=60&&r.total_score<75);
-  else if(type==='관심') data=data.filter(r=>r.total_score>=45&&r.total_score<60);
-  else if(type==='소형주') data=data.filter(r=>r.market_cap_b>0&&r.market_cap_b<=2);
-  renderTenbaggerTable(data);
-}
+@app.on_event("startup")
+def on_startup():
+    if DATABASE_URL:
+        try:
+            init_db()
+            logger.info("DB 연결 및 초기화 완료")
+        except Exception as e:
+            logger.error(f"DB 초기화 실패: {e}")
+    else:
+        logger.warning("DATABASE_URL 없음 — 실시간 계산 모드로 동작")
+    scheduler.start()
+    logger.info("APScheduler 시작 — 매일 KST 04:00 전체 스크리닝 예약됨")
 
-// ── 💧 유동성 판단 ──
-async function loadLiquidity() {
-  const btn=document.getElementById('liq-run-btn');
-  btn.disabled=true; btn.textContent='⏳ 분석 중...';
-  document.getElementById('liq-status').textContent='분석 중...';
-  document.getElementById('liq-status').style.background='#fffbeb';
-  document.getElementById('liq-status').style.color='#92400e';
-  try {
-    const res=await fetch(`${API}/api/liquidity`);
-    if(!res.ok) throw new Error('HTTP '+res.status);
-    const data=await res.json();
-    if(data.error) {
-      document.getElementById('liq-signal-card').style.background='#fff1f2';
-      document.getElementById('liq-signal-card').style.borderColor='#fca5a5';
-      document.getElementById('liq-signal-emoji').textContent='⚠️';
-      document.getElementById('liq-signal-text').textContent='FRED API 키 미설정';
-      document.getElementById('liq-signal-desc').textContent=data.guide||'Railway 환경변수에 FRED_API_KEY를 추가해주세요.';
-      document.getElementById('liq-total-score').textContent='—';
-      document.getElementById('liq-status').textContent='설정 필요';
-      document.getElementById('liq-status').style.background='#fee2e2';
-      document.getElementById('liq-status').style.color='#991b1b';
-      btn.disabled=false; btn.innerHTML='💧 유동성 분석'; return;
-    }
-    _liqData=data;
-    renderLiquidity(data);
-  } catch(e) {
-    document.getElementById('liq-signal-emoji').textContent='❌';
-    document.getElementById('liq-signal-text').textContent='서버 연결 실패';
-    document.getElementById('liq-signal-desc').textContent='잠시 후 다시 시도해주세요.';
-    document.getElementById('liq-status').textContent='오류';
-    document.getElementById('liq-status').style.background='#fee2e2';
-    document.getElementById('liq-status').style.color='#991b1b';
-  }
-  btn.disabled=false; btn.innerHTML='💧 유동성 분석';
-}
-
-function renderLiquidity(data) {
-  const signal=data.signal;
-  const score=data.total_score;
-  const card=document.getElementById('liq-signal-card');
-  card.style.background=`linear-gradient(135deg,${signal.bg_color},#ffffff)`;
-  card.style.borderColor=signal.border_color;
-  document.getElementById('liq-signal-emoji').textContent=signal.emoji;
-  document.getElementById('liq-signal-text').textContent=signal.signal;
-  document.getElementById('liq-signal-text').style.color=signal.color;
-  document.getElementById('liq-signal-desc').textContent=signal.description;
-  document.getElementById('liq-total-score').textContent=score;
-  document.getElementById('liq-total-score').style.color=signal.color;
-  const bar=document.getElementById('liq-score-bar');
-  bar.style.width=score+'%'; bar.style.background=signal.color;
-  const guideBox=document.getElementById('liq-step2-guide');
-  guideBox.style.display='block';
-  guideBox.style.background=signal.bg_color;
-  guideBox.style.borderColor=signal.border_color;
-  guideBox.style.color=signal.color;
-  document.getElementById('liq-step2-text').textContent=signal.step2_guide;
-  for(let i=1;i<=5;i++) {
-    const el=document.getElementById('stage-'+i);
-    if(i===signal.stage){el.style.background=signal.bg_color;el.style.borderColor=signal.color;el.style.transform='scale(1.04)';el.style.boxShadow=`0 4px 14px ${signal.color}44`;}
-    else{el.style.background='#f8fafc';el.style.borderColor='#e2e8f0';el.style.transform='';el.style.boxShadow='';}
-  }
-  // 카드 구성: 순유동성(40점) + MMF(20점) + RRP(참고) + TGA(참고)
-  // WALCL은 순유동성 카드 안에 포함되어 있으므로 별도 카드 없음
-  const allInds = [
-    data.net_liquidity,
-    data.mmf,
-    ...(data.indicators||[]).filter(ind => ind.fred_id==='RRPONTSYD' || ind.fred_id==='WTREGEN')
-  ].filter(Boolean);
-
-  document.getElementById('liq-indicators').innerHTML = allInds.map(ind => {
-    const hasScore = ind.score !== null && ind.score !== undefined && ind.score !== 'N/A' && !isNaN(Number(ind.score));
-    const scoreNum = hasScore ? Number(ind.score) : null;
-    const maxScore = ind.max_score || 0;
-    const scoreColor = !hasScore ? '#94a3b8'
-      : scoreNum >= maxScore*0.7 ? '#15803d'
-      : scoreNum >= maxScore*0.45 ? '#1d4ed8'
-      : scoreNum >= maxScore*0.25 ? '#b45309' : '#991b1b';
-    const changePct = ind.change_pct ?? 0;
-    // RRP 완전소진 시 변화율 표시 안 함
-    const isRrpDepleted = ind.fred_id === 'RRPONTSYD' && (ind.value === 0 || ind.value <= 10);
-    const changeTxt = isRrpDepleted
-      ? '<span style="color:#94a3b8;">잔액 $0 — 변화율 미표시</span>'
-      : changePct >= 0
-        ? `<span style="color:#ef4444;font-weight:700;">▲ +${changePct}%</span>`
-        : `<span style="color:#3b82f6;font-weight:700;">▼ ${changePct}%</span>`;
-    const ctx = ind.context ? `<div style="font-size:11px;color:var(--sub);margin-top:4px;">${ind.context}</div>` : '';
-    const scoreDisplay = hasScore
-      ? `<div style="font-size:22px;font-weight:800;color:${scoreColor};">${scoreNum}<span style="font-size:13px;color:var(--sub);">/${maxScore}</span></div>`
-      : `<div style="font-size:12px;font-weight:600;color:#94a3b8;margin-top:4px;">참고지표</div>`;
-    const barWidth = hasScore && maxScore > 0 ? Math.round(scoreNum/maxScore*100) : 0;
-    return `<div class="card">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;">
-        <div>
-          <div class="section-title" style="margin-bottom:4px;">${ind.label}</div>
-          <div style="font-size:11px;color:var(--sub);">${ind.fred_id||''}${ind.fred_id?' · ':''} 4주 변화율 기준</div>
-        </div>
-        <div style="text-align:right;">
-          <div style="font-size:11px;color:var(--sub);margin-bottom:3px;">점수</div>
-          ${scoreDisplay}
-        </div>
-      </div>
-      <div style="margin-bottom:10px;">
-        <div style="font-size:24px;font-weight:800;">${ind.value??'—'}<span style="font-size:13px;color:var(--sub);margin-left:4px;">${ind.value_unit||''}</span></div>
-        <div style="font-size:12px;margin-top:3px;">4주 변화: ${changeTxt}</div>
-        ${ctx}
-      </div>
-      <div style="padding:7px 12px;background:${scoreColor}18;border-left:3px solid ${scoreColor};border-radius:4px;margin-bottom:12px;">
-        <div style="font-size:12px;font-weight:700;color:${scoreColor};">${ind.status||''}</div>
-      </div>
-      ${hasScore ? '<div style="margin-bottom:12px;"><div style="display:flex;justify-content:space-between;font-size:10px;color:var(--sub);margin-bottom:4px;"><span>0</span><span>'+maxScore+'점</span></div><div style="height:7px;background:#e2e8f0;border-radius:4px;overflow:hidden;"><div style="height:100%;background:'+scoreColor+';border-radius:4px;width:'+barWidth+'%;transition:width .8s ease;"></div></div></div>' : ''}
-    </div>`;
-  }).join('');
-  document.getElementById('liq-status').textContent=signal.signal;
-  document.getElementById('liq-status').style.background=signal.bg_color;
-  document.getElementById('liq-status').style.color=signal.color;
-  document.getElementById('liq-updated').textContent=`마지막 업데이트: ${data.updated_at} · FRED (연준) 공식 데이터`;
-
-  // FRED 차트 렌더링
-  document.getElementById('liq-fred-charts').style.display = 'block';
-  renderFredCharts(data);
-}
-
-// Chart.js 인스턴스 저장 (재렌더링 시 destroy)
-const _fredCharts = {};
-
-// ResizeObserver로 각 차트 컨테이너 직접 감시 → 크기 변경 시 즉시 리사이즈
-function observeChartResize() {
-  if (typeof ResizeObserver === 'undefined') return;
-  const ro = new ResizeObserver(() => {
-    Object.values(_fredCharts).forEach(chart => {
-      if (chart) { chart.resize(); }
-    });
-  });
-  ['chart-walcl','chart-rrp','chart-tga','chart-mmf'].forEach(id => {
-    const wrap = document.getElementById(id)?.parentElement;
-    if (wrap) ro.observe(wrap);
-  });
-}
-
-function renderFredCharts(data) {
-  const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-  const gridColor = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.07)';
-  const textColor = isDark ? '#9ca3af' : '#6b7280';
-
-  function drawChart(canvasId, history, label, color, unit, threshold) {
-    if (!history || history.length === 0) return;
-    const sorted = [...history].reverse(); // 오래된 것 → 최신 순
-    const labels = sorted.map(d => d.date.slice(0,7)); // YYYY-MM
-    const values = sorted.map(d => d.value);
-
-    if (_fredCharts[canvasId]) {
-      _fredCharts[canvasId].destroy();
-    }
-    const ctx = document.getElementById(canvasId);
-    if (!ctx) return;
-
-    const chartConfig = {
-      type: 'line',
-      data: {
-        labels,
-        datasets: [{
-          label,
-          data: values,
-          borderColor: color,
-          backgroundColor: color + '18',
-          borderWidth: 2,
-          pointRadius: 0,
-          pointHoverRadius: 4,
-          fill: true,
-          tension: 0.3,
-        }]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        interaction: { intersect: false, mode: 'index' },
-        plugins: {
-          legend: { display: false },
-          tooltip: {
-            callbacks: {
-              label: ctx => `${ctx.parsed.y.toFixed(2)} ${unit}`
-            }
-          }
-        },
-        scales: {
-          x: {
-            ticks: { color: textColor, font: { size: 10 }, maxTicksLimit: 6 },
-            grid: { color: gridColor }
-          },
-          y: {
-            ticks: { color: textColor, font: { size: 10 }, maxTicksLimit: 5,
-              callback: v => v.toFixed(1) + ' ' + unit },
-            grid: { color: gridColor },
-            // 임계선 (TGA $800B 등)
-            ...(threshold ? {
-              afterDataLimits: (axis) => {
-                axis.max = Math.max(axis.max, threshold * 1.05);
-              }
-            } : {})
-          }
-        },
-        ...(threshold ? {
-          plugins: {
-            legend: { display: false },
-            tooltip: {
-              callbacks: {
-                label: ctx => `${ctx.parsed.y.toFixed(2)} ${unit}`
-              }
-            },
-            annotation: undefined
-          }
-        } : {})
-      }
-    };
-
-    // TGA 임계선 표시 (간단히 데이터셋으로 추가)
-    if (threshold) {
-      chartConfig.data.datasets.push({
-        label: '임계점',
-        data: labels.map(() => threshold),
-        borderColor: '#ef4444',
-        borderWidth: 1.5,
-        borderDash: [5, 4],
-        pointRadius: 0,
-        fill: false,
-        tension: 0,
-      });
-    }
-
-    _fredCharts[canvasId] = new Chart(ctx, chartConfig);
-  }
-
-  // WALCL — indicators에서 추출 (detail_walcl)
-  const walclInd = (data.indicators||[]).find(i => i.fred_id === 'WALCL');
-  if (walclInd && walclInd.history) {
-    drawChart('chart-walcl', walclInd.history, 'WALCL', '#3b82f6', '조달러');
-  }
-
-  // RRP — indicators에서 추출
-  const rrpInd = (data.indicators||[]).find(i => i.fred_id === 'RRPONTSYD');
-  if (rrpInd && rrpInd.history) {
-    drawChart('chart-rrp', rrpInd.history, 'RRP', '#8b5cf6', 'B$');
-  }
-
-  // TGA — indicators에서 추출, 800B 임계선 추가
-  const tgaInd = (data.indicators||[]).find(i => i.fred_id === 'WTREGEN');
-  if (tgaInd && tgaInd.history) {
-    drawChart('chart-tga', tgaInd.history, 'TGA', '#f59e0b', 'B$', 800);
-  }
-
-  // MMF — data.mmf에서 추출
-  if (data.mmf && data.mmf.history) {
-    drawChart('chart-mmf', data.mmf.history, 'MMF', '#22c55e', '조달러');
-  }
-  // 차트 생성 완료 후 ResizeObserver 등록
-  observeChartResize();
-}
-</script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
-</body>
-</html>
+@app.on_event("shutdown")
+def on_shutdown():
+    scheduler.shutdown()
