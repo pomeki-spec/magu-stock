@@ -1469,7 +1469,6 @@ async function loadMarketData() {
         document.getElementById('hy-card').style.borderTopColor='#ef4444';
       }
       document.getElementById('hy-hyg').textContent=hy.hyg?'$'+hy.hyg:'—';
-      document.getElementById('hy-lqd').textContent=hy.lqd?'$'+hy.lqd:'—';
       const s1d=hy.spread_1d;
       const s1dEl=document.getElementById('hy-spread1d');
       s1dEl.textContent=s1d!=null?(s1d>0?'+':'')+s1d:'—';
