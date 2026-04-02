@@ -47,7 +47,7 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
 .run-btn:hover{opacity:.85;}
 .run-btn:disabled{opacity:.5;cursor:not-allowed;}
 .card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:18px;}
-.mkt-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:14px;}
+.mkt-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:10px;}
 .mkt-card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px 16px;}
 .mkt-label{font-size:11px;color:var(--sub);margin-bottom:6px;font-weight:600;}
 .mkt-val{font-size:20px;font-weight:800;}
@@ -240,15 +240,16 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
       <div id="stock-search-result" style="margin-top:14px;display:none;"></div>
     </div>
 
-    <div class="mkt-grid">
+    <!-- ── 상단 매크로 + 하단 지표 — 동일 4열 그리드로 열 정렬 ── -->
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px;">
+
+      <!-- 상단 4개: 금/WTI/달러/국채 -->
       <div class="mkt-card"><div class="mkt-label">🏅 금 (Gold)</div><div class="mkt-val" id="gold-val">—</div><div class="mkt-chg" id="gold-chg">—</div></div>
       <div class="mkt-card"><div class="mkt-label">🛢 WTI 유가</div><div class="mkt-val" id="wti-val">—</div><div class="mkt-chg" id="wti-chg">—</div></div>
       <div class="mkt-card"><div class="mkt-label">💱 달러/원</div><div class="mkt-val" id="krw-val">—</div><div class="mkt-chg" id="krw-chg">—</div></div>
       <div class="mkt-card"><div class="mkt-label">🏦 미국 10년 국채</div><div class="mkt-val" id="bond-val">—</div><div class="mkt-chg" id="bond-chg">—</div></div>
-    </div>
 
-    <!-- ── 매크로 지표 4종 ──────────────────────────────────── -->
-    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px;">
+      <!-- 하단 4개: CNN/하이일드/VIX/MMTH -->
 
       <!-- 1. CNN 공포탐욕지수 -->
       <div class="card" id="cnn-fg-card" style="border-top:3px solid #e4e8f0;transition:border-color .3s;">
@@ -257,22 +258,22 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
           <div id="fear-needle" style="position:absolute;top:-5px;width:16px;height:16px;background:#fff;border:3px solid #374151;border-radius:50%;transform:translateX(-50%);transition:left .6s ease;left:50%;"></div>
         </div>
         <div style="display:flex;align-items:baseline;gap:6px;margin-bottom:2px;">
-          <div style="font-size:44px;font-weight:800;line-height:1;" id="fear-num">—</div>
-          <div style="font-size:14px;color:var(--sub);font-weight:600;">/ 100</div>
+          <div style="font-size:20px;font-weight:800;line-height:1;" id="fear-num">—</div>
+          <div style="font-size:12px;color:var(--sub);font-weight:600;">/ 100</div>
         </div>
-        <div style="font-size:13px;font-weight:800;margin-bottom:10px;" id="fear-label">—</div>
+        <div style="font-size:12px;font-weight:800;margin-bottom:10px;" id="fear-label">—</div>
         <div style="display:flex;gap:0;border-top:1px solid var(--border);padding-top:8px;">
           <div style="flex:1;text-align:center;border-right:1px solid var(--border);">
             <div style="font-size:9px;color:var(--sub);margin-bottom:2px;">전일</div>
-            <div style="font-size:13px;font-weight:700;" id="fg-prev">—</div>
+            <div style="font-size:12px;font-weight:700;" id="fg-prev">—</div>
           </div>
           <div style="flex:1;text-align:center;border-right:1px solid var(--border);">
             <div style="font-size:9px;color:var(--sub);margin-bottom:2px;">1주전</div>
-            <div style="font-size:13px;font-weight:700;" id="fg-week">—</div>
+            <div style="font-size:12px;font-weight:700;" id="fg-week">—</div>
           </div>
           <div style="flex:1;text-align:center;">
             <div style="font-size:9px;color:var(--sub);margin-bottom:2px;">1달전</div>
-            <div style="font-size:13px;font-weight:700;" id="fg-month">—</div>
+            <div style="font-size:12px;font-weight:700;" id="fg-month">—</div>
           </div>
         </div>
       </div>
@@ -280,19 +281,19 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
       <!-- 2. 하이일드 스프레드 -->
       <div class="card" id="hy-card" style="border-top:3px solid #e4e8f0;transition:border-color .3s;">
         <div style="font-size:11px;font-weight:700;color:var(--sub);margin-bottom:8px;">📉 하이일드 스프레드</div>
-        <div style="font-size:15px;font-weight:800;margin-bottom:4px;" id="hy-signal-badge">—</div>
-        <div style="display:flex;gap:0;margin-top:auto;border-top:1px solid var(--border);padding-top:8px;position:absolute;bottom:16px;left:16px;right:16px;">
+        <div style="font-size:20px;font-weight:800;margin-bottom:4px;" id="hy-signal-badge">—</div>
+        <div style="display:flex;gap:0;border-top:1px solid var(--border);padding-top:8px;margin-top:10px;">
           <div style="flex:1;text-align:center;border-right:1px solid var(--border);">
             <div style="font-size:9px;color:var(--sub);margin-bottom:2px;">HYG</div>
-            <div style="font-size:13px;font-weight:700;" id="hy-hyg">—</div>
+            <div style="font-size:12px;font-weight:700;" id="hy-hyg">—</div>
           </div>
           <div style="flex:1;text-align:center;border-right:1px solid var(--border);">
             <div style="font-size:9px;color:var(--sub);margin-bottom:2px;">LQD</div>
-            <div style="font-size:13px;font-weight:700;" id="hy-lqd">—</div>
+            <div style="font-size:12px;font-weight:700;" id="hy-lqd">—</div>
           </div>
           <div style="flex:1;text-align:center;">
             <div style="font-size:9px;color:var(--sub);margin-bottom:2px;">스프레드</div>
-            <div style="font-size:13px;font-weight:700;" id="hy-spread1d">—</div>
+            <div style="font-size:12px;font-weight:700;" id="hy-spread1d">—</div>
           </div>
         </div>
       </div>
@@ -300,19 +301,19 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
       <!-- 3. VIX -->
       <div class="card" id="vix-card" style="border-top:3px solid #e4e8f0;transition:border-color .3s;">
         <div style="font-size:11px;font-weight:700;color:var(--sub);margin-bottom:8px;">📊 VIX 공포지수</div>
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
-          <div style="font-size:44px;font-weight:800;line-height:1;" id="vix-val">—</div>
-          <div id="vix-dir" style="font-size:32px;line-height:1;">—</div>
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">
+          <div style="font-size:20px;font-weight:800;line-height:1;" id="vix-val">—</div>
+          <div id="vix-dir" style="font-size:18px;line-height:1;">—</div>
         </div>
-        <div style="font-size:13px;font-weight:800;margin-bottom:10px;" id="vix-signal">—</div>
+        <div style="font-size:12px;font-weight:800;margin-bottom:10px;" id="vix-signal">—</div>
         <div style="display:flex;gap:0;border-top:1px solid var(--border);padding-top:8px;">
           <div style="flex:1;text-align:center;border-right:1px solid var(--border);">
             <div style="font-size:9px;color:var(--sub);margin-bottom:2px;">전일 변화</div>
-            <div style="font-size:13px;font-weight:700;" id="vix-change">—</div>
+            <div style="font-size:12px;font-weight:700;" id="vix-change">—</div>
           </div>
           <div style="flex:1;text-align:center;">
             <div style="font-size:9px;color:var(--sub);margin-bottom:2px;">5일전</div>
-            <div style="font-size:13px;font-weight:700;" id="vix-prev5">—</div>
+            <div style="font-size:12px;font-weight:700;" id="vix-prev5">—</div>
           </div>
         </div>
       </div>
@@ -321,21 +322,21 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
       <div class="card" id="mmth-card" style="border-top:3px solid #e4e8f0;transition:border-color .3s;">
         <div style="font-size:11px;font-weight:700;color:var(--sub);margin-bottom:8px;">🌡 시장 폭 (200일선 위)</div>
         <div style="display:flex;align-items:baseline;gap:4px;margin-bottom:6px;">
-          <div style="font-size:44px;font-weight:800;line-height:1;" id="mmth-pct">—</div>
-          <div style="font-size:20px;font-weight:700;color:var(--sub);">%</div>
+          <div style="font-size:20px;font-weight:800;line-height:1;" id="mmth-pct">—</div>
+          <div style="font-size:14px;font-weight:700;color:var(--sub);">%</div>
         </div>
-        <div style="height:7px;background:#f1f5f9;border-radius:3px;overflow:hidden;margin-bottom:6px;">
+        <div style="height:6px;background:#f1f5f9;border-radius:3px;overflow:hidden;margin-bottom:6px;">
           <div id="mmth-bar" style="height:100%;border-radius:3px;background:#3b82f6;width:0%;transition:width .6s ease;"></div>
         </div>
-        <div style="font-size:13px;font-weight:800;margin-bottom:10px;" id="mmth-signal">—</div>
+        <div style="font-size:12px;font-weight:800;margin-bottom:10px;" id="mmth-signal">—</div>
         <div style="display:flex;gap:0;border-top:1px solid var(--border);padding-top:8px;">
           <div style="flex:1;text-align:center;border-right:1px solid var(--border);">
             <div style="font-size:9px;color:var(--sub);margin-bottom:2px;">나스닥</div>
-            <div style="font-size:13px;font-weight:700;" id="mmth-nasdaq">—</div>
+            <div style="font-size:12px;font-weight:700;" id="mmth-nasdaq">—</div>
           </div>
           <div style="flex:1;text-align:center;">
             <div style="font-size:9px;color:var(--sub);margin-bottom:2px;">S&P500</div>
-            <div style="font-size:13px;font-weight:700;" id="mmth-sp500">—</div>
+            <div style="font-size:12px;font-weight:700;" id="mmth-sp500">—</div>
           </div>
         </div>
       </div>
