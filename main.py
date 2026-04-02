@@ -1187,26 +1187,40 @@ def get_market_data():
 
         # ── 하이일드 스프레드 (HYG vs LQD) ──────────────────────
         try:
-            hyg=yf.Ticker("HYG").history(period="10d")
-            lqd=yf.Ticker("LQD").history(period="10d")
+            hyg_ticker = yf.Ticker("HYG")
+            lqd_ticker = yf.Ticker("LQD")
+            hyg = hyg_ticker.history(period="10d")
+            lqd = lqd_ticker.history(period="10d")
             if len(hyg)>=6 and len(lqd)>=6:
-                # 스프레드 = LQD수익률 - HYG수익률 (클수록 하이일드 불리)
                 hyg_ret  = (hyg['Close'].iloc[-1]/hyg['Close'].iloc[-2]-1)*100
                 lqd_ret  = (lqd['Close'].iloc[-1]/lqd['Close'].iloc[-2]-1)*100
-                spread_now  = lqd_ret - hyg_ret          # 당일
+                spread_now  = lqd_ret - hyg_ret
                 hyg_5d = (hyg['Close'].iloc[-1]/hyg['Close'].iloc[-6]-1)*100
                 lqd_5d = (lqd['Close'].iloc[-1]/lqd['Close'].iloc[-6]-1)*100
-                spread_5d   = lqd_5d - hyg_5d            # 5일 추세
-                # 방향: 스프레드 좁아지면(음수) 리스크온, 벌어지면 리스크오프
+                spread_5d   = lqd_5d - hyg_5d
                 direction = "narrowing" if spread_5d < 0 else "widening"
-                signal    = "리스크온 🟢" if direction=="narrowing" else "리스크오프 🔴"
+
+                # ── 실제 신용 스프레드 bps (HYG yield - LQD yield) ──
+                try:
+                    hyg_info = hyg_ticker.info
+                    lqd_info = lqd_ticker.info
+                    hyg_yield = hyg_info.get("trailingAnnualDividendYield") or hyg_info.get("yield")
+                    lqd_yield = lqd_info.get("trailingAnnualDividendYield") or lqd_info.get("yield")
+                    if hyg_yield and lqd_yield:
+                        spread_bps = round((hyg_yield - lqd_yield) * 10000, 0)
+                    else:
+                        spread_bps = None
+                except:
+                    spread_bps = None
+
                 result["high_yield"]={
                     "hyg": round(hyg['Close'].iloc[-1],2),
                     "lqd": round(lqd['Close'].iloc[-1],2),
                     "spread_1d": round(spread_now,3),
                     "spread_5d": round(spread_5d,3),
+                    "spread_bps": spread_bps,
                     "direction": direction,
-                    "signal": signal
+                    "signal": "리스크온 🟢" if direction=="narrowing" else "리스크오프 🔴"
                 }
         except Exception as e:
             logger.warning(f"하이일드 스프레드 오류: {e}")
