@@ -252,7 +252,7 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
       <!-- 하단 4개: CNN/하이일드/VIX/MMTH -->
 
       <!-- 1. CNN 공포탐욕지수 -->
-      <div class="card" id="cnn-fg-card" style="border-top:3px solid #e4e8f0;transition:border-color .3s;">
+      <div class="card" id="cnn-fg-card" style="border-top:3px solid #e4e8f0;transition:border-color .3s;position:relative;padding-bottom:52px;">
         <div style="font-size:11px;font-weight:700;color:var(--sub);margin-bottom:8px;">😨 CNN 공포·탐욕지수</div>
         <div style="position:relative;height:7px;border-radius:4px;background:linear-gradient(to right,#15803d,#22c55e,#eab308,#ef4444,#991b1b);margin-bottom:12px;">
           <div id="fear-needle" style="position:absolute;top:-5px;width:16px;height:16px;background:#fff;border:3px solid #374151;border-radius:50%;transform:translateX(-50%);transition:left .6s ease;left:50%;"></div>
@@ -262,7 +262,7 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
           <div style="font-size:12px;color:var(--sub);font-weight:600;">/ 100</div>
         </div>
         <div style="font-size:12px;font-weight:800;margin-bottom:10px;" id="fear-label">—</div>
-        <div style="display:flex;gap:0;border-top:1px solid var(--border);padding-top:8px;">
+        <div style="position:absolute;bottom:0;left:0;right:0;display:flex;border-top:1px solid var(--border);padding:8px 16px 12px;">
           <div style="flex:1;text-align:center;border-right:1px solid var(--border);">
             <div style="font-size:9px;color:var(--sub);margin-bottom:2px;">전일</div>
             <div style="font-size:12px;font-weight:700;" id="fg-prev">—</div>
@@ -279,10 +279,10 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
       </div>
 
       <!-- 2. 하이일드 스프레드 -->
-      <div class="card" id="hy-card" style="border-top:3px solid #e4e8f0;transition:border-color .3s;">
+      <div class="card" id="hy-card" style="border-top:3px solid #e4e8f0;transition:border-color .3s;position:relative;padding-bottom:52px;">
         <div style="font-size:11px;font-weight:700;color:var(--sub);margin-bottom:8px;">📉 하이일드 스프레드</div>
         <div style="font-size:20px;font-weight:800;margin-bottom:4px;" id="hy-signal-badge">—</div>
-        <div style="display:flex;gap:0;border-top:1px solid var(--border);padding-top:8px;margin-top:10px;">
+        <div style="position:absolute;bottom:0;left:0;right:0;display:flex;border-top:1px solid var(--border);padding:8px 16px 12px;">
           <div style="flex:1;text-align:center;border-right:1px solid var(--border);">
             <div style="font-size:9px;color:var(--sub);margin-bottom:2px;">HYG</div>
             <div style="font-size:12px;font-weight:700;" id="hy-hyg">—</div>
@@ -299,14 +299,14 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
       </div>
 
       <!-- 3. VIX -->
-      <div class="card" id="vix-card" style="border-top:3px solid #e4e8f0;transition:border-color .3s;">
+      <div class="card" id="vix-card" style="border-top:3px solid #e4e8f0;transition:border-color .3s;position:relative;padding-bottom:52px;">
         <div style="font-size:11px;font-weight:700;color:var(--sub);margin-bottom:8px;">📊 VIX 공포지수</div>
         <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">
           <div style="font-size:20px;font-weight:800;line-height:1;" id="vix-val">—</div>
           <div id="vix-dir" style="font-size:18px;line-height:1;">—</div>
         </div>
         <div style="font-size:12px;font-weight:800;margin-bottom:10px;" id="vix-signal">—</div>
-        <div style="display:flex;gap:0;border-top:1px solid var(--border);padding-top:8px;">
+        <div style="position:absolute;bottom:0;left:0;right:0;display:flex;border-top:1px solid var(--border);padding:8px 16px 12px;">
           <div style="flex:1;text-align:center;border-right:1px solid var(--border);">
             <div style="font-size:9px;color:var(--sub);margin-bottom:2px;">전일 변화</div>
             <div style="font-size:12px;font-weight:700;" id="vix-change">—</div>
@@ -319,7 +319,7 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
       </div>
 
       <!-- 4. MMTH 시장 폭 -->
-      <div class="card" id="mmth-card" style="border-top:3px solid #e4e8f0;transition:border-color .3s;">
+      <div class="card" id="mmth-card" style="border-top:3px solid #e4e8f0;transition:border-color .3s;position:relative;padding-bottom:52px;">
         <div style="font-size:11px;font-weight:700;color:var(--sub);margin-bottom:8px;">🌡 시장 폭 (200일선 위)</div>
         <div style="display:flex;align-items:baseline;gap:4px;margin-bottom:6px;">
           <div style="font-size:20px;font-weight:800;line-height:1;" id="mmth-pct">—</div>
@@ -328,8 +328,8 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
         <div style="height:6px;background:#f1f5f9;border-radius:3px;overflow:hidden;margin-bottom:6px;">
           <div id="mmth-bar" style="height:100%;border-radius:3px;background:#3b82f6;width:0%;transition:width .6s ease;"></div>
         </div>
-        <div style="font-size:12px;font-weight:800;margin-bottom:10px;" id="mmth-signal">—</div>
-        <div style="display:flex;gap:0;border-top:1px solid var(--border);padding-top:8px;">
+        <div style="font-size:12px;font-weight:800;margin-bottom:4px;" id="mmth-signal">—</div>
+        <div style="position:absolute;bottom:0;left:0;right:0;display:flex;border-top:1px solid var(--border);padding:8px 16px 12px;">
           <div style="flex:1;text-align:center;border-right:1px solid var(--border);">
             <div style="font-size:9px;color:var(--sub);margin-bottom:2px;">나스닥</div>
             <div style="font-size:12px;font-weight:700;" id="mmth-nasdaq">—</div>
