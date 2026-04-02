@@ -118,10 +118,15 @@ def init_db():
             recommendation    TEXT,
             consecutive_count INT DEFAULT 1,
             picked_at         DATE NOT NULL DEFAULT CURRENT_DATE,
-            UNIQUE (ticker, picked_at)
+            market            TEXT DEFAULT 'nasdaq',
+            UNIQUE (ticker, picked_at, market)
         );
+        -- 기존 테이블에 market 컬럼이 없으면 추가
+        ALTER TABLE bestpick_records ADD COLUMN IF NOT EXISTS market TEXT DEFAULT 'nasdaq';
+        UPDATE bestpick_records SET market = 'nasdaq' WHERE market IS NULL;
         CREATE INDEX IF NOT EXISTS idx_bp_picked_at ON bestpick_records(picked_at DESC);
         CREATE INDEX IF NOT EXISTS idx_bp_ticker    ON bestpick_records(ticker);
+        CREATE INDEX IF NOT EXISTS idx_bp_market    ON bestpick_records(market);
 
         CREATE TABLE IF NOT EXISTS bestpick_prices (
             id         SERIAL PRIMARY KEY,
@@ -1611,7 +1616,7 @@ def select_bestpick_5(screening_results: list) -> list:
     return picks[:5]
 
 
-def save_bestpick_to_db(picks: list) -> dict:
+def save_bestpick_to_db(picks: list, market: str = "nasdaq") -> dict:
     """베스트픽 5종목을 DB에 저장. 중복 종목은 consecutive_count만 증가."""
     if not picks or not DATABASE_URL:
         return {"saved": 0, "skipped": 0, "error": "DB 없음"}
@@ -1621,16 +1626,16 @@ def save_bestpick_to_db(picks: list) -> dict:
         conn = get_conn(); cur = conn.cursor()
         for p in picks:
             ticker = p["ticker"]
-            # 오늘 이미 기록됐는지 확인
-            cur.execute("SELECT id FROM bestpick_records WHERE ticker=%s AND picked_at=%s", (ticker, today))
+            # 오늘 이미 기록됐는지 확인 (market 포함)
+            cur.execute("SELECT id FROM bestpick_records WHERE ticker=%s AND picked_at=%s AND market=%s", (ticker, today, market))
             if cur.fetchone():
                 skipped += 1
                 continue
-            # 연속 선정 횟수 계산 (어제 기록이 있으면 +1)
+            # 연속 선정 횟수 계산 (어제 같은 마켓 기록이 있으면 +1)
             cur.execute("""
                 SELECT consecutive_count FROM bestpick_records
-                WHERE ticker=%s AND picked_at = %s - INTERVAL '1 day'
-            """, (ticker, today))
+                WHERE ticker=%s AND picked_at = %s - INTERVAL '1 day' AND market=%s
+            """, (ticker, today, market))
             row = cur.fetchone()
             consecutive = (row[0] + 1) if row else 1
 
@@ -1638,18 +1643,17 @@ def save_bestpick_to_db(picks: list) -> dict:
                 INSERT INTO bestpick_records
                     (ticker, name, sector, entry_price, total_score,
                      classic_score, growth_score, modern_score,
-                     recommendation, consecutive_count, picked_at)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                     recommendation, consecutive_count, picked_at, market)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 RETURNING id
             """, (
                 ticker, p.get("name", ticker), p.get("sector", "Unknown"),
                 p.get("price", 0), p.get("total_score", 0),
                 p.get("classic_score", 0), p.get("growth_score", 0),
                 p.get("modern_score", 0), p.get("recommendation", ""),
-                consecutive, today
+                consecutive, today, market
             ))
             record_id = cur.fetchone()[0]
-            # 매수 당일 가격도 bestpick_prices에 기록
             cur.execute("""
                 INSERT INTO bestpick_prices (record_id, ticker, price_date, price, return_pct)
                 VALUES (%s,%s,%s,%s,%s)
@@ -1657,7 +1661,7 @@ def save_bestpick_to_db(picks: list) -> dict:
             """, (record_id, ticker, today, p.get("price", 0), 0.0))
             saved += 1
         conn.commit(); cur.close(); conn.close()
-        logger.info(f"베스트픽 저장: {saved}개 신규, {skipped}개 중복 스킵")
+        logger.info(f"베스트픽 저장 [{market}]: {saved}개 신규, {skipped}개 중복 스킵")
         return {"saved": saved, "skipped": skipped}
     except Exception as e:
         logger.error(f"베스트픽 저장 오류: {e}")
@@ -1740,7 +1744,7 @@ def save_bestpick(market: str = "nasdaq"):
         save_screening_to_db(candidates)
 
     picks = select_bestpick_5(candidates)
-    result = save_bestpick_to_db(picks)
+    result = save_bestpick_to_db(picks, market=market)
     return {
         "picks": [{"ticker": p["ticker"], "name": p.get("name"), "sector": p.get("sector"),
                    "total_score": p.get("total_score"), "price": p.get("price"),
@@ -1750,7 +1754,7 @@ def save_bestpick(market: str = "nasdaq"):
 
 
 @app.get("/api/bestpick/history")
-def get_bestpick_history():
+def get_bestpick_history(market: str = "nasdaq"):
     """베스트픽 전체 이력 + 현재까지 수익률 추적"""
     if not DATABASE_URL:
         return {"error": "DATABASE_URL 없음"}
@@ -1762,16 +1766,12 @@ def get_bestpick_history():
                 r.entry_price, r.total_score, r.classic_score, r.growth_score, r.modern_score,
                 r.recommendation, r.consecutive_count,
                 r.picked_at::text AS picked_at,
-                -- 다음날 (T+1)
                 p1.price        AS price_1d,
                 p1.return_pct   AS return_1d,
-                -- 일주일 뒤 (T+5 거래일 ≈ 7일)
                 p7.price        AS price_7d,
                 p7.return_pct   AS return_7d,
-                -- 한달 뒤 (T+21 거래일 ≈ 30일)
                 p30.price       AS price_30d,
                 p30.return_pct  AS return_30d,
-                -- 최신 가격
                 pl.price        AS price_latest,
                 pl.return_pct   AS return_latest,
                 pl.price_date::text AS latest_date
@@ -1792,8 +1792,9 @@ def get_bestpick_history():
                 ORDER BY price_date DESC LIMIT 1
             ) pl ON TRUE
             WHERE r.picked_at >= CURRENT_DATE - INTERVAL '180 days'
+              AND r.market = %s
             ORDER BY r.picked_at DESC, r.total_score DESC
-        """)
+        """, (market,))
         rows = [dict(r) for r in cur.fetchall()]
 
         # 날짜별 그룹핑
