@@ -978,13 +978,58 @@ def fetch_tenbagger_stock(ticker):
     except: return None
 
 TICKERS_TENBAGGER = list(dict.fromkeys([
-    "PLTR","AI","SOUN","BBAI","RBRK","CWAN","ALKT","AEIS",
-    "AMBA","LSCC","SITM","ONTO","ACLS","ICHR","KLIC","MTSI",
-    "AFRM","UPST","BILL","TOST","GTLB","DDOG","ZS","DUOL",
-    "HIMS","RDDT","APP","SMAR","ASAN","MNDY","RELY","BRZE",
-    "RXRX","BEAM","CRSP","ARWR","KYMR","VKTX","NVCR","INSM",
-    "FSLR","ENPH","ARRY","RKLB","ASTS","JOBY","ACHR",
+
+    # ── AI / 엔터프라이즈 소프트웨어 ─────────────────────────────
+    "PLTR","AI","SOUN","BBAI","RBRK","CWAN","ALKT",
+    "DDOG","ZS","DUOL","GTLB","SMAR","ASAN","MNDY","BRZE","APP",
+    "CFLT","HUBS","DOCN","ESTC","MDB","NCNO","SPSC","PCTY","PAYC",
+    "APPN","ALTR","JAMF","WEAVE","DV",
+
+    # ── 반도체 / 반도체 장비 ─────────────────────────────────────
+    "AEIS","AMBA","LSCC","SITM","ONTO","ACLS","ICHR","KLIC","MTSI",
+    "FORM","WOLF","CAMT","AEHR","RMBS","POWI","DIOD","ALGM","IREN",
+    "SMTC","AXTI","PSIX",
+
+    # ── 양자컴퓨팅 ───────────────────────────────────────────────
+    "IONQ","RGTI","QUBT","QBTS","QTUM",
+
+    # ── 핀테크 / 금융 혁신 ───────────────────────────────────────
+    "AFRM","UPST","BILL","TOST","RELY",
+    "FLYW","IREN","HYFM","DAVE","CURO","PRFT","LC","OPEN",
+    "SOFI","HOOD","CLOV","STEP","NVEI",
+
+    # ── 사이버보안 ───────────────────────────────────────────────
+    "CRWD","S","PANW","CYBR","TENB","QLYS","VRNS","SSTI","RSKD",
+    "CODA","MIMECAST","DNLI","EVBG",
+
+    # ── 헬스케어 / 바이오테크 ────────────────────────────────────
+    "HIMS","RXRX","BEAM","CRSP","ARWR","KYMR","VKTX","NVCR","INSM",
+    "RVMD","PTGX","ACMR","PRAX","TMDX","IMNM","IMVT","AMPH",
+    "CLPT","AGIO","VRNA","ALLO","KROS","TVTX",
+
+    # ── 에너지 혁신 / SMR / 청정에너지 ──────────────────────────
+    "FSLR","ENPH","ARRY",
+    "SMR","OKLO","NNE","BWXT","CEG",
+    "STEM","ARRY","BE","PLUG","HYZN","EVGO","CHPT",
+
+    # ── 우주 / 국방테크 / 드론 ───────────────────────────────────
+    "RKLB","ASTS","JOBY","ACHR",
+    "LUNR","RDW","MNTS","KTOS","HII","RCAT","JOBY",
+    "SPIR","PL","SATL",
+
+    # ── 소비재 / 브랜드 성장주 ───────────────────────────────────
     "CELH","BROS","CAVA","WING","FRPT","YETI",
+    "LULU","ELF","ONON","BIRK","DKNG","PENN","ACMR",
+    "XPOF","PRPL","MESO",
+
+    # ── 데이터 / 클라우드 인프라 ─────────────────────────────────
+    "SNOW","NET","DDOG","CFLT","DOCN",
+    "TASK","CLNC","AIOT","NTNX","ALTR","PSTG","REYN",
+
+    # ── 로봇 / 자동화 / 모빌리티 ────────────────────────────────
+    "RCAT","TNDM","ISRG","AVAV","PRCT","SWBI",
+    "RH","TDY","NDSN",
+
 ]))
 
 # ══════════════════════════════════════════════════════════════
