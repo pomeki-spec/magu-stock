@@ -1775,25 +1775,25 @@ def get_bestpick_history(market: str = "nasdaq"):
                 r.entry_price, r.total_score, r.classic_score, r.growth_score, r.modern_score,
                 r.recommendation, r.consecutive_count,
                 r.picked_at::text AS picked_at,
-                p1.price        AS price_1d,
-                p1.return_pct   AS return_1d,
                 p7.price        AS price_7d,
                 p7.return_pct   AS return_7d,
                 p30.price       AS price_30d,
                 p30.return_pct  AS return_30d,
+                p90.price       AS price_90d,
+                p90.return_pct  AS return_90d,
                 pl.price        AS price_latest,
                 pl.return_pct   AS return_latest,
                 pl.price_date::text AS latest_date
             FROM bestpick_records r
-            LEFT JOIN bestpick_prices p1
-                ON p1.record_id = r.id
-                AND p1.price_date = r.picked_at + INTERVAL '1 day'
             LEFT JOIN bestpick_prices p7
                 ON p7.record_id = r.id
                 AND p7.price_date = r.picked_at + INTERVAL '7 days'
             LEFT JOIN bestpick_prices p30
                 ON p30.record_id = r.id
                 AND p30.price_date = r.picked_at + INTERVAL '30 days'
+            LEFT JOIN bestpick_prices p90
+                ON p90.record_id = r.id
+                AND p90.price_date = r.picked_at + INTERVAL '90 days'
             LEFT JOIN LATERAL (
                 SELECT price, return_pct, price_date
                 FROM bestpick_prices
