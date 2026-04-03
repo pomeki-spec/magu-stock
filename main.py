@@ -118,12 +118,21 @@ def init_db():
             recommendation    TEXT,
             consecutive_count INT DEFAULT 1,
             picked_at         DATE NOT NULL DEFAULT CURRENT_DATE,
-            market            TEXT DEFAULT 'nasdaq',
-            UNIQUE (ticker, picked_at, market)
+            market            TEXT DEFAULT 'nasdaq'
         );
         -- 기존 테이블에 market 컬럼이 없으면 추가
         ALTER TABLE bestpick_records ADD COLUMN IF NOT EXISTS market TEXT DEFAULT 'nasdaq';
         UPDATE bestpick_records SET market = 'nasdaq' WHERE market IS NULL;
+        -- 기존 (ticker, picked_at) 제약 삭제 후 (ticker, picked_at, market)으로 교체
+        ALTER TABLE bestpick_records DROP CONSTRAINT IF EXISTS bestpick_records_ticker_picked_at_key;
+        DO $$ BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM pg_constraint
+                WHERE conname = 'bestpick_records_ticker_picked_at_market_key'
+            ) THEN
+                ALTER TABLE bestpick_records ADD CONSTRAINT bestpick_records_ticker_picked_at_market_key UNIQUE (ticker, picked_at, market);
+            END IF;
+        END $$;
         CREATE INDEX IF NOT EXISTS idx_bp_picked_at ON bestpick_records(picked_at DESC);
         CREATE INDEX IF NOT EXISTS idx_bp_ticker    ON bestpick_records(ticker);
         CREATE INDEX IF NOT EXISTS idx_bp_market    ON bestpick_records(market);
