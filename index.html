@@ -1750,6 +1750,32 @@ setInterval(loadBreadth,1800000);    // 30분마다
 let _rbTrigger = 5;
 let _rbLogs = JSON.parse(localStorage.getItem('rb_logs')||'[]');
 
+// 저장된 입력값 복원
+(function restoreRbInputs() {
+  const saved = JSON.parse(localStorage.getItem('rb_inputs')||'{}');
+  if(saved.total) document.getElementById('rb-total').value = saved.total;
+  if(saved.stock) document.getElementById('rb-stock').value = saved.stock;
+  if(saved.target) document.getElementById('rb-target').value = saved.target;
+  if(saved.trigger) {
+    _rbTrigger = saved.trigger;
+    [3,5,10].forEach(t => {
+      const btn = document.getElementById('rb-trigger-'+t);
+      if(btn) { btn.style.background = t===saved.trigger ? '#3b82f6' : '#e2e8f0'; btn.style.color = t===saved.trigger ? '#fff' : '#374151'; }
+    });
+    const tv = document.getElementById('rb-trigger-val');
+    if(tv) tv.textContent = '±'+saved.trigger+'%';
+  }
+})();
+
+function saveRbInputs() {
+  localStorage.setItem('rb_inputs', JSON.stringify({
+    total: document.getElementById('rb-total').value,
+    stock: document.getElementById('rb-stock').value,
+    target: document.getElementById('rb-target').value,
+    trigger: _rbTrigger
+  }));
+}
+
 function setTrigger(v) {
   _rbTrigger = v;
   [3,5,10].forEach(t => {
@@ -1758,6 +1784,7 @@ function setTrigger(v) {
     if(btn) btn.style.color = t===v ? '#fff' : '#374151';
   });
   document.getElementById('rb-trigger-val').textContent = '±'+v+'%';
+  saveRbInputs();
   calcRebalance();
 }
 
@@ -1766,6 +1793,7 @@ function calcRebalance() {
   const stock = parseFloat(document.getElementById('rb-stock').value) || 0;
   const target = parseFloat(document.getElementById('rb-target').value) || 70;
   const cash = total - stock;
+  saveRbInputs();
 
   if(total <= 0) return;
 
