@@ -1228,7 +1228,8 @@ def root():
 def get_market_data():
     try:
         tickers={"gold":"GC=F","wti":"CL=F","usdkrw":"KRW=X","us10y":"^TNX",
-                 "vix":"^VIX","sp500":"^GSPC","nasdaq":"^IXIC","dow":"^DJI","russell":"^RUT"}
+                 "vix":"^VIX","sp500":"^GSPC","nasdaq":"^IXIC","dow":"^DJI","russell":"^RUT",
+                 "kospi":"^KS11","kosdaq":"^KQ11"}
         result={}
         for key,symbol in tickers.items():
             try:
