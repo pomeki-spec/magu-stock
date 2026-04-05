@@ -201,6 +201,14 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
       <span class="idx-name">러셀2000</span>
       <div style="text-align:right;"><div class="idx-val" id="russell-val">—</div><div class="idx-chg" id="russell-chg"></div></div>
     </div>
+    <div class="idx-row" style="margin-top:6px;padding-top:6px;border-top:1px solid rgba(255,255,255,.07);">
+      <span class="idx-name">코스피</span>
+      <div style="text-align:right;"><div class="idx-val" id="kospi-idx-val">—</div><div class="idx-chg" id="kospi-idx-chg"></div></div>
+    </div>
+    <div class="idx-row">
+      <span class="idx-name">코스닥</span>
+      <div style="text-align:right;"><div class="idx-val" id="kosdaq-idx-val">—</div><div class="idx-chg" id="kosdaq-idx-chg"></div></div>
+    </div>
   </div>
 </div>
 
@@ -1582,6 +1590,10 @@ async function loadMarketData() {
     if(d.us10y){document.getElementById('bond-val').textContent=d.us10y.value.toFixed(2)+'%';document.getElementById('bond-chg').innerHTML=chgHtml(d.us10y.change);}
     if(d.sp500){document.getElementById('sp500-val').textContent=d.sp500.value.toLocaleString();document.getElementById('sp500-chg').innerHTML=chgHtml(d.sp500.change);}
     if(d.nasdaq){document.getElementById('nasdaq-val').textContent=d.nasdaq.value.toLocaleString();document.getElementById('nasdaq-chg').innerHTML=chgHtml(d.nasdaq.change);}
+    if(d.dow){document.getElementById('dow-val').textContent=d.dow.value.toLocaleString();document.getElementById('dow-chg').innerHTML=chgHtml(d.dow.change);}
+    if(d.russell){document.getElementById('russell-val').textContent=d.russell.value.toLocaleString();document.getElementById('russell-chg').innerHTML=chgHtml(d.russell.change);}
+    if(d.kospi){document.getElementById('kospi-idx-val').textContent=d.kospi.value.toLocaleString();document.getElementById('kospi-idx-chg').innerHTML=chgHtml(d.kospi.change);}
+    if(d.kosdaq){document.getElementById('kosdaq-idx-val').textContent=d.kosdaq.value.toLocaleString();document.getElementById('kosdaq-idx-chg').innerHTML=chgHtml(d.kosdaq.change);}
 
     // ── VIX + 방향성 ──────────────────────────────────────────
     if(d.vix){
