@@ -147,6 +147,10 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
       <span class="nav-icon">💧</span>
       <div><div class="nav-label">유동성 판단</div><div class="nav-sub">STEP 1 · 매매 환경</div></div>
     </div>
+    <div class="nav-item" id="nav-rebalance" onclick="showPage('rebalance')">
+      <span class="nav-icon">⚖️</span>
+      <div><div class="nav-label">리밸런싱</div><div class="nav-sub">포트폴리오 비중 관리</div></div>
+    </div>
     <div class="nav-item" id="nav-smartmoney" onclick="showPage('smartmoney')">
       <span class="nav-icon">🏦</span>
       <div><div class="nav-label">스마트머니</div><div class="nav-sub">섹터 자금 흐름</div></div>
@@ -673,6 +677,147 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
     </div>
   </div>
 
+  <!-- ───────── ⚖️ 리밸런싱 대시보드 ───────── -->
+  <div id="page-rebalance" style="display:none;">
+    <div class="topbar">
+      <div>
+        <div class="page-title">⚖️ 리밸런싱 대시보드</div>
+        <div class="update-row">포트폴리오 비중 관리 · 매크로 기반 리밸런싱 신호</div>
+      </div>
+    </div>
+    <div class="content">
+
+      <!-- 입력 카드 -->
+      <div class="card" style="margin-bottom:14px;">
+        <div class="section-title">💼 포트폴리오 입력</div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px;">
+          <div>
+            <div style="font-size:11px;color:var(--sub);margin-bottom:6px;font-weight:600;">총 자산 (만원)</div>
+            <input id="rb-total" type="number" placeholder="예: 13000" value="13000"
+              style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-weight:700;background:var(--card);color:var(--text);box-sizing:border-box;"
+              oninput="calcRebalance()">
+          </div>
+          <div>
+            <div style="font-size:11px;color:var(--sub);margin-bottom:6px;font-weight:600;">현재 주식 금액 (만원)</div>
+            <input id="rb-stock" type="number" placeholder="예: 10000" value="10000"
+              style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-weight:700;background:var(--card);color:var(--text);box-sizing:border-box;"
+              oninput="calcRebalance()">
+          </div>
+          <div>
+            <div style="font-size:11px;color:var(--sub);margin-bottom:6px;font-weight:600;">목표 주식 비율 (%)</div>
+            <input id="rb-target" type="number" placeholder="예: 70" value="70" min="10" max="90"
+              style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-weight:700;background:var(--card);color:var(--text);box-sizing:border-box;"
+              oninput="calcRebalance()">
+          </div>
+        </div>
+        <!-- 리밸런싱 트리거 설정 -->
+        <div style="display:flex;align-items:center;gap:16px;padding:12px 16px;background:#f8fafc;border-radius:8px;">
+          <div style="font-size:12px;color:var(--sub);font-weight:600;">리밸런싱 트리거 이탈 허용 범위</div>
+          <div style="display:flex;gap:8px;">
+            <button onclick="setTrigger(3)" id="rb-trigger-3" class="run-btn" style="padding:4px 12px;font-size:12px;background:#e2e8f0;color:#374151;">±3%</button>
+            <button onclick="setTrigger(5)" id="rb-trigger-5" class="run-btn" style="padding:4px 12px;font-size:12px;background:#3b82f6;color:#fff;">±5%</button>
+            <button onclick="setTrigger(10)" id="rb-trigger-10" class="run-btn" style="padding:4px 12px;font-size:12px;background:#e2e8f0;color:#374151;">±10%</button>
+          </div>
+          <div style="font-size:11px;color:var(--sub);">현재: <span id="rb-trigger-val">±5%</span> 이탈 시 알림</div>
+        </div>
+      </div>
+
+      <!-- 현황 카드 4개 -->
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px;">
+        <div class="card" style="text-align:center;">
+          <div style="font-size:11px;color:var(--sub);margin-bottom:6px;font-weight:600;">총 자산</div>
+          <div style="font-size:22px;font-weight:800;" id="rb-disp-total">—</div>
+          <div style="font-size:11px;color:var(--sub);margin-top:2px;">만원</div>
+        </div>
+        <div class="card" style="text-align:center;">
+          <div style="font-size:11px;color:var(--sub);margin-bottom:6px;font-weight:600;">현재 주식 비율</div>
+          <div style="font-size:22px;font-weight:800;" id="rb-disp-cur-pct">—</div>
+          <div style="font-size:11px;color:var(--sub);margin-top:2px;" id="rb-disp-cur-amt">—</div>
+        </div>
+        <div class="card" style="text-align:center;">
+          <div style="font-size:11px;color:var(--sub);margin-bottom:6px;font-weight:600;">현재 현금 비율</div>
+          <div style="font-size:22px;font-weight:800;" id="rb-disp-cash-pct">—</div>
+          <div style="font-size:11px;color:var(--sub);margin-top:2px;" id="rb-disp-cash-amt">—</div>
+        </div>
+        <div class="card" style="text-align:center;">
+          <div style="font-size:11px;color:var(--sub);margin-bottom:6px;font-weight:600;">목표 대비 이탈</div>
+          <div style="font-size:22px;font-weight:800;" id="rb-disp-gap">—</div>
+          <div style="font-size:11px;color:var(--sub);margin-top:2px;" id="rb-disp-gap-label">—</div>
+        </div>
+      </div>
+
+      <!-- 리밸런싱 신호 -->
+      <div class="card" id="rb-signal-card" style="margin-bottom:14px;border-top:3px solid #e4e8f0;transition:border-color .3s;">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+          <div>
+            <div style="font-size:13px;font-weight:800;margin-bottom:4px;" id="rb-signal-title">—</div>
+            <div style="font-size:12px;color:var(--sub);" id="rb-signal-desc">—</div>
+          </div>
+          <div style="text-align:right;">
+            <div style="font-size:11px;color:var(--sub);margin-bottom:2px;">조정 필요 금액</div>
+            <div style="font-size:20px;font-weight:800;" id="rb-action-amt">—</div>
+            <div style="font-size:11px;font-weight:700;margin-top:2px;" id="rb-action-label">—</div>
+          </div>
+        </div>
+        <!-- 비율 바 -->
+        <div style="margin-top:14px;">
+          <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--sub);margin-bottom:4px;">
+            <span>주식</span><span>현금</span>
+          </div>
+          <div style="position:relative;height:20px;border-radius:10px;overflow:hidden;background:#f1f5f9;">
+            <div id="rb-bar-stock" style="position:absolute;left:0;top:0;height:100%;background:#3b82f6;border-radius:10px;transition:width .6s ease;width:70%;"></div>
+            <div id="rb-bar-target" style="position:absolute;top:0;height:100%;width:2px;background:#ef4444;transition:left .6s ease;left:70%;"></div>
+          </div>
+          <div style="display:flex;justify-content:space-between;font-size:11px;margin-top:4px;">
+            <span style="font-weight:700;color:#3b82f6;" id="rb-bar-stock-label">—</span>
+            <span style="font-weight:700;color:#64748b;" id="rb-bar-cash-label">—</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 매크로 신호 연동 -->
+      <div class="card" style="margin-bottom:14px;">
+        <div class="section-title">📡 매크로 신호 연동</div>
+        <div style="font-size:12px;color:var(--sub);margin-bottom:12px;">현재 매크로 지표 기반 리밸런싱 방향 제안</div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;">
+          <div style="padding:12px;background:#f8fafc;border-radius:8px;border-left:3px solid #e2e8f0;" id="rb-macro-fear">
+            <div style="font-size:10px;color:var(--sub);margin-bottom:4px;">CNN 공포탐욕</div>
+            <div style="font-size:14px;font-weight:800;" id="rb-macro-fear-val">—</div>
+            <div style="font-size:11px;margin-top:2px;" id="rb-macro-fear-sig">—</div>
+          </div>
+          <div style="padding:12px;background:#f8fafc;border-radius:8px;border-left:3px solid #e2e8f0;" id="rb-macro-vix">
+            <div style="font-size:10px;color:var(--sub);margin-bottom:4px;">VIX</div>
+            <div style="font-size:14px;font-weight:800;" id="rb-macro-vix-val">—</div>
+            <div style="font-size:11px;margin-top:2px;" id="rb-macro-vix-sig">—</div>
+          </div>
+          <div style="padding:12px;background:#f8fafc;border-radius:8px;border-left:3px solid #e2e8f0;" id="rb-macro-hy">
+            <div style="font-size:10px;color:var(--sub);margin-bottom:4px;">하이일드 스프레드</div>
+            <div style="font-size:14px;font-weight:800;" id="rb-macro-hy-val">—</div>
+            <div style="font-size:11px;margin-top:2px;" id="rb-macro-hy-sig">—</div>
+          </div>
+        </div>
+        <!-- 종합 매크로 의견 -->
+        <div style="margin-top:12px;padding:12px 16px;border-radius:8px;border:1px solid var(--border);" id="rb-macro-summary">
+          <div style="font-size:12px;font-weight:800;margin-bottom:2px;" id="rb-macro-summary-title">—</div>
+          <div style="font-size:11px;color:var(--sub);" id="rb-macro-summary-desc">매크로 데이터 로딩 중...</div>
+        </div>
+      </div>
+
+      <!-- 리밸런싱 이력 -->
+      <div class="card">
+        <div class="section-title">📋 리밸런싱 기록</div>
+        <div style="font-size:12px;color:var(--sub);margin-bottom:10px;">수동으로 기록을 추가할 수 있습니다</div>
+        <div style="display:flex;gap:8px;margin-bottom:12px;">
+          <input id="rb-log-input" type="text" placeholder="예: 주식 500만 매도 → 현금 비중 조정"
+            style="flex:1;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:12px;background:var(--card);color:var(--text);">
+          <button onclick="addRebalanceLog()" class="run-btn" style="padding:8px 16px;font-size:12px;">기록 추가</button>
+        </div>
+        <div id="rb-log-list" style="font-size:12px;color:var(--sub);text-align:center;padding:16px;">기록이 없습니다.</div>
+      </div>
+
+    </div>
+  </div>
+
   <!-- ───────── 💧 유동성 판단 ───────── -->
   <div id="page-liquidity">
     <div class="topbar">
@@ -834,7 +979,7 @@ let _liqData      = null;
 
 // ── 페이지 전환 ──
 function showPage(page) {
-  ['dashboard','classic','growth','modern','tenbagger','backtest','smartmoney','liquidity'].forEach(p => {
+  ['dashboard','classic','growth','modern','tenbagger','backtest','smartmoney','liquidity','rebalance'].forEach(p => {
     document.getElementById('page-'+p).style.display = p===page?'block':'none';
     const nav = document.getElementById('nav-'+p);
     if(nav) nav.classList.toggle('active', p===page);
@@ -1588,6 +1733,227 @@ loadBreadth();
 setInterval(loadMarketData,300000);
 setInterval(loadFearGreed,600000);   // 10분마다
 setInterval(loadBreadth,1800000);    // 30분마다
+
+// ── 리밸런싱 대시보드 ──────────────────────────────────────────
+let _rbTrigger = 5;
+let _rbLogs = JSON.parse(localStorage.getItem('rb_logs')||'[]');
+
+function setTrigger(v) {
+  _rbTrigger = v;
+  [3,5,10].forEach(t => {
+    const btn = document.getElementById('rb-trigger-'+t);
+    if(btn) btn.style.background = t===v ? '#3b82f6' : '#e2e8f0';
+    if(btn) btn.style.color = t===v ? '#fff' : '#374151';
+  });
+  document.getElementById('rb-trigger-val').textContent = '±'+v+'%';
+  calcRebalance();
+}
+
+function calcRebalance() {
+  const total = parseFloat(document.getElementById('rb-total').value) || 0;
+  const stock = parseFloat(document.getElementById('rb-stock').value) || 0;
+  const target = parseFloat(document.getElementById('rb-target').value) || 70;
+  const cash = total - stock;
+
+  if(total <= 0) return;
+
+  const curStockPct = Math.round(stock / total * 1000) / 10;
+  const curCashPct = Math.round(cash / total * 1000) / 10;
+  const gap = Math.round((curStockPct - target) * 10) / 10;
+  const absGap = Math.abs(gap);
+
+  // 상단 4개 카드
+  document.getElementById('rb-disp-total').textContent = total.toLocaleString();
+  document.getElementById('rb-disp-cur-pct').textContent = curStockPct + '%';
+  document.getElementById('rb-disp-cur-amt').textContent = stock.toLocaleString() + '만원';
+  document.getElementById('rb-disp-cash-pct').textContent = curCashPct + '%';
+  document.getElementById('rb-disp-cash-amt').textContent = cash.toLocaleString() + '만원';
+
+  const gapEl = document.getElementById('rb-disp-gap');
+  gapEl.textContent = (gap >= 0 ? '+' : '') + gap + '%';
+  gapEl.style.color = absGap >= _rbTrigger ? '#ef4444' : '#22c55e';
+  document.getElementById('rb-disp-gap-label').textContent = absGap >= _rbTrigger ? '⚠️ 리밸런싱 필요' : '✅ 정상 범위';
+
+  // 조정 금액 계산
+  const targetStockAmt = Math.round(total * target / 100);
+  const diff = Math.round(stock - targetStockAmt);
+
+  const signalCard = document.getElementById('rb-signal-card');
+  const titleEl = document.getElementById('rb-signal-title');
+  const descEl = document.getElementById('rb-signal-desc');
+  const amtEl = document.getElementById('rb-action-amt');
+  const labelEl = document.getElementById('rb-action-label');
+
+  if(absGap >= _rbTrigger) {
+    if(gap > 0) {
+      signalCard.style.borderTopColor = '#ef4444';
+      titleEl.textContent = '⚠️ 주식 비중 초과 — 현금 확보 필요';
+      titleEl.style.color = '#991b1b';
+      descEl.textContent = `목표 ${target}% 대비 현재 ${curStockPct}% (${gap > 0 ? '+' : ''}${gap}% 이탈)`;
+      amtEl.textContent = Math.abs(diff).toLocaleString() + '만원';
+      amtEl.style.color = '#ef4444';
+      labelEl.textContent = '주식 매도 → 현금 전환';
+      labelEl.style.color = '#ef4444';
+    } else {
+      signalCard.style.borderTopColor = '#22c55e';
+      titleEl.textContent = '✅ 주식 비중 부족 — 매수 기회';
+      titleEl.style.color = '#15803d';
+      descEl.textContent = `목표 ${target}% 대비 현재 ${curStockPct}% (${gap}% 이탈)`;
+      amtEl.textContent = Math.abs(diff).toLocaleString() + '만원';
+      amtEl.style.color = '#22c55e';
+      labelEl.textContent = '현금 → 주식 매수';
+      labelEl.style.color = '#22c55e';
+    }
+  } else {
+    signalCard.style.borderTopColor = '#3b82f6';
+    titleEl.textContent = '✅ 현재 포트폴리오 균형 유지 중';
+    titleEl.style.color = '#1d4ed8';
+    descEl.textContent = `목표 ${target}% 대비 현재 ${curStockPct}% — ±${_rbTrigger}% 이내 정상 범위`;
+    amtEl.textContent = '조정 불필요';
+    amtEl.style.color = '#1d4ed8';
+    labelEl.textContent = '다음 점검 시 재확인';
+    labelEl.style.color = '#64748b';
+  }
+
+  // 비율 바
+  document.getElementById('rb-bar-stock').style.width = curStockPct + '%';
+  document.getElementById('rb-bar-target').style.left = target + '%';
+  document.getElementById('rb-bar-stock-label').textContent = '주식 ' + curStockPct + '%';
+  document.getElementById('rb-bar-cash-label').textContent = '현금 ' + curCashPct + '%';
+
+  // 매크로 신호 업데이트
+  updateRbMacro();
+}
+
+function updateRbMacro() {
+  // CNN 공포탐욕 — 이미 로드된 값 활용
+  const fearNum = document.getElementById('fear-num')?.textContent;
+  const fearLabel = document.getElementById('fear-label')?.textContent;
+  if(fearNum && fearNum !== '—') {
+    const score = parseFloat(fearNum);
+    const fearValEl = document.getElementById('rb-macro-fear-val');
+    const fearSigEl = document.getElementById('rb-macro-fear-sig');
+    const fearCard = document.getElementById('rb-macro-fear');
+    fearValEl.textContent = score + '점';
+    if(score <= 25) {
+      fearSigEl.textContent = '→ 주식 비중 확대 고려';
+      fearSigEl.style.color = '#15803d';
+      fearCard.style.borderLeftColor = '#22c55e';
+    } else if(score >= 75) {
+      fearSigEl.textContent = '→ 현금 비중 확대 고려';
+      fearSigEl.style.color = '#991b1b';
+      fearCard.style.borderLeftColor = '#ef4444';
+    } else {
+      fearSigEl.textContent = '→ 현 비율 유지';
+      fearSigEl.style.color = '#64748b';
+      fearCard.style.borderLeftColor = '#94a3b8';
+    }
+    document.getElementById('rb-macro-fear-val').style.color = score <= 25 ? '#15803d' : score >= 75 ? '#991b1b' : '#374151';
+  }
+
+  // VIX
+  const vixNum = document.getElementById('vix-val')?.textContent;
+  if(vixNum && vixNum !== '—') {
+    const vix = parseFloat(vixNum);
+    const vixValEl = document.getElementById('rb-macro-vix-val');
+    const vixSigEl = document.getElementById('rb-macro-vix-sig');
+    const vixCard = document.getElementById('rb-macro-vix');
+    vixValEl.textContent = vix;
+    if(vix >= 35) {
+      vixSigEl.textContent = '→ 적극 분할 매수 고려';
+      vixSigEl.style.color = '#15803d';
+      vixCard.style.borderLeftColor = '#22c55e';
+      vixValEl.style.color = '#15803d';
+    } else if(vix >= 25) {
+      vixSigEl.textContent = '→ 분할 매수 시작';
+      vixSigEl.style.color = '#b45309';
+      vixCard.style.borderLeftColor = '#f59e0b';
+      vixValEl.style.color = '#b45309';
+    } else if(vix < 15) {
+      vixSigEl.textContent = '→ 비중 축소 고려';
+      vixSigEl.style.color = '#991b1b';
+      vixCard.style.borderLeftColor = '#ef4444';
+      vixValEl.style.color = '#991b1b';
+    } else {
+      vixSigEl.textContent = '→ 현 비율 유지';
+      vixSigEl.style.color = '#64748b';
+      vixCard.style.borderLeftColor = '#94a3b8';
+      vixValEl.style.color = '#374151';
+    }
+  }
+
+  // 하이일드
+  const hyBadge = document.getElementById('hy-signal-badge')?.textContent;
+  const hyValEl = document.getElementById('rb-macro-hy-val');
+  const hySigEl = document.getElementById('rb-macro-hy-sig');
+  const hyCard = document.getElementById('rb-macro-hy');
+  if(hyBadge && hyBadge !== '—') {
+    hyValEl.textContent = hyBadge.includes('매수') ? '축소 중' : '확대 중';
+    if(hyBadge.includes('매수')) {
+      hySigEl.textContent = '→ 주식 비중 유지/확대';
+      hySigEl.style.color = '#15803d';
+      hyCard.style.borderLeftColor = '#22c55e';
+      hyValEl.style.color = '#15803d';
+    } else {
+      hySigEl.textContent = '→ 현금 비중 확대 고려';
+      hySigEl.style.color = '#991b1b';
+      hyCard.style.borderLeftColor = '#ef4444';
+      hyValEl.style.color = '#991b1b';
+    }
+  }
+
+  // 종합 의견
+  const fear = parseFloat(document.getElementById('fear-num')?.textContent || '50');
+  const vix = parseFloat(document.getElementById('vix-val')?.textContent || '20');
+  const hyGood = document.getElementById('hy-signal-badge')?.textContent?.includes('매수');
+  let bullSignals = 0;
+  if(fear <= 30) bullSignals++;
+  if(vix >= 25) bullSignals++;
+  if(hyGood) bullSignals++;
+
+  const sumTitle = document.getElementById('rb-macro-summary-title');
+  const sumDesc = document.getElementById('rb-macro-summary-desc');
+  if(bullSignals >= 2) {
+    sumTitle.textContent = '🟢 매크로 신호 — 주식 비중 확대 우호적';
+    sumTitle.style.color = '#15803d';
+    sumDesc.textContent = `${bullSignals}개 지표가 매수 구간을 가리키고 있습니다. 목표 비율보다 주식 비중을 높이는 것을 고려해보세요.`;
+  } else if(bullSignals === 0) {
+    sumTitle.textContent = '🔴 매크로 신호 — 현금 비중 확대 우호적';
+    sumTitle.style.color = '#991b1b';
+    sumDesc.textContent = '대부분 지표가 주의 구간입니다. 현금 비중을 목표보다 높게 유지하는 것을 고려해보세요.';
+  } else {
+    sumTitle.textContent = '🟡 매크로 신호 — 중립, 현 비율 유지';
+    sumTitle.style.color = '#b45309';
+    sumDesc.textContent = '신호가 혼재되어 있습니다. 현재 목표 비율을 유지하세요.';
+  }
+}
+
+function addRebalanceLog() {
+  const input = document.getElementById('rb-log-input');
+  const text = input.value.trim();
+  if(!text) return;
+  const now = new Date().toLocaleDateString('ko-KR');
+  _rbLogs.unshift({ date: now, text });
+  if(_rbLogs.length > 20) _rbLogs.pop();
+  localStorage.setItem('rb_logs', JSON.stringify(_rbLogs));
+  input.value = '';
+  renderRbLogs();
+}
+
+function renderRbLogs() {
+  const el = document.getElementById('rb-log-list');
+  if(!el) return;
+  if(!_rbLogs.length) { el.innerHTML = '<div style="text-align:center;padding:16px;color:var(--sub);">기록이 없습니다.</div>'; return; }
+  el.innerHTML = _rbLogs.map(l => `
+    <div style="display:flex;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);">
+      <span style="color:var(--sub);min-width:80px;">${l.date}</span>
+      <span>${l.text}</span>
+    </div>`).join('');
+}
+
+// 페이지 로드 시 초기화
+calcRebalance();
+renderRbLogs();
 
 
 async function runTenbagger() {
