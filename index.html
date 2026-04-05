@@ -992,10 +992,15 @@ function showPage(page) {
     const nav = document.getElementById('nav-'+p);
     if(nav) nav.classList.toggle('active', p===page);
   });
+  if(page === 'rebalance') {
+    setTimeout(calcRebalance, 100);
+  }
   if(['classic','growth','modern'].includes(page)) {
     if(_lastResults && _lastResults.length>0) renderModelPage(page);
     else document.getElementById(page+'-page-content').innerHTML='<div class="empty" style="background:#fff;border-radius:12px;border:1px solid var(--border);padding:44px;">먼저 종합 현황에서 🔄 스크리닝을 실행해주세요</div>';
   }
+  window.scrollTo(0,0);
+}
   window.scrollTo(0,0);
 }
 
@@ -1657,6 +1662,8 @@ async function loadMarketData() {
       s5dEl.style.color=s5d!=null?(s5d<0?'#15803d':'#991b1b'):'';
     }
 
+    // 리밸런싱 탭 매크로 신호 갱신
+    if(typeof updateRbMacro === 'function') updateRbMacro();
   } catch(e){ console.error('loadMarketData 오류',e); }
 }
 
@@ -1685,6 +1692,8 @@ async function loadFearGreed() {
     else if(score<=25)  {card.style.borderTopColor='#f59e0b';}
     else if(score>=75)  {card.style.borderTopColor='#991b1b';}
     else                {card.style.borderTopColor='#e4e8f0';}
+    // 리밸런싱 탭 매크로 신호 갱신
+    if(typeof updateRbMacro === 'function') updateRbMacro();
   } catch(e){ console.error('CNN 공포탐욕 오류',e); }
 }
 
