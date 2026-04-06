@@ -712,10 +712,22 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
               oninput="calcRebalance()">
           </div>
           <div>
-            <div style="font-size:11px;color:var(--sub);margin-bottom:6px;font-weight:600;">목표 주식 비율 (%)</div>
-            <input id="rb-target" type="number" placeholder="예: 70" value="70" min="10" max="90"
-              style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-weight:700;background:var(--card);color:var(--text);box-sizing:border-box;"
-              oninput="calcRebalance()">
+            <div style="font-size:11px;color:var(--sub);margin-bottom:6px;font-weight:600;">목표 주식 비율 — 매크로 자동 산정</div>
+            <div style="padding:10px 12px;border:1.5px solid #3b82f6;border-radius:8px;background:#eff6ff;display:flex;align-items:center;justify-content:space-between;">
+              <div>
+                <span style="font-size:22px;font-weight:800;color:#1d4ed8;" id="rb-auto-target">—</span>
+                <span style="font-size:13px;color:#1d4ed8;font-weight:600;">%</span>
+              </div>
+              <div style="font-size:10px;color:#64748b;text-align:right;" id="rb-auto-reason">CNN + 하이일드<br>자동 계산 중</div>
+            </div>
+            <!-- 수동 오버라이드 -->
+            <div style="margin-top:6px;display:flex;align-items:center;gap:6px;">
+              <input type="checkbox" id="rb-manual-toggle" onchange="toggleManualTarget(this.checked)" style="cursor:pointer;">
+              <label for="rb-manual-toggle" style="font-size:11px;color:var(--sub);cursor:pointer;">직접 입력</label>
+              <input id="rb-target" type="number" placeholder="70" value="70" min="10" max="90"
+                style="width:70px;padding:4px 8px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-weight:700;background:var(--card);color:var(--text);display:none;"
+                oninput="calcRebalance()">
+            </div>
           </div>
         </div>
         <!-- 리밸런싱 트리거 설정 -->
@@ -1787,6 +1799,48 @@ function saveRbInputs() {
   }));
 }
 
+function toggleManualTarget(checked) {
+  const input = document.getElementById('rb-target');
+  input.style.display = checked ? 'inline-block' : 'none';
+  calcRebalance();
+}
+
+function calcAutoTarget() {
+  const fear = parseFloat(document.getElementById('fear-num')?.textContent || '50');
+  const hyBadge = document.getElementById('hy-signal-badge')?.textContent || '';
+  const hyGood = hyBadge.includes('매수');
+
+  let target, reason;
+  if(fear <= 10) {
+    target = hyGood ? 88 : 80;
+    reason = hyGood ? 'CNN≤10+신용안정\n역사적 매수 기회' : 'CNN≤10+신용위험\n신중한 적극매수';
+  } else if(fear <= 20) {
+    target = hyGood ? 82 : 75;
+    reason = hyGood ? 'CNN≤20+신용안정\n적극 매수' : 'CNN≤20+신용위험\n분할 매수';
+  } else if(fear <= 35) {
+    target = hyGood ? 76 : 70;
+    reason = hyGood ? 'CNN≤35+신용안정\n매수 우호' : 'CNN≤35+신용위험\n관망';
+  } else if(fear <= 65) {
+    target = 70;
+    reason = 'CNN중립구간\n기본 비율 유지';
+  } else if(fear <= 79) {
+    target = hyGood ? 65 : 60;
+    reason = hyGood ? 'CNN탐욕+신용안정\n소폭 축소' : 'CNN탐욕+신용위험\n현금 확보';
+  } else {
+    target = hyGood ? 60 : 52;
+    reason = hyGood ? 'CNN극단탐욕+신용안정\n비중 축소' : 'CNN극단탐욕+신용위험\n강한 현금 확보';
+  }
+
+  const autoEl = document.getElementById('rb-auto-target');
+  const reasonEl = document.getElementById('rb-auto-reason');
+  if(autoEl) {
+    autoEl.textContent = target;
+    autoEl.style.color = target >= 78 ? '#15803d' : target >= 70 ? '#1d4ed8' : target >= 62 ? '#b45309' : '#991b1b';
+  }
+  if(reasonEl) reasonEl.innerHTML = reason.replace('\n','<br>');
+  return target;
+}
+
 function setTrigger(v) {
   _rbTrigger = v;
   [3,5,10].forEach(t => {
@@ -1802,9 +1856,14 @@ function setTrigger(v) {
 function calcRebalance() {
   const total = parseFloat(document.getElementById('rb-total').value) || 0;
   const stock = parseFloat(document.getElementById('rb-stock').value) || 0;
-  const target = parseFloat(document.getElementById('rb-target').value) || 70;
   const cash = total - stock;
   saveRbInputs();
+
+  // 수동 토글 여부 확인
+  const isManual = document.getElementById('rb-manual-toggle')?.checked;
+  const target = isManual
+    ? (parseFloat(document.getElementById('rb-target').value) || 70)
+    : calcAutoTarget();
 
   if(total <= 0) return;
 
