@@ -302,6 +302,7 @@ TICKERS_KOSDAQ = list(dict.fromkeys([
 ]))[:150]
 
 _sp500_cache = []
+_gspc_ret_cache = {"ret": None, "updated": None}  # 상대강도 계산용 S&P500 수익률 캐시
 
 def get_tickers_sp500():
     global _sp500_cache
@@ -476,27 +477,30 @@ def score_stochastic(hist_daily):
         denom=hh-ll
         if denom.iloc[-1]==0: return 0
         k=float(100*(hist_daily['Close'].iloc[-1]-ll.iloc[-1])/denom.iloc[-1])
-        if 20<=k<=40: return 10
+        if 20<=k<=40: return 10   # 매수권 (엘더 이론 핵심)
         elif 40<k<=50: return 8
         elif 15<=k<20: return 7
+        elif k<10: return 5        # 극단 과매도 → 반등 가능 (기존 2점에서 상향)
         elif 50<k<=65: return 5
         elif 10<=k<15: return 4
         elif 65<k<=80: return 3
-        elif k>80: return 1
+        elif k>80: return 1        # 과매수 → 매수 자제
         else: return 2
     except: return 0
 
 def score_breakout(hist_daily):
     try:
-        if len(hist_daily)<3: return 0
-        prev_high=float(hist_daily['High'].iloc[-2]); latest=float(hist_daily['Close'].iloc[-1])
-        ratio=latest/prev_high
-        if ratio>=1.01: return 10
-        elif ratio>=1.002: return 8
-        elif ratio>=0.998: return 6
-        elif ratio>=0.99: return 4
-        elif ratio>=0.97: return 2
-        else: return 0
+        if len(hist_daily)<20: return 0
+        # 20일 최고가 대비 현재가 (전일 고가 대비보다 안정적)
+        high_20d=float(hist_daily['High'].iloc[-20:-1].max())
+        latest=float(hist_daily['Close'].iloc[-1])
+        ratio=latest/high_20d
+        if ratio>=1.03: return 10   # 20일 고가 3% 이상 돌파
+        elif ratio>=1.01: return 8  # 1~3% 돌파
+        elif ratio>=0.99: return 6  # 고가 근접 (1% 이내)
+        elif ratio>=0.97: return 4  # 고가 대비 1~3% 하락
+        elif ratio>=0.93: return 2  # 3~7% 하락
+        else: return 0              # 7% 이상 하락
     except: return 0
 
 def calculate_classic_score(info, hist_weekly, hist_daily):
@@ -513,7 +517,9 @@ def score_roe(roe):
     else: return 0
 
 def score_debt(debt_equity):
-    if debt_equity<=0: return 5
+    # None 또는 음수는 데이터 없음으로 처리 → 중립 2점
+    if debt_equity is None or debt_equity < 0: return 2
+    elif debt_equity==0: return 2  # 0도 데이터 없음 가능성 → 중립
     elif debt_equity<=30: return 5
     elif debt_equity<=60: return 4
     elif debt_equity<=100: return 3
@@ -573,22 +579,35 @@ def score_rsi(hist_daily):
 
 def calculate_growth_score(info, hist_daily):
     return (score_roe(info.get('returnOnEquity',0) or 0)
-          + score_debt(info.get('debtToEquity',999) or 999)
+          + score_debt(info.get('debtToEquity',None))
           + score_eps_growth(info)
           + score_peg(info.get('pegRatio',None))
           + score_ma200(hist_daily)
           + score_rsi(hist_daily))
 
 def score_analyst(rec):
-    if not rec: return 0
-    return {'strong_buy':10,'buy':7,'hold':4,'underperform':1,'sell':0}.get(rec.lower(),0)
+    if not rec: return 2  # 커버리지 없음 → 중립 2점 (한국 소형주 불이익 방지)
+    return {'strong_buy':10,'buy':7,'hold':4,'underperform':1,'sell':0}.get(rec.lower(),2)
 
 def score_relative_strength(hist_daily):
     try:
         n=min(len(hist_daily)-1,252)
         if n<60: return 0
         stock_ret=float((hist_daily['Close'].iloc[-1]/hist_daily['Close'].iloc[-n]-1)*100)
-        excess=stock_ret-10.0*(n/252)
+        # S&P500 실제 수익률과 비교 — 캐시 활용으로 속도 최적화
+        global _gspc_ret_cache
+        today=datetime.now().strftime("%Y-%m-%d")
+        if _gspc_ret_cache["updated"]==today and _gspc_ret_cache["ret"] is not None:
+            mkt_ret=_gspc_ret_cache["ret"]
+        else:
+            try:
+                spy=yf.Ticker("^GSPC").history(period="1y")
+                spy_n=min(len(spy)-1,n)
+                mkt_ret=float((spy['Close'].iloc[-1]/spy['Close'].iloc[-spy_n]-1)*100) if spy_n>=60 else 10.0*(n/252)
+                _gspc_ret_cache={"ret":mkt_ret,"updated":today}
+            except:
+                mkt_ret=10.0*(n/252)
+        excess=stock_ret-mkt_ret
         if excess>=30: return 10
         elif excess>=20: return 8
         elif excess>=10: return 6
@@ -647,7 +666,7 @@ def fetch_single_stock(ticker, market):
         if hist_daily.empty or len(hist_daily)<20: return None
         c_ema=score_ema_slope(hist_weekly); c_stoch=score_stochastic(hist_daily); c_break=score_breakout(hist_daily)
         classic=c_ema+(c_stoch//2 if c_ema==0 else c_stoch)+(c_break//2 if c_ema==0 else c_break)
-        g_roe=score_roe(info.get('returnOnEquity',0) or 0); g_debt=score_debt(info.get('debtToEquity',999) or 999)
+        g_roe=score_roe(info.get('returnOnEquity',0) or 0); g_debt=score_debt(info.get('debtToEquity',None))
         g_eps=score_eps_growth(info); g_peg=score_peg(info.get('pegRatio',None))
         g_ma200=score_ma200(hist_daily); g_rsi=score_rsi(hist_daily)
         growth=g_roe+g_debt+g_eps+g_peg+g_ma200+g_rsi
@@ -1526,7 +1545,7 @@ def get_stock_score(ticker: str):
         if hist_daily.empty or len(hist_daily)<20: return {"error":"데이터가 부족합니다"}
         c_ema=score_ema_slope(hist_weekly); c_stoch=score_stochastic(hist_daily); c_break=score_breakout(hist_daily)
         classic=c_ema+(c_stoch//2 if c_ema==0 else c_stoch)+(c_break//2 if c_ema==0 else c_break)
-        g_roe=score_roe(info.get('returnOnEquity',0) or 0); g_debt=score_debt(info.get('debtToEquity',999) or 999)
+        g_roe=score_roe(info.get('returnOnEquity',0) or 0); g_debt=score_debt(info.get('debtToEquity',None))
         g_eps=score_eps_growth(info); g_peg=score_peg(info.get('pegRatio',None))
         g_ma200=score_ma200(hist_daily); g_rsi=score_rsi(hist_daily)
         growth=g_roe+g_debt+g_eps+g_peg+g_ma200+g_rsi
