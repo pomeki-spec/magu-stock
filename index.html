@@ -363,29 +363,6 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
 
     </div>
 
-    <!-- AI 투자 비중 (유지) -->
-    <div style="margin-bottom:14px;">
-      <div class="card">
-        <div class="section-title">📦 AI 투자 비중 추천</div>
-        <div class="inv-row">
-          <div class="inv-name">주식</div>
-          <div class="inv-bg"><div class="inv-fill" id="stock-fill" style="width:60%;background:#3b82f6;"></div></div>
-          <div style="font-size:12px;font-weight:700;width:36px;text-align:right;color:#3b82f6;" id="stock-pct">60%</div>
-        </div>
-        <div class="inv-row">
-          <div class="inv-name">현금</div>
-          <div class="inv-bg"><div class="inv-fill" id="cash-fill" style="width:30%;background:#22c55e;"></div></div>
-          <div style="font-size:12px;font-weight:700;width:36px;text-align:right;color:#22c55e;" id="cash-pct">30%</div>
-        </div>
-        <div class="inv-row">
-          <div class="inv-name">채권</div>
-          <div class="inv-bg"><div class="inv-fill" id="bond-fill" style="width:10%;background:#8b5cf6;"></div></div>
-          <div style="font-size:12px;font-weight:700;width:36px;text-align:right;color:#8b5cf6;" id="bond-pct">10%</div>
-        </div>
-        <div class="inv-note" id="inv-note">💡 스크리닝 실행 후 AI 추천 비중이 표시됩니다.</div>
-      </div>
-    </div>
-
     <div class="model-grid">
       <div class="model-card" onclick="showPage('classic')">
         <div class="model-head">
@@ -1193,7 +1170,7 @@ function renderResults(data) {
         <div style="display:flex;align-items:center;gap:5px;"><div style="font-size:9px;color:rgba(255,255,255,0.4);width:14px;">성</div><div style="flex:1;height:3px;background:rgba(255,255,255,0.1);border-radius:2px;"><div style="height:100%;background:#22c55e;border-radius:2px;width:${Math.round(s.growth_score/40*100)}%;"></div></div><div style="font-size:9px;color:rgba(255,255,255,0.4);width:16px;text-align:right;">${s.growth_score}</div></div>
         <div style="display:flex;align-items:center;gap:5px;"><div style="font-size:9px;color:rgba(255,255,255,0.4);width:14px;">모</div><div style="flex:1;height:3px;background:rgba(255,255,255,0.1);border-radius:2px;"><div style="height:100%;background:#8b5cf6;border-radius:2px;width:${Math.round(s.modern_score/30*100)}%;"></div></div><div style="font-size:9px;color:rgba(255,255,255,0.4);width:16px;text-align:right;">${s.modern_score}</div></div>
       </div></div>`).join('');
-  updateInvestWeight(data);
+  // updateInvestWeight 제거 — 리밸런싱 대시보드로 대체됨
   const marketLabel=data.market_label?`[${data.market_label}] `:'';
   document.getElementById('screened-count').textContent=`${marketLabel}총 ${results.length}개 종목 · 클래식 30 + 성장 40 + 모던 30 = 100점 만점`;
   document.getElementById('result-table').innerHTML=results.map(s=>`
@@ -1207,23 +1184,7 @@ function renderResults(data) {
       <td>${s.weight>0?`<span class="weight-badge">${s.weight}%</span>`:'—'}</td></tr>`).join('');
 }
 
-function updateInvestWeight(data) {
-  const buyCount=data.results.filter(r=>['Strong Buy','Buy'].includes(r.recommendation)).length;
-  const total=data.results.length;
-  const bullRatio=total>0?buyCount/total:0.5;
-  const stockPct=Math.round(40+bullRatio*40);
-  const cashPct=Math.round((100-stockPct)*0.6);
-  const bondPct=100-stockPct-cashPct;
-  document.getElementById('stock-fill').style.width=stockPct+'%';
-  document.getElementById('cash-fill').style.width=cashPct+'%';
-  document.getElementById('bond-fill').style.width=bondPct+'%';
-  document.getElementById('stock-pct').textContent=stockPct+'%';
-  document.getElementById('cash-pct').textContent=cashPct+'%';
-  document.getElementById('bond-pct').textContent=bondPct+'%';
-  const note=stockPct>=70?'🚀 매수 신호 강함 — 주식 비중을 높이세요.':stockPct>=55?'💡 중립 — 기존 포트폴리오를 유지하세요.':'⚠️ 방어적 시장 — 현금 비중을 늘리세요.';
-  document.getElementById('inv-note').textContent=note;
-  // ※ 자체 공포탐욕 계산 제거 → CNN 공포탐욕지수로 대체됨
-}
+// updateInvestWeight 함수 삭제 — 리밸런싱 대시보드로 대체됨
 
 async function saveBestpick() {
   const btn = document.getElementById('bp-save-btn');
