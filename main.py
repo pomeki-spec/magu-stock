@@ -1862,6 +1862,22 @@ def update_bestpick_prices_job():
         logger.error(f"베스트픽 가격 업데이트 오류: {e}")
 
 
+@app.post("/api/bestpick/save_picks")
+def save_bestpick_direct(payload: dict):
+    """프론트에서 선정된 top5 종목을 직접 받아 DB 저장 — 화면과 트래커 종목 일치 보장"""
+    picks = payload.get("picks", [])
+    market = payload.get("market", "nasdaq")
+    if not picks:
+        return {"error": "종목 데이터가 없습니다"}
+    result = save_bestpick_to_db(picks, market=market)
+    return {
+        "picks": [{"ticker": p.get("ticker"), "name": p.get("name"),
+                   "sector": p.get("sector"), "total_score": p.get("total_score"),
+                   "price": p.get("price"), "recommendation": p.get("recommendation")}
+                  for p in picks],
+        **result
+    }
+
 @app.post("/api/bestpick/save")
 def save_bestpick(market: str = "nasdaq"):
     """스크리닝 결과에서 베스트픽 5종목을 즉시 선정 후 DB 저장
