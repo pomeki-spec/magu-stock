@@ -817,6 +817,26 @@ def run_full_screening_job():
     elapsed = int((datetime.now() - start).total_seconds() // 60)
     logger.info(f"=== 스크리닝 완료: 소요 {elapsed}분 ===")
 
+    # 텔레그램 알림 발송
+    try:
+        # DB에서 최신 결과 조회
+        alert_results = {}
+        for market in ["nasdaq","sp500","kospi","kosdaq"]:
+            rows = load_screening_from_db(market)
+            if rows: alert_results[market] = rows[:5]
+        # 텐배거 결과
+        tb_rows = []
+        if DATABASE_URL:
+            try:
+                conn = get_conn(); cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+                cur.execute("SELECT * FROM tenbagger_cache ORDER BY total_score DESC LIMIT 10")
+                tb_rows = [dict(r) for r in cur.fetchall()]
+                cur.close(); conn.close()
+            except: pass
+        send_screening_alert(alert_results, tb_rows)
+    except Exception as e:
+        logger.error(f"텔레그램 알림 오류: {e}")
+
 def _run_tenbagger_job():
     results = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
@@ -1039,6 +1059,52 @@ TICKERS_TENBAGGER = list(dict.fromkeys([
 FRED_API_KEY = os.environ.get("FRED_API_KEY", "")
 FRED_BASE    = "https://api.stlouisfed.org/fred/series/observations"
 _liquidity_cache: dict = {}
+
+# ── 텔레그램 알림 ──────────────────────────────────────────────
+TELEGRAM_TOKEN   = os.environ.get("TELEGRAM_TOKEN", "")
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
+
+def send_telegram(message: str):
+    """텔레그램 메시지 발송"""
+    if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
+        logger.info("텔레그램 미설정 — 알림 스킵")
+        return
+    try:
+        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+        resp = requests.post(url, json={
+            "chat_id": TELEGRAM_CHAT_ID,
+            "text": message,
+            "parse_mode": "HTML"
+        }, timeout=10)
+        if resp.status_code == 200:
+            logger.info("텔레그램 알림 발송 완료")
+        else:
+            logger.warning(f"텔레그램 발송 실패: {resp.text}")
+    except Exception as e:
+        logger.error(f"텔레그램 오류: {e}")
+
+def send_screening_alert(market_results: dict, tenbagger_results: list):
+    """스크리닝 완료 후 TOP5 텔레그램 발송"""
+    kst_now = datetime.now(pytz.timezone("Asia/Seoul")).strftime("%Y-%m-%d %H:%M")
+    lines = [f"🔔 <b>WISEMAC STOCK 스크리닝 완료</b>", f"📅 {kst_now}\n"]
+
+    market_labels = {"nasdaq":"🇺🇸 나스닥","sp500":"🇺🇸 S&P500","kospi":"🇰🇷 코스피","kosdaq":"🇰🇷 코스닥"}
+    for market, results in market_results.items():
+        if not results: continue
+        top5 = results[:5]
+        lines.append(f"<b>{market_labels.get(market, market)} TOP 5</b>")
+        for i, r in enumerate(top5, 1):
+            lines.append(f"  {i}. {r.get('name', r['ticker'])} ({r['ticker']}) — {r['total_score']}점")
+        lines.append("")
+
+    if tenbagger_results:
+        top3 = [r for r in tenbagger_results if r.get('total_score', 0) >= 75][:3]
+        if top3:
+            lines.append("<b>🚀 텐배거 최상위</b>")
+            for r in top3:
+                lines.append(f"  🔥 {r.get('name', r['ticker'])} ({r['ticker']}) — {r['total_score']}점")
+
+    send_telegram("\n".join(lines))
 
 def fetch_fred(series_id: str, limit: int = 20):
     if not FRED_API_KEY: return None
@@ -1911,6 +1977,43 @@ scheduler.add_job(
     replace_existing=True,
     misfire_grace_time=3600
 )
+
+@app.post("/api/telegram/rebalance")
+def telegram_rebalance_alert(payload: dict):
+    """리밸런싱 트리거 발동 시 프론트에서 호출"""
+    try:
+        total    = payload.get("total", 0)
+        stock    = payload.get("stock", 0)
+        cash     = payload.get("cash", 0)
+        cur_pct  = payload.get("cur_pct", 0)
+        target   = payload.get("target", 70)
+        gap      = payload.get("gap", 0)
+        action   = payload.get("action", "")
+        amt      = payload.get("amt", 0)
+        kst_now  = datetime.now(pytz.timezone("Asia/Seoul")).strftime("%Y-%m-%d %H:%M")
+
+        direction = "📉 주식 매도 → 현금 확보" if gap > 0 else "📈 현금 → 주식 매수"
+        msg = (
+            f"⚖️ <b>리밸런싱 알림</b>\n"
+            f"📅 {kst_now}\n\n"
+            f"💼 총 자산: {total:,}만원\n"
+            f"📊 현재 주식: {stock:,}만원 ({cur_pct}%)\n"
+            f"💵 현재 현금: {cash:,}만원\n\n"
+            f"🎯 목표 비율: {target}% vs 현재 {cur_pct}% (<b>{gap:+.1f}% 이탈</b>)\n"
+            f"{direction}\n"
+            f"💡 조정 필요 금액: <b>{amt:,}만원</b>"
+        )
+        send_telegram(msg)
+        return {"ok": True}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+@app.post("/api/telegram/test")
+def telegram_test():
+    """텔레그램 연결 테스트"""
+    send_telegram("✅ WISEMAC STOCK 텔레그램 연결 테스트 성공!")
+    return {"ok": True, "token_set": bool(TELEGRAM_TOKEN), "chat_id_set": bool(TELEGRAM_CHAT_ID)}
+
 
 @app.on_event("startup")
 def on_startup():
