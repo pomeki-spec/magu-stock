@@ -143,24 +143,24 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
     <div class="logo-sub">멀티모델 주식 스크리너</div>
   </div>
   <nav class="nav">
-    <div class="nav-item active" id="nav-liquidity" onclick="showPage('liquidity')">
-      <span class="nav-icon">💧</span>
-      <div><div class="nav-label">유동성 판단</div><div class="nav-sub">STEP 1 · 매매 환경</div></div>
-    </div>
-    <div class="nav-item" id="nav-rebalance" onclick="showPage('rebalance')">
-      <span class="nav-icon">⚖️</span>
-      <div><div class="nav-label">리밸런싱</div><div class="nav-sub">포트폴리오 비중 관리</div></div>
-    </div>
-    <div class="nav-item" id="nav-smartmoney" onclick="showPage('smartmoney')">
-      <span class="nav-icon">🏦</span>
-      <div><div class="nav-label">스마트머니</div><div class="nav-sub">섹터 자금 흐름</div></div>
-    </div>
     <div class="nav-item nav-item-main" id="nav-dashboard" onclick="showPage('dashboard')">
       <span class="nav-icon">📊</span>
       <div>
         <div class="nav-label" style="color:#fff;">주식 종합 현황</div>
         <div class="nav-sub">홈 대시보드</div>
       </div>
+    </div>
+    <div class="nav-item active" id="nav-liquidity" onclick="showPage('liquidity')">
+      <span class="nav-icon">💧</span>
+      <div><div class="nav-label">유동성 판단</div><div class="nav-sub">STEP 1 · 매매 환경</div></div>
+    </div>
+    <div class="nav-item" id="nav-smartmoney" onclick="showPage('smartmoney')">
+      <span class="nav-icon">🏦</span>
+      <div><div class="nav-label">스마트머니</div><div class="nav-sub">섹터 자금 흐름</div></div>
+    </div>
+    <div class="nav-item" id="nav-rebalance" onclick="showPage('rebalance')">
+      <span class="nav-icon">⚖️</span>
+      <div><div class="nav-label">리밸런싱</div><div class="nav-sub">포트폴리오 비중 관리</div></div>
     </div>
     <div class="nav-item" id="nav-classic" onclick="showPage('classic')">
       <span class="nav-icon">📉</span>
@@ -2120,12 +2120,11 @@ function renderLiquidity(data) {
     if(i===signal.stage){el.style.background=signal.bg_color;el.style.borderColor=signal.color;el.style.transform='scale(1.04)';el.style.boxShadow=`0 4px 14px ${signal.color}44`;}
     else{el.style.background='#f8fafc';el.style.borderColor='#e2e8f0';el.style.transform='';el.style.boxShadow='';}
   }
-  // 카드 구성: 순유동성(40점) + MMF(20점) + RRP(참고) + TGA(참고)
-  // WALCL은 순유동성 카드 안에 포함되어 있으므로 별도 카드 없음
+  // 카드 구성: 순유동성(40점) → 역레포 → TGA → MMF(20점) — 차트 순서와 동일
   const allInds = [
     data.net_liquidity,
+    ...(data.indicators||[]).filter(ind => ind.fred_id==='RRPONTSYD' || ind.fred_id==='WTREGEN'),
     data.mmf,
-    ...(data.indicators||[]).filter(ind => ind.fred_id==='RRPONTSYD' || ind.fred_id==='WTREGEN')
   ].filter(Boolean);
 
   document.getElementById('liq-indicators').innerHTML = allInds.map(ind => {
