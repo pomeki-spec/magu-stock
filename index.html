@@ -1612,12 +1612,14 @@ async function loadMarketData() {
       const barPct=Math.min(s5dVal/2*50,50);
       if(isNarrowing){
         badge.textContent='분할 매수 고려';
+        badge.setAttribute('data-direction','narrowing');
         badge.style.color='#15803d';
         document.getElementById('hy-card').style.borderTopColor='#22c55e';
         document.getElementById('hy-bar-right').style.width=barPct+'%';
         document.getElementById('hy-bar-left').style.width='0%';
       } else {
         badge.textContent='관망 (비중 축소 고려)';
+        badge.setAttribute('data-direction','widening');
         badge.style.color='#991b1b';
         document.getElementById('hy-card').style.borderTopColor='#ef4444';
         document.getElementById('hy-bar-left').style.width=barPct+'%';
@@ -1773,8 +1775,8 @@ function toggleManualTarget(checked) {
 
 function calcAutoTarget() {
   const fear = parseFloat(document.getElementById('fear-num')?.textContent || '50');
-  const hyBadge = document.getElementById('hy-signal-badge')?.textContent || '';
-  const hyGood = hyBadge.includes('매수');
+  const hyBadge = document.getElementById('hy-signal-badge');
+  const hyGood = hyBadge?.getAttribute('data-direction') === 'narrowing';
 
   let target, reason;
   if(fear <= 10) {
@@ -1909,29 +1911,45 @@ function calcRebalance() {
 }
 
 function updateRbMacro() {
-  // CNN 공포탐욕 — 이미 로드된 값 활용
+  // CNN 공포탐욕 — calcAutoTarget과 동일한 10/20/35/65/79 기준으로 통일
   const fearNum = document.getElementById('fear-num')?.textContent;
-  const fearLabel = document.getElementById('fear-label')?.textContent;
   if(fearNum && fearNum !== '—') {
     const score = parseFloat(fearNum);
     const fearValEl = document.getElementById('rb-macro-fear-val');
     const fearSigEl = document.getElementById('rb-macro-fear-sig');
     const fearCard = document.getElementById('rb-macro-fear');
     fearValEl.textContent = score + '점';
-    if(score <= 25) {
-      fearSigEl.textContent = '→ 주식 비중 확대 고려';
+    if(score <= 10) {
+      fearSigEl.textContent = '→ 역사적 매수 기회';
       fearSigEl.style.color = '#15803d';
       fearCard.style.borderLeftColor = '#22c55e';
-    } else if(score >= 75) {
-      fearSigEl.textContent = '→ 현금 비중 확대 고려';
-      fearSigEl.style.color = '#991b1b';
-      fearCard.style.borderLeftColor = '#ef4444';
-    } else {
-      fearSigEl.textContent = '→ 현 비율 유지';
+      fearValEl.style.color = '#15803d';
+    } else if(score <= 20) {
+      fearSigEl.textContent = '→ 적극 매수 고려';
+      fearSigEl.style.color = '#15803d';
+      fearCard.style.borderLeftColor = '#22c55e';
+      fearValEl.style.color = '#15803d';
+    } else if(score <= 35) {
+      fearSigEl.textContent = '→ 매수 우호 구간';
+      fearSigEl.style.color = '#b45309';
+      fearCard.style.borderLeftColor = '#f59e0b';
+      fearValEl.style.color = '#b45309';
+    } else if(score <= 65) {
+      fearSigEl.textContent = '→ 중립 — 현 비율 유지';
       fearSigEl.style.color = '#64748b';
       fearCard.style.borderLeftColor = '#94a3b8';
+      fearValEl.style.color = '#374151';
+    } else if(score <= 79) {
+      fearSigEl.textContent = '→ 탐욕 — 비중 소폭 축소';
+      fearSigEl.style.color = '#991b1b';
+      fearCard.style.borderLeftColor = '#ef4444';
+      fearValEl.style.color = '#991b1b';
+    } else {
+      fearSigEl.textContent = '→ 극단탐욕 — 현금 확보';
+      fearSigEl.style.color = '#991b1b';
+      fearCard.style.borderLeftColor = '#ef4444';
+      fearValEl.style.color = '#991b1b';
     }
-    document.getElementById('rb-macro-fear-val').style.color = score <= 25 ? '#15803d' : score >= 75 ? '#991b1b' : '#374151';
   }
 
   // VIX
@@ -1966,13 +1984,15 @@ function updateRbMacro() {
   }
 
   // 하이일드
-  const hyBadge = document.getElementById('hy-signal-badge')?.textContent;
+  const hyEl = document.getElementById('hy-signal-badge');
+  const hyDirection = hyEl?.getAttribute('data-direction');
   const hyValEl = document.getElementById('rb-macro-hy-val');
   const hySigEl = document.getElementById('rb-macro-hy-sig');
   const hyCard = document.getElementById('rb-macro-hy');
-  if(hyBadge && hyBadge !== '—') {
-    hyValEl.textContent = hyBadge.includes('매수') ? '축소 중' : '확대 중';
-    if(hyBadge.includes('매수')) {
+  if(hyDirection) {
+    const isNarrowing = hyDirection === 'narrowing';
+    hyValEl.textContent = isNarrowing ? '축소 중' : '확대 중';
+    if(isNarrowing) {
       hySigEl.textContent = '→ 주식 비중 유지/확대';
       hySigEl.style.color = '#15803d';
       hyCard.style.borderLeftColor = '#22c55e';
@@ -1985,12 +2005,12 @@ function updateRbMacro() {
     }
   }
 
-  // 종합 의견
+  // 종합 의견 — CNN 35점 이하를 매수 신호로 통일 (calcAutoTarget과 일치)
   const fear = parseFloat(document.getElementById('fear-num')?.textContent || '50');
   const vix = parseFloat(document.getElementById('vix-val')?.textContent || '20');
-  const hyGood = document.getElementById('hy-signal-badge')?.textContent?.includes('매수');
+  const hyGood = document.getElementById('hy-signal-badge')?.getAttribute('data-direction') === 'narrowing';
   let bullSignals = 0;
-  if(fear <= 30) bullSignals++;
+  if(fear <= 35) bullSignals++;
   if(vix >= 25) bullSignals++;
   if(hyGood) bullSignals++;
 
