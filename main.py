@@ -1630,12 +1630,15 @@ def get_smart_money():
         avg=sum(r["ret_1m"] for r in results)/len(results)
         for r in results: r["rel_strength"]=round(r["ret_1m"]-avg,2)
     try:
-        spy=yf.Ticker("SPY").history(period="3mo")
+        spy=yf.Ticker("SPY").history(period="2y")
         spy_1m=round(float((spy['Close'].iloc[-1]/spy['Close'].iloc[-22]-1)*100),2) if len(spy)>=22 else 0
-        spy_3m=round(float((spy['Close'].iloc[-1]/spy['Close'].iloc[0]-1)*100),2)
-    except: spy_1m=spy_3m=0
+        spy_3m=round(float((spy['Close'].iloc[-1]/spy['Close'].iloc[-66]-1)*100),2) if len(spy)>=66 else 0
+        spy_6m=round(float((spy['Close'].iloc[-1]/spy['Close'].iloc[-132]-1)*100),2) if len(spy)>=132 else 0
+        spy_1y=round(float((spy['Close'].iloc[-1]/spy['Close'].iloc[-252]-1)*100),2) if len(spy)>=252 else 0
+    except: spy_1m=spy_3m=spy_6m=spy_1y=0
     return {"updated_at":datetime.now().strftime("%Y-%m-%d %H:%M"),
-            "spy_ret_1m":spy_1m,"spy_ret_3m":spy_3m,"sectors":results,"total":len(results)}
+            "spy_ret_1m":spy_1m,"spy_ret_3m":spy_3m,"spy_ret_6m":spy_6m,"spy_ret_1y":spy_1y,
+            "sectors":results,"total":len(results)}
 
 @app.get("/api/tenbagger")
 def get_tenbagger():
