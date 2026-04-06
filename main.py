@@ -1412,8 +1412,8 @@ def get_market_breadth():
             SELECT
                 market,
                 COUNT(*) AS total,
-                SUM(CASE WHEN g_ma200 >= 2 THEN 1 ELSE 0 END) AS above_ma200,
-                ROUND(SUM(CASE WHEN g_ma200 >= 2 THEN 1 ELSE 0 END)*100.0/COUNT(*),1) AS pct
+                SUM(CASE WHEN g_ma200 > 0 THEN 1 ELSE 0 END) AS above_ma200,
+                ROUND(SUM(CASE WHEN g_ma200 > 0 THEN 1 ELSE 0 END)*100.0/COUNT(*),1) AS pct
             FROM screening_cache
             WHERE screened_at > NOW() - INTERVAL '25 hours'
             GROUP BY market
@@ -1422,8 +1422,8 @@ def get_market_breadth():
         cur.execute("""
             SELECT
                 COUNT(*) AS total,
-                SUM(CASE WHEN g_ma200 >= 2 THEN 1 ELSE 0 END) AS above_ma200,
-                ROUND(SUM(CASE WHEN g_ma200 >= 2 THEN 1 ELSE 0 END)*100.0/COUNT(*),1) AS pct
+                SUM(CASE WHEN g_ma200 > 0 THEN 1 ELSE 0 END) AS above_ma200,
+                ROUND(SUM(CASE WHEN g_ma200 > 0 THEN 1 ELSE 0 END)*100.0/COUNT(*),1) AS pct
             FROM screening_cache
             WHERE screened_at > NOW() - INTERVAL '25 hours'
         """)
