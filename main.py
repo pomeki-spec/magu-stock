@@ -1692,7 +1692,7 @@ def get_liquidity():
         return {"error":"모든 지표 데이터 수집 실패. FRED API 키 및 네트워크를 확인하세요.",
                 "updated_at":datetime.now().strftime("%Y-%m-%d %H:%M")}
     raw_score=sum(i["score"] for i in scored); raw_max=sum(i["max_score"] for i in scored)
-    total_score=round(raw_score/raw_max*100) if raw_max>0 else 0
+    total_score=raw_score  # 60점 만점 그대로 표시 (환산 없음)
     signal=get_liquidity_signal(total_score)
     for ind in [net_liq,mmf,walcl_d,rrp_d,tga_d]:
         if ind.get("score") is None and ind.get("error"):
@@ -1700,17 +1700,17 @@ def get_liquidity():
     cached_list=[k.upper() for k,v in is_cache.items() if v]
     data_note=(f"⚠️ 캐시 데이터 사용 중: {', '.join(cached_list)}" if cached_list else "✅ 전체 지표 실시간 데이터")
     return {"updated_at":datetime.now().strftime("%Y-%m-%d %H:%M"),
-            "total_score":total_score,"max_score":100,"signal":signal,
+            "total_score":total_score,"max_score":60,"signal":signal,
             "net_liquidity":net_liq,"mmf":mmf,"indicators":[walcl_d,rrp_d,tga_d],
             "data_quality":data_note,"version":"최종판 — 순유동성(WALCL-RRP-TGA) + MMF",
             "scoring_structure":{"순유동성 (40점)":"WALCL-RRP-TGA / 절대수준 25 + 방향성 15",
-                                 "MMF (20점)":"소매 WRMFNS×2.54 추정 / 방향성 기준","합계":"60점 → 100점 환산"},
+                                 "MMF (20점)":"소매 WRMFNS 방향성 기준","합계":"60점 만점"},
             "sources":["TradingView: Fed Net Liquidity = WALCL-RRP-TGA",
                        "뉴욕 연준 / BlackRock / Cleveland Fed 공식 문헌 2025",
                        "ICI MMF 공식 데이터 (2026.03 $7.86조)",
                        "Babypips: TGA $800B 임계점","McClellan Financial: RRP 소진 분석"],
-            "scoring_guide":{"75~100":"🟢 적극매수","55~74":"🔵 매수우호",
-                             "38~54":"🟡 중립관망","20~37":"🟠 매수축소","0~19":"🔴 현금보유"}}
+            "scoring_guide":{"48~60":"🟢 적극매수","36~47":"🔵 매수우호",
+                             "24~35":"🟡 중립관망","12~23":"🟠 매수축소","0~11":"🔴 현금보유"}}
 
 # ══════════════════════════════════════════════════════════════
 # 베스트픽 백테스트 — 실제 추적 방식
