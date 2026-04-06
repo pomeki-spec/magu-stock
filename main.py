@@ -1256,27 +1256,28 @@ def detail_tga(data, is_cached=False):
             "context":ctx}
 
 def get_liquidity_signal(total_score: int) -> dict:
-    if total_score>=75:
+    # 60점 만점 기준 (순유동성 40점 + MMF 20점)
+    if total_score>=48:  # 80% 이상
         return {"stage":1,"signal":"적극매수","emoji":"🟢","color":"#15803d","bg_color":"#dcfce7","border_color":"#86efac",
                 "description":"순유동성이 풍부하고 MMF 자금이 위험자산으로 이동 중입니다.",
                 "action":"스크리닝 신호를 적극 반영하세요. 마구스코어 65점+ 종목 분할 매수 고려.",
                 "step2_guide":"✅ 스크리닝 신호 적극 반영 — 분할 매수 진입 권장"}
-    elif total_score>=55:
+    elif total_score>=36:  # 60% 이상
         return {"stage":2,"signal":"매수우호","emoji":"🔵","color":"#1d4ed8","bg_color":"#dbeafe","border_color":"#93c5fd",
                 "description":"순유동성이 양호합니다. 시장 환경이 매수에 우호적입니다.",
                 "action":"스크리닝 결과를 참고하여 선별적으로 매수하세요.",
                 "step2_guide":"✅ 스크리닝 신호 참고 — 마구스코어 70점+ 종목 위주 선별 매수"}
-    elif total_score>=38:
+    elif total_score>=24:  # 40% 이상
         return {"stage":3,"signal":"중립관망","emoji":"🟡","color":"#b45309","bg_color":"#fef9c3","border_color":"#fde68a",
                 "description":"순유동성 방향이 불확실합니다. 긍정/부정 신호가 혼재합니다.",
                 "action":"신규 매수 자제. 기존 포지션 유지하며 방향 확인 후 판단하세요.",
                 "step2_guide":"⚠️ 스크리닝 참고만 — 신규 매수 자제, 기존 보유 종목 유지"}
-    elif total_score>=20:
+    elif total_score>=12:  # 20% 이상
         return {"stage":4,"signal":"매수축소","emoji":"🟠","color":"#c2410c","bg_color":"#ffedd5","border_color":"#fdba74",
                 "description":"순유동성이 감소하고 있습니다. 위험 관리가 필요합니다.",
                 "action":"신규 매수 중단. 보유 종목 비중 축소 및 손절 기준 점검하세요.",
                 "step2_guide":"🚫 스크리닝 결과 무시 — 포지션 축소, 현금 비중 확대"}
-    else:
+    else:  # 20% 미만
         return {"stage":5,"signal":"현금보유","emoji":"🔴","color":"#991b1b","bg_color":"#fee2e2","border_color":"#fca5a5",
                 "description":"순유동성이 심각하게 경색되어 있습니다.",
                 "action":"전량 현금 보유 권고. 스크리닝 결과와 무관하게 매수 금지.",
@@ -1541,16 +1542,24 @@ def get_stock_score(ticker: str):
         if len(hist_daily)>=252:
             year_return=round((hist_daily['Close'].iloc[-1]/hist_daily['Close'].iloc[-252]-1)*100,1)
         name=KR_NAMES.get(ticker) or info.get('longName') or ticker
+        # 차트용 가격 이력 (최근 252거래일, 주간 샘플링)
+        closes = hist_daily['Close'].round(2).tolist()
+        dates = [str(d.date()) for d in hist_daily.index]
+        ma20 = hist_daily['Close'].rolling(20).mean().round(2).tolist()
+        ma60 = hist_daily['Close'].rolling(60).mean().round(2).tolist()
         return {"ticker":ticker,"name":name,"sector":info.get('sector') or '—',
                 "currency":info.get('currency','USD'),"price":round(current_price,2),
                 "change_pct":round(change_pct,2),"classic_score":classic,
                 "growth_score":growth,"modern_score":modern,"total_score":total,
                 "recommendation":get_recommendation(total,classic,growth,modern),
+                "chart":{"dates":dates,"closes":closes,"ma20":ma20,"ma60":ma60},
                 "detail":{"roe":round((info.get('returnOnEquity') or 0)*100,1),
                           "debt_equity":round(info.get('debtToEquity') or 0,1),
                           "eps_growth":round((info.get('earningsGrowth') or 0)*100,1),
                           "peg":round(info.get('pegRatio') or 0,2),
                           "rsi":rsi_val,"year_return":year_return,
+                          "rev_growth":round((info.get('revenueGrowth') or 0)*100,1),
+                          "op_margin":round((info.get('operatingMargins') or 0)*100,1),
                           "analyst_rec":info.get('recommendationKey') or '—',
                           "market_cap":info.get('marketCap') or 0}}
     except Exception as e: return {"error":f"조회 실패: {str(e)}"}
