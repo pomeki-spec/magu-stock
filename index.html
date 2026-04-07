@@ -677,14 +677,14 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
         <div class="section-title">💼 포트폴리오 입력</div>
         <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px;">
           <div>
-            <div style="font-size:11px;color:var(--sub);margin-bottom:6px;font-weight:600;">총 자산 (만원)</div>
-            <input id="rb-total" type="number" placeholder="예: 13000" value="13000"
+            <div style="font-size:11px;color:var(--sub);margin-bottom:6px;font-weight:600;">총 자산 (원)</div>
+            <input id="rb-total" type="number" placeholder="예: 130000000" value="130000000"
               style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-weight:700;background:var(--card);color:var(--text);box-sizing:border-box;"
               oninput="calcRebalance()">
           </div>
           <div>
-            <div style="font-size:11px;color:var(--sub);margin-bottom:6px;font-weight:600;">현재 주식 금액 (만원)</div>
-            <input id="rb-stock" type="number" placeholder="예: 10000" value="10000"
+            <div style="font-size:11px;color:var(--sub);margin-bottom:6px;font-weight:600;">현재 주식 금액 (원)</div>
+            <input id="rb-stock" type="number" placeholder="예: 100000000" value="100000000"
               style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-weight:700;background:var(--card);color:var(--text);box-sizing:border-box;"
               oninput="calcRebalance()">
           </div>
@@ -728,7 +728,7 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
         <div class="card" style="text-align:center;">
           <div style="font-size:11px;color:var(--sub);margin-bottom:6px;font-weight:600;">총 자산</div>
           <div style="font-size:22px;font-weight:800;" id="rb-disp-total">—</div>
-          <div style="font-size:11px;color:var(--sub);margin-top:2px;">만원</div>
+          <div style="font-size:11px;color:var(--sub);margin-top:2px;">원</div>
         </div>
         <div class="card" style="text-align:center;">
           <div style="font-size:11px;color:var(--sub);margin-bottom:6px;font-weight:600;">현재 주식 비율</div>
@@ -1775,8 +1775,15 @@ let _rbLogs = JSON.parse(localStorage.getItem('rb_logs')||'[]');
 // 저장된 입력값 복원
 (function restoreRbInputs() {
   const saved = JSON.parse(localStorage.getItem('rb_inputs')||'{}');
-  if(saved.total) document.getElementById('rb-total').value = saved.total;
-  if(saved.stock) document.getElementById('rb-stock').value = saved.stock;
+  if(saved.total) {
+    // 구버전 만원 단위 저장값 자동 변환 (10000 미만이면 만원 단위로 판단)
+    const v = parseFloat(saved.total);
+    document.getElementById('rb-total').value = v < 10000 ? v * 10000 : v;
+  }
+  if(saved.stock) {
+    const v = parseFloat(saved.stock);
+    document.getElementById('rb-stock').value = v < 10000 ? v * 10000 : v;
+  }
   if(saved.target) document.getElementById('rb-target').value = saved.target;
   if(saved.trigger) {
     _rbTrigger = saved.trigger;
@@ -1796,6 +1803,19 @@ function saveRbInputs() {
     target: document.getElementById('rb-target').value,
     trigger: _rbTrigger
   }));
+}
+
+function fmtWon(n) {
+  if(n >= 100000000) {
+    const uk = Math.floor(n / 100000000);
+    const rest = n % 100000000;
+    if(rest === 0) return uk + '억원';
+    const man = Math.floor(rest / 10000);
+    return man > 0 ? uk + '억 ' + man.toLocaleString() + '만원' : uk + '억원';
+  } else if(n >= 10000) {
+    return Math.floor(n / 10000).toLocaleString() + '만원';
+  }
+  return n.toLocaleString() + '원';
 }
 
 function toggleManualTarget(checked) {
@@ -1872,11 +1892,11 @@ function calcRebalance() {
   const absGap = Math.abs(gap);
 
   // 상단 4개 카드
-  document.getElementById('rb-disp-total').textContent = total.toLocaleString();
+  document.getElementById('rb-disp-total').textContent = fmtWon(total);
   document.getElementById('rb-disp-cur-pct').textContent = curStockPct + '%';
-  document.getElementById('rb-disp-cur-amt').textContent = stock.toLocaleString() + '만원';
+  document.getElementById('rb-disp-cur-amt').textContent = fmtWon(stock);
   document.getElementById('rb-disp-cash-pct').textContent = curCashPct + '%';
-  document.getElementById('rb-disp-cash-amt').textContent = cash.toLocaleString() + '만원';
+  document.getElementById('rb-disp-cash-amt').textContent = fmtWon(cash);
 
   const gapEl = document.getElementById('rb-disp-gap');
   gapEl.textContent = (gap >= 0 ? '+' : '') + gap + '%';
@@ -1899,7 +1919,7 @@ function calcRebalance() {
       titleEl.textContent = '⚠️ 주식 비중 초과 — 현금 확보 필요';
       titleEl.style.color = '#991b1b';
       descEl.textContent = `목표 ${target}% 대비 현재 ${curStockPct}% (${gap > 0 ? '+' : ''}${gap}% 이탈)`;
-      amtEl.textContent = Math.abs(diff).toLocaleString() + '만원';
+      amtEl.textContent = fmtWon(Math.abs(diff));
       amtEl.style.color = '#ef4444';
       labelEl.textContent = '주식 매도 → 현금 전환';
       labelEl.style.color = '#ef4444';
@@ -1908,7 +1928,7 @@ function calcRebalance() {
       titleEl.textContent = '✅ 주식 비중 부족 — 매수 기회';
       titleEl.style.color = '#15803d';
       descEl.textContent = `목표 ${target}% 대비 현재 ${curStockPct}% (${gap}% 이탈)`;
-      amtEl.textContent = Math.abs(diff).toLocaleString() + '만원';
+      amtEl.textContent = fmtWon(Math.abs(diff));
       amtEl.style.color = '#22c55e';
       labelEl.textContent = '현금 → 주식 매수';
       labelEl.style.color = '#22c55e';
