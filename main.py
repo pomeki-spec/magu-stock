@@ -1739,33 +1739,9 @@ def get_liquidity():
 # ══════════════════════════════════════════════════════════════
 
 def select_bestpick_5(screening_results: list) -> list:
-    """총점 상위 + 섹터 분산: 섹터별 최고점 1개씩, 부족하면 총점 순으로 채움"""
-    candidates = [r for r in screening_results if r.get("recommendation") in ("Strong Buy", "Buy")]
-    if not candidates:
-        candidates = sorted(screening_results, key=lambda x: x["total_score"], reverse=True)
-
-    # 섹터별 최고점 1개씩 선택
-    seen_sectors = {}
-    for r in sorted(candidates, key=lambda x: x["total_score"], reverse=True):
-        sector = r.get("sector") or "Unknown"
-        if sector not in seen_sectors:
-            seen_sectors[sector] = r
-        if len(seen_sectors) >= 5:
-            break
-
-    picks = list(seen_sectors.values())
-
-    # 5개 미만이면 이미 선택된 종목 제외하고 총점 순으로 채움
-    if len(picks) < 5:
-        picked_tickers = {p["ticker"] for p in picks}
-        for r in sorted(candidates, key=lambda x: x["total_score"], reverse=True):
-            if r["ticker"] not in picked_tickers:
-                picks.append(r)
-                picked_tickers.add(r["ticker"])
-            if len(picks) >= 5:
-                break
-
-    return picks[:5]
+    """점수 순 TOP5 선정 — 카드/트래커/저장 모두 동일 기준"""
+    candidates = sorted(screening_results, key=lambda x: x["total_score"], reverse=True)
+    return candidates[:5]
 
 
 def save_bestpick_to_db(picks: list, market: str = "nasdaq") -> dict:
