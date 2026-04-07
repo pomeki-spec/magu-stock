@@ -594,19 +594,21 @@ def score_relative_strength(hist_daily):
         n=min(len(hist_daily)-1,252)
         if n<60: return 0
         stock_ret=float((hist_daily['Close'].iloc[-1]/hist_daily['Close'].iloc[-n]-1)*100)
-        # S&P500 실제 수익률과 비교 — 캐시 활용으로 속도 최적화
         global _gspc_ret_cache
         today=datetime.now().strftime("%Y-%m-%d")
         if _gspc_ret_cache["updated"]==today and _gspc_ret_cache["ret"] is not None:
             mkt_ret=_gspc_ret_cache["ret"]
         else:
             try:
-                spy=yf.Ticker("^GSPC").history(period="1y")
+                spy=yf.Ticker("^GSPC").history(period="1y",timeout=5)
                 spy_n=min(len(spy)-1,n)
-                mkt_ret=float((spy['Close'].iloc[-1]/spy['Close'].iloc[-spy_n]-1)*100) if spy_n>=60 else 10.0*(n/252)
-                _gspc_ret_cache={"ret":mkt_ret,"updated":today}
+                if spy_n>=60:
+                    mkt_ret=float((spy['Close'].iloc[-1]/spy['Close'].iloc[-spy_n]-1)*100)
+                    _gspc_ret_cache={"ret":mkt_ret,"updated":today}
+                else:
+                    mkt_ret=10.0*(n/252)
             except:
-                mkt_ret=10.0*(n/252)
+                mkt_ret=_gspc_ret_cache["ret"] if _gspc_ret_cache["ret"] is not None else 10.0*(n/252)
         excess=stock_ret-mkt_ret
         if excess>=30: return 10
         elif excess>=20: return 8
@@ -1561,11 +1563,13 @@ def get_stock_score(ticker: str):
         if len(hist_daily)>=252:
             year_return=round((hist_daily['Close'].iloc[-1]/hist_daily['Close'].iloc[-252]-1)*100,1)
         name=KR_NAMES.get(ticker) or info.get('longName') or ticker
-        # 차트용 가격 이력 (최근 252거래일, 주간 샘플링)
-        closes = hist_daily['Close'].round(2).tolist()
-        dates = [str(d.date()) for d in hist_daily.index]
-        ma20 = hist_daily['Close'].rolling(20).mean().round(2).tolist()
-        ma60 = hist_daily['Close'].rolling(60).mean().round(2).tolist()
+        # 차트용 가격 이력
+        closes = [round(float(v), 2) if not pd.isna(v) else None for v in hist_daily['Close']]
+        dates = [str(d.date()) if hasattr(d, 'date') else str(d)[:10] for d in hist_daily.index]
+        ma20_raw = hist_daily['Close'].rolling(20).mean()
+        ma60_raw = hist_daily['Close'].rolling(60).mean()
+        ma20 = [round(float(v), 2) if not pd.isna(v) else None for v in ma20_raw]
+        ma60 = [round(float(v), 2) if not pd.isna(v) else None for v in ma60_raw]
         return {"ticker":ticker,"name":name,"sector":info.get('sector') or '—',
                 "currency":info.get('currency','USD'),"price":round(current_price,2),
                 "change_pct":round(change_pct,2),"classic_score":classic,
@@ -1581,7 +1585,9 @@ def get_stock_score(ticker: str):
                           "op_margin":round((info.get('operatingMargins') or 0)*100,1),
                           "analyst_rec":info.get('recommendationKey') or '—',
                           "market_cap":info.get('marketCap') or 0}}
-    except Exception as e: return {"error":f"조회 실패: {str(e)}"}
+    except Exception as e:
+        logger.error(f"종목 조회 오류 [{ticker}]: {e}")
+        return {"error":f"조회 실패: {str(e)}"}
 
 def analyze_etf(etf_info: dict):
     ticker=etf_info["ticker"]
