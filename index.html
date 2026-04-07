@@ -393,7 +393,7 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
       </div>
     </div>
 
-    <div class="section-title">🏆 오늘의 베스트 픽 <span class="section-right">섹터 분산 · 마구 스코어 상위 종목</span></div>
+    <div class="section-title">🏆 오늘의 베스트 픽 <span class="section-right">마구 스코어 상위 5종목</span></div>
     <div class="picks-grid" id="best-picks">
       <div class="empty" style="grid-column:1/-1;">🔄 스크리닝 실행 버튼을 눌러주세요</div>
     </div>
@@ -1150,25 +1150,8 @@ function renderResults(data) {
   document.getElementById('classic-stocks').innerHTML=renderStocks(topClassic);
   document.getElementById('growth-stocks').innerHTML=renderStocks(topGrowth);
   document.getElementById('modern-stocks').innerHTML=renderStocks(topModern);
-  // 섹터 분산 알고리즘 (베스트픽 이력과 동일한 방식)
-  const buyable = results.filter(r=>['Strong Buy','Buy'].includes(r.recommendation));
-  const pool = buyable.length >= 5 ? buyable : results;
-  const seenSectors = {};
-  const top5 = [];
-  for(const s of [...pool].sort((a,b)=>b.total_score-a.total_score)) {
-    const sector = s.sector || 'Unknown';
-    if(!seenSectors[sector]) { seenSectors[sector]=true; top5.push(s); }
-    if(top5.length>=5) break;
-  }
-  // 5개 미만이면 점수 순으로 채움
-  if(top5.length < 5) {
-    const picked = new Set(top5.map(s=>s.ticker));
-    for(const s of pool) {
-      if(!picked.has(s.ticker)) { top5.push(s); picked.add(s.ticker); }
-      if(top5.length>=5) break;
-    }
-  }
-  // 전역 저장 — 베스트픽 트래커 저장 시 동일 종목 사용
+  // 오늘의 베스트픽 — 점수 순 TOP5 (카드/트래커 동일 기준)
+  const top5 = results.slice(0, 5);
   window._currentBestPick5 = top5;
   window._currentBestPickMarket = data.market || currentMarket;
   const darkGradients=['linear-gradient(135deg,#0f2027,#203a43,#2c5364)','linear-gradient(135deg,#1a1a2e,#16213e,#0f3460)','linear-gradient(135deg,#0d1b2a,#1b2838,#2d4a6b)','linear-gradient(135deg,#1c1c2e,#2d2d44,#1a1a3e)','linear-gradient(135deg,#0a0a0a,#1a1a2e,#2c2c4e)'];
