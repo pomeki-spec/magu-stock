@@ -1467,7 +1467,7 @@ async function searchStock() {
         </div></div>
       </div>`;
     }
-  } catch(e){resultBox.innerHTML=`<div style="padding:12px;color:var(--red);font-weight:600;">❌ 서버 오류</div>`;}
+  } catch(e){resultBox.innerHTML=`<div style="padding:12px;color:var(--red);font-weight:600;">❌ 서버 오류: ${e.message}</div>`;}
   btn.disabled=false; btn.innerHTML='🔍 조회';
 }
 
