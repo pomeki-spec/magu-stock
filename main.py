@@ -2039,16 +2039,26 @@ def telegram_rebalance_alert(payload: dict):
         amt      = payload.get("amt", 0)
         kst_now  = datetime.now(pytz.timezone("Asia/Seoul")).strftime("%Y-%m-%d %H:%M")
 
+        def fmt_won(n):
+            if n >= 100000000:
+                uk = int(n // 100000000)
+                rest = int(n % 100000000)
+                man = int(rest // 10000)
+                return f"{uk}억 {man:,}만원" if man > 0 else f"{uk}억원"
+            elif n >= 10000:
+                return f"{int(n//10000):,}만원"
+            return f"{int(n):,}원"
+
         direction = "📉 주식 매도 → 현금 확보" if gap > 0 else "📈 현금 → 주식 매수"
         msg = (
             f"⚖️ <b>리밸런싱 알림</b>\n"
             f"📅 {kst_now}\n\n"
-            f"💼 총 자산: {total:,}만원\n"
-            f"📊 현재 주식: {stock:,}만원 ({cur_pct}%)\n"
-            f"💵 현재 현금: {cash:,}만원\n\n"
+            f"💼 총 자산: {fmt_won(total)}\n"
+            f"📊 현재 주식: {fmt_won(stock)} ({cur_pct}%)\n"
+            f"💵 현재 현금: {fmt_won(cash)}\n\n"
             f"🎯 목표 비율: {target}% vs 현재 {cur_pct}% (<b>{gap:+.1f}% 이탈</b>)\n"
             f"{direction}\n"
-            f"💡 조정 필요 금액: <b>{amt:,}만원</b>"
+            f"💡 조정 필요 금액: <b>{fmt_won(amt)}</b>"
         )
         send_telegram(msg)
         return {"ok": True}
