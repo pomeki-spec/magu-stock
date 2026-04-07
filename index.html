@@ -1373,8 +1373,8 @@ async function onSearchInput(val){
   clearTimeout(_searchDebounce);
   const v=val.trim();
   if(!v){hideDropdown();return;}
-  // 영문/숫자만이면 티커 직접 입력 → 드롭다운 안 띄움
-  if(/^[A-Za-z0-9\-\.]+$/.test(v)&&!/[\uAC00-\uD7A3]/.test(v)){hideDropdown();return;}
+  // 1글자 이하면 드롭다운 안 띄움, 2글자 이상이면 항상 검색
+  if(v.length < 2){hideDropdown();return;}
   _searchDebounce=setTimeout(async()=>{
     try{
       const res=await fetch(`${API}/api/stock/search?q=${encodeURIComponent(v)}`);
