@@ -200,8 +200,8 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
   .liq-scale-grid{grid-template-columns:repeat(5,1fr) !important;}
   #stage-1,#stage-2,#stage-3,#stage-4,#stage-5{padding:10px 4px !important;}
   #stage-1 div,#stage-2 div,#stage-3 div,#stage-4 div,#stage-5 div{font-size:9px !important;}
-  #stage-1>div:nth-child(2),#stage-2>div:nth-child(2),#stage-3>div:nth-child(2),
-  #stage-4>div:nth-child(2),#stage-5>div:nth-child(2){font-size:10px !important;}
+  #stage-1>div:first-child,#stage-2>div:first-child,#stage-3>div:first-child,
+  #stage-4>div:first-child,#stage-5>div:first-child{font-size:11px !important;}
 
   /* ── 섹터 ETF 테이블 가로 스크롤 ── */
   .table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;}
@@ -287,7 +287,7 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
     </div>
     <div class="nav-item active" id="nav-liquidity" onclick="showPage('liquidity')">
       <span class="nav-icon">💧</span>
-      <div><div class="nav-label">유동성 판단</div><div class="nav-sub">STEP 1 · 매매 환경</div></div>
+      <div><div class="nav-label">유동성 판단</div><div class="nav-sub">매매 환경</div></div>
     </div>
     <div class="nav-item" id="nav-smartmoney" onclick="showPage('smartmoney')">
       <span class="nav-icon">🏦</span>
@@ -970,7 +970,6 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
       <div>
         <div class="page-title">💧 유동성 판단</div>
         <div class="update-row">
-          STEP 1 — 시장에 돈이 있는가? 먼저 판단하고, STEP 2(종목 스크리닝)를 보세요.
           <span class="tag-status" id="liq-status" style="background:#eff6ff;color:#1d4ed8;">분석 전</span>
         </div>
       </div>
@@ -979,23 +978,7 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
       </div>
     </div>
 
-    <!-- STEP 안내 -->
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;">
-      <div style="background:linear-gradient(135deg,#eff6ff,#dbeafe);border:1px solid #93c5fd;border-radius:12px;padding:14px;display:flex;align-items:flex-start;gap:10px;">
-        <div style="font-size:24px;flex-shrink:0;">1️⃣</div>
-        <div>
-          <div style="font-size:13px;font-weight:800;color:#1d4ed8;">STEP 1 — 유동성 판단</div>
-          <div style="font-size:11px;color:#3b82f6;margin-top:4px;line-height:1.6;">연준·RRP·TGA·MMF<br>4개 지표로 판단</div>
-        </div>
-      </div>
-      <div style="background:#f8fafc;border:1px solid var(--border);border-radius:12px;padding:14px;display:flex;align-items:flex-start;gap:10px;">
-        <div style="font-size:24px;flex-shrink:0;">2️⃣</div>
-        <div>
-          <div style="font-size:13px;font-weight:800;color:var(--sub);">STEP 2 — 종목 스크리닝</div>
-          <div style="font-size:11px;color:var(--sub);margin-top:4px;line-height:1.6;">유동성 확인 후<br>종합현황에서 실행</div>
-        </div>
-      </div>
-    </div>
+
 
     <!-- 유동성 단계 알림 카드 -->
     <div id="liq-signal-card" style="background:linear-gradient(135deg,#f8fafc,#f1f5f9);border:2px solid var(--border);border-radius:16px;padding:20px;margin-bottom:14px;display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
@@ -1015,45 +998,36 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
       </div>
     </div>
 
-    <!-- STEP 2 가이드 -->
-    <div id="liq-step2-guide" style="background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:14px 18px;margin-bottom:14px;font-size:13px;color:#92400e;display:none;">
-      <div style="font-weight:700;margin-bottom:4px;">📌 STEP 2 종목 스크리닝 가이드</div>
-      <div id="liq-step2-text">—</div>
-    </div>
+
 
     <!-- 5단계 척도 -->
     <div style="background:#fff;border:1px solid var(--border);border-radius:12px;padding:18px;margin-bottom:14px;">
       <div class="section-title">📊 5단계 유동성 척도</div>
       <div class="liq-scale-grid" style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;">
         <div id="stage-1" style="border-radius:10px;padding:14px 10px;text-align:center;border:2px solid #e2e8f0;transition:all .3s;">
-          <div style="font-size:20px;margin-bottom:6px;">🟢</div>
-          <div style="font-size:12px;font-weight:800;color:#15803d;">적극매수</div>
-          <div style="font-size:10px;color:#16a34a;margin-top:4px;">48점 이상</div>
-          <div style="font-size:10px;color:var(--sub);margin-top:4px;">유동성 최대</div>
+          <div style="font-size:16px;font-weight:800;color:#15803d;">적극매수</div>
+          <div style="font-size:12px;color:#16a34a;margin-top:6px;">48점 이상</div>
+          <div style="font-size:11px;color:var(--sub);margin-top:4px;">유동성 최대</div>
         </div>
         <div id="stage-2" style="border-radius:10px;padding:14px 10px;text-align:center;border:2px solid #e2e8f0;transition:all .3s;">
-          <div style="font-size:20px;margin-bottom:6px;">🔵</div>
-          <div style="font-size:12px;font-weight:800;color:#1d4ed8;">매수우호</div>
-          <div style="font-size:10px;color:#3b82f6;margin-top:4px;">36~47점</div>
-          <div style="font-size:10px;color:var(--sub);margin-top:4px;">유동성 양호</div>
+          <div style="font-size:16px;font-weight:800;color:#1d4ed8;">매수우호</div>
+          <div style="font-size:12px;color:#3b82f6;margin-top:6px;">36~47점</div>
+          <div style="font-size:11px;color:var(--sub);margin-top:4px;">유동성 양호</div>
         </div>
         <div id="stage-3" style="border-radius:10px;padding:14px 10px;text-align:center;border:2px solid #e2e8f0;transition:all .3s;">
-          <div style="font-size:20px;margin-bottom:6px;">🟡</div>
-          <div style="font-size:12px;font-weight:800;color:#b45309;">중립관망</div>
-          <div style="font-size:10px;color:#d97706;margin-top:4px;">24~35점</div>
-          <div style="font-size:10px;color:var(--sub);margin-top:4px;">방향 불확실</div>
+          <div style="font-size:16px;font-weight:800;color:#b45309;">중립관망</div>
+          <div style="font-size:12px;color:#d97706;margin-top:6px;">24~35점</div>
+          <div style="font-size:11px;color:var(--sub);margin-top:4px;">방향 불확실</div>
         </div>
         <div id="stage-4" style="border-radius:10px;padding:14px 10px;text-align:center;border:2px solid #e2e8f0;transition:all .3s;">
-          <div style="font-size:20px;margin-bottom:6px;">🟠</div>
-          <div style="font-size:12px;font-weight:800;color:#c2410c;">매수축소</div>
-          <div style="font-size:10px;color:#ea580c;margin-top:4px;">12~23점</div>
-          <div style="font-size:10px;color:var(--sub);margin-top:4px;">유동성 감소</div>
+          <div style="font-size:16px;font-weight:800;color:#c2410c;">매수축소</div>
+          <div style="font-size:12px;color:#ea580c;margin-top:6px;">12~23점</div>
+          <div style="font-size:11px;color:var(--sub);margin-top:4px;">유동성 감소</div>
         </div>
         <div id="stage-5" style="border-radius:10px;padding:14px 10px;text-align:center;border:2px solid #e2e8f0;transition:all .3s;">
-          <div style="font-size:20px;margin-bottom:6px;">🔴</div>
-          <div style="font-size:12px;font-weight:800;color:#991b1b;">현금보유</div>
-          <div style="font-size:10px;color:#dc2626;margin-top:4px;">12점 미만</div>
-          <div style="font-size:10px;color:var(--sub);margin-top:4px;">유동성 경색</div>
+          <div style="font-size:16px;font-weight:800;color:#991b1b;">현금보유</div>
+          <div style="font-size:12px;color:#dc2626;margin-top:6px;">12점 미만</div>
+          <div style="font-size:11px;color:var(--sub);margin-top:4px;">유동성 경색</div>
         </div>
       </div>
     </div>
@@ -2434,12 +2408,6 @@ function renderLiquidity(data) {
   const bar=document.getElementById('liq-score-bar');
   bar.style.width=Math.min(Math.round(score/60*100),100)+'%';
   bar.style.background=signal.color;
-  const guideBox=document.getElementById('liq-step2-guide');
-  guideBox.style.display='block';
-  guideBox.style.background=signal.bg_color;
-  guideBox.style.borderColor=signal.border_color;
-  guideBox.style.color=signal.color;
-  document.getElementById('liq-step2-text').textContent=signal.step2_guide;
   for(let i=1;i<=5;i++) {
     const el=document.getElementById('stage-'+i);
     if(i===signal.stage){el.style.background=signal.bg_color;el.style.borderColor=signal.color;el.style.transform='scale(1.04)';el.style.boxShadow=`0 4px 14px ${signal.color}44`;}
