@@ -111,8 +111,41 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
 .bt-stat-label{font-size:11px;color:var(--sub);margin-bottom:7px;font-weight:600;}
 .bt-stat-val{font-size:24px;font-weight:800;}
 .bt-select{padding:7px 12px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;border:1px solid var(--border);background:#fff;color:var(--text);outline:none;}
-.fred-chart-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;min-width:0;}
-@media(max-width:900px){.fred-chart-grid{grid-template-columns:1fr;}}
+/* ── 모바일 햄버거 버튼 ── */
+.hamburger{display:none;position:fixed;top:12px;left:12px;z-index:1000;background:var(--sidebar);border:none;border-radius:8px;padding:8px 10px;cursor:pointer;flex-direction:column;gap:5px;}
+.hamburger span{display:block;width:22px;height:2px;background:#fff;border-radius:2px;transition:all .2s;}
+.sidebar-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:998;}
+
+/* ── 모바일 미디어 쿼리 ── */
+@media(max-width:768px){
+  .hamburger{display:flex;}
+  .sidebar{transform:translateX(-100%);transition:transform .25s ease;z-index:999;}
+  .sidebar.open{transform:translateX(0);}
+  .sidebar-overlay.open{display:block;}
+  .main{margin-left:0 !important;padding:16px 14px;padding-top:52px;}
+  .topbar{flex-direction:column;gap:10px;}
+  .topbar-right{flex-wrap:wrap;gap:6px;}
+  .mkt-grid{grid-template-columns:1fr 1fr !important;}
+  .macro-grid{grid-template-columns:1fr 1fr !important;}
+  .picks-grid{grid-template-columns:1fr 1fr !important;}
+  .model-grid{grid-template-columns:1fr !important;}
+  .rb-grid{grid-template-columns:1fr 1fr !important;}
+  .run-btn{padding:7px 12px;font-size:12px;}
+  .seg-btn{padding:6px 10px;font-size:12px;}
+  .stbl{font-size:12px;}
+  .stbl th,.stbl td{padding:8px 8px;}
+  .page-title{font-size:20px;}
+  .fred-chart-grid{grid-template-columns:1fr !important;}
+  .sector-grid{grid-template-columns:repeat(3,1fr) !important;}
+  .sector-heatmap{grid-template-columns:repeat(4,1fr) !important;}
+  .bt-summary-grid{grid-template-columns:1fr 1fr !important;}
+  /* 인라인 스타일 그리드 강제 오버라이드 */
+  [style*="grid-template-columns:repeat(4"]{grid-template-columns:1fr 1fr !important;}
+  [style*="grid-template-columns:repeat(3"]{grid-template-columns:1fr 1fr !important;}
+  [style*="grid-template-columns:repeat(5"]{grid-template-columns:1fr 1fr !important;}
+  /* 리밸런싱 입력 영역 */
+  [style*="display:grid"][style*="3,1fr"]{grid-template-columns:1fr !important;}
+}
 .fred-chart-grid>div{min-width:0;overflow:hidden;}
 .fred-chart-wrap{position:relative;width:100%;height:200px;min-width:0;}
 .sector-heatmap{display:grid;grid-template-columns:repeat(11,1fr);gap:6px;margin-bottom:14px;}
@@ -137,7 +170,13 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
 </head>
 <body>
 
-<div class="sidebar">
+<!-- 모바일 햄버거 버튼 -->
+<button class="hamburger" id="hamburger-btn" onclick="toggleSidebar()" aria-label="메뉴">
+  <span></span><span></span><span></span>
+</button>
+<div class="sidebar-overlay" id="sidebar-overlay" onclick="closeSidebar()"></div>
+
+<div class="sidebar" id="sidebar">
   <div class="logo-area">
     <div><span class="logo-name">WISEMAC STOCK</span><span class="logo-badge">MVP</span></div>
     <div class="logo-sub">멀티모델 주식 스크리너</div>
@@ -985,6 +1024,15 @@ let _tbResults    = [];
 let _liqData      = null;
 
 // ── 페이지 전환 ──
+function toggleSidebar() {
+  document.getElementById('sidebar').classList.toggle('open');
+  document.getElementById('sidebar-overlay').classList.toggle('open');
+}
+function closeSidebar() {
+  document.getElementById('sidebar').classList.remove('open');
+  document.getElementById('sidebar-overlay').classList.remove('open');
+}
+
 function showPage(page) {
   ['dashboard','classic','growth','modern','tenbagger','backtest','smartmoney','liquidity','rebalance'].forEach(p => {
     document.getElementById('page-'+p).style.display = p===page?'block':'none';
@@ -999,6 +1047,8 @@ function showPage(page) {
     else document.getElementById(page+'-page-content').innerHTML='<div class="empty" style="background:#fff;border-radius:12px;border:1px solid var(--border);padding:44px;">먼저 종합 현황에서 🔄 스크리닝을 실행해주세요</div>';
   }
   window.scrollTo(0,0);
+  // 모바일에서 페이지 전환 시 사이드바 닫기
+  if(window.innerWidth <= 768) closeSidebar();
 }
 
 function switchMarket(m) {
