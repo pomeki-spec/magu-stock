@@ -1,9 +1,10 @@
 from fastapi import FastAPI, BackgroundTasks
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 import yfinance as yf
 import ta
 import pandas as pd
+import numpy as np
 from datetime import datetime, timedelta
 import concurrent.futures
 import os
@@ -11,6 +12,7 @@ import requests
 import psycopg2
 import psycopg2.extras
 import json
+import math
 import pytz
 import logging
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -18,6 +20,27 @@ from apscheduler.triggers.cron import CronTrigger
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+def sanitize(obj):
+    """NaN/Inf float 값을 None으로 변환 — JSON 직렬화 오류 방지"""
+    if isinstance(obj, float):
+        if math.isnan(obj) or math.isinf(obj):
+            return None
+        return obj
+    if isinstance(obj, (np.floating, np.float64, np.float32)):
+        v = float(obj)
+        return None if (math.isnan(v) or math.isinf(v)) else v
+    if isinstance(obj, (np.integer, np.int64, np.int32)):
+        return int(obj)
+    if isinstance(obj, dict):
+        return {k: sanitize(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [sanitize(v) for v in obj]
+    return obj
+
+def safe_json(data):
+    """sanitize 후 JSONResponse 반환"""
+    return JSONResponse(content=sanitize(data))
 
 app = FastAPI()
 
@@ -399,6 +422,7 @@ KR_NAMES = {
     "126340.KQ":"비나텍","140860.KQ":"파크시스템스","323280.KQ":"태성",
     "232140.KQ":"와이씨","065510.KQ":"휴비스","066970.KQ":"엘앤에프",
     "058610.KQ":"에스피지","039440.KQ":"에스티아이","053160.KQ":"CJ CGV",
+    "035760.KQ":"CJ ENM","079160.KQ":"CJ CGV","004840.KS":"CJ대한통운","000120.KS":"CJ씨푸드",
     "228760.KQ":"지노믹트리","251970.KQ":"펌텍코리아","256840.KQ":"한국비엔씨",
     "319400.KQ":"현대무벡스","036830.KQ":"솔브레인홀딩스","357120.KQ":"큐라클",
     "048910.KQ":"대원미디어","053800.KQ":"안랩","041830.KQ":"인바디",
@@ -681,7 +705,7 @@ def fetch_single_stock(ticker, market):
         if len(hist_daily)>=14:
             rsi_val=round(float(ta.momentum.RSIIndicator(hist_daily['Close'],window=14).rsi().iloc[-1]),1)
         name=KR_NAMES.get(ticker) or info.get('longName',ticker); sector=info.get('sector') or 'Unknown'
-        return {
+        return sanitize({
             "ticker":ticker,"name":name,"sector":sector,"etf":SECTOR_TO_ETF.get(sector,""),
             "market":market,
             "price":round(current_price,2),"change_pct":round(change_pct,2),
@@ -692,7 +716,7 @@ def fetch_single_stock(ticker, market):
             "c_ema":c_ema,"c_stoch":c_stoch,"c_break":c_break,
             "g_roe":g_roe,"g_debt":g_debt,"g_eps":g_eps,"g_peg":g_peg,"g_ma200":g_ma200,"g_rsi":g_rsi,
             "m_anal":m_anal,"m_rs":m_rs,"m_obv":m_obv,
-        }
+        })
     except: return None
 
 # ══════════════════════════════════════════════════════════════
@@ -1374,8 +1398,8 @@ def get_market_data():
             logger.warning(f"하이일드 스프레드 오류: {e}")
             result["high_yield"]={"direction":"unknown","signal":"데이터 없음"}
 
-        return result
-    except: return {}
+        return safe_json(result)
+    except: return safe_json({})
 
 
 @app.get("/api/fear_greed")
@@ -1496,9 +1520,9 @@ def screen_stocks(market: str = "nasdaq"):
             if r: results.append(r)
     results.sort(key=lambda x:x['total_score'],reverse=True)
     results=get_portfolio_weight(results)
-    return {"market":market,"market_label":_market_label(market),"currency":_currency(market),
+    return safe_json({"market":market,"market_label":_market_label(market),"currency":_currency(market),
             "updated_at":datetime.now().strftime("%Y-%m-%d %H:%M"),
-            "total_screened":len(results),"results":results,"from_cache":False}
+            "total_screened":len(results),"results":results,"from_cache":False})
 
 @app.post("/api/screen/run")
 def trigger_screening(background_tasks: BackgroundTasks):
@@ -1635,11 +1659,11 @@ def analyze_etf(etf_info: dict):
         elif sc>=-3: trend,ts="소폭유출",-3
         elif sc>=-5: trend,ts="유출",-5
         else:        trend,ts="강한유출",-10
-        return {"ticker":ticker,"name":etf_info["name"],"name_en":etf_info["name_en"],"emoji":etf_info["emoji"],
+        return sanitize({"ticker":ticker,"name":etf_info["name"],"name_en":etf_info["name_en"],"emoji":etf_info["emoji"],
                 "price":round(price,2),"ret_1d":r1d,"ret_1w":r1w,"ret_1m":r1m,
                 "ret_3m":r3m,"ret_6m":r6m,"ret_1y":r1y,
                 "vol_ratio":vol_ratio,"rsi":rsi_val,"from_52w_high":from_high,
-                "inst_pct":inst_pct,"trend":trend,"trend_score":ts,"momentum_score":sc}
+                "inst_pct":inst_pct,"trend":trend,"trend_score":ts,"momentum_score":sc})
     except: return None
 
 @app.get("/api/smartmoney")
@@ -1661,9 +1685,9 @@ def get_smart_money():
         spy_6m=round(float((spy['Close'].iloc[-1]/spy['Close'].iloc[-132]-1)*100),2) if len(spy)>=132 else 0
         spy_1y=round(float((spy['Close'].iloc[-1]/spy['Close'].iloc[-252]-1)*100),2) if len(spy)>=252 else 0
     except: spy_1m=spy_3m=spy_6m=spy_1y=0
-    return {"updated_at":datetime.now().strftime("%Y-%m-%d %H:%M"),
+    return safe_json({"updated_at":datetime.now().strftime("%Y-%m-%d %H:%M"),
             "spy_ret_1m":spy_1m,"spy_ret_3m":spy_3m,"spy_ret_6m":spy_6m,"spy_ret_1y":spy_1y,
-            "sectors":results,"total":len(results)}
+            "sectors":results,"total":len(results)})
 
 @app.get("/api/tenbagger")
 def get_tenbagger():
@@ -1691,9 +1715,9 @@ def get_tenbagger():
                 if r: results.append(r)
             except: continue
     results.sort(key=lambda x:x['total_score'],reverse=True)
-    return {"updated_at":datetime.now().strftime("%Y-%m-%d %H:%M"),
+    return safe_json({"updated_at":datetime.now().strftime("%Y-%m-%d %H:%M"),
             "total":len(results),"universe":f"나스닥 중소형 성장주 {len(TICKERS_TENBAGGER)}개",
-            "results":results,"from_cache":False}
+            "results":results,"from_cache":False})
 
 @app.get("/api/liquidity")
 def get_liquidity():
@@ -1727,7 +1751,7 @@ def get_liquidity():
             ind["score"]="N/A"; ind["status"]="⚠️ 데이터 없음"
     cached_list=[k.upper() for k,v in is_cache.items() if v]
     data_note=(f"⚠️ 캐시 데이터 사용 중: {', '.join(cached_list)}" if cached_list else "✅ 전체 지표 실시간 데이터")
-    return {"updated_at":datetime.now().strftime("%Y-%m-%d %H:%M"),
+    return safe_json({"updated_at":datetime.now().strftime("%Y-%m-%d %H:%M"),
             "total_score":total_score,"max_score":60,"signal":signal,
             "net_liquidity":net_liq,"mmf":mmf,"indicators":[walcl_d,rrp_d,tga_d],
             "data_quality":data_note,"version":"최종판 — 순유동성(WALCL-RRP-TGA) + MMF",
@@ -1738,7 +1762,7 @@ def get_liquidity():
                        "ICI MMF 공식 데이터 (2026.03 $7.86조)",
                        "Babypips: TGA $800B 임계점","McClellan Financial: RRP 소진 분석"],
             "scoring_guide":{"48~60":"🟢 적극매수","36~47":"🔵 매수우호",
-                             "24~35":"🟡 중립관망","12~23":"🟠 매수축소","0~11":"🔴 현금보유"}}
+                             "24~35":"🟡 중립관망","12~23":"🟠 매수축소","0~11":"🔴 현금보유"}})
 
 # ══════════════════════════════════════════════════════════════
 # 베스트픽 백테스트 — 실제 추적 방식
