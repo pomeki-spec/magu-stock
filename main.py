@@ -699,16 +699,21 @@ def fetch_single_stock(ticker, market):
         m_anal=score_analyst(info.get('recommendationKey','') or '')
         m_rs=score_relative_strength(hist_daily); m_obv=score_obv_momentum(hist_daily)
         modern=m_anal+m_rs+m_obv; total=classic+growth+modern
-        current_price=float(hist_daily['Close'].iloc[-1]); prev_price=float(hist_daily['Close'].iloc[-2])
-        change_pct=(current_price/prev_price-1)*100
+        cp=hist_daily['Close'].iloc[-1]; pp=hist_daily['Close'].iloc[-2]
+        current_price=float(cp) if not (math.isnan(float(cp)) or math.isinf(float(cp))) else 0.0
+        prev_price=float(pp) if not (math.isnan(float(pp)) or math.isinf(float(pp))) else current_price
+        change_pct=round((current_price/prev_price-1)*100,2) if prev_price!=0 else 0.0
         rsi_val=0.0
         if len(hist_daily)>=14:
-            rsi_val=round(float(ta.momentum.RSIIndicator(hist_daily['Close'],window=14).rsi().iloc[-1]),1)
+            try:
+                rv=float(ta.momentum.RSIIndicator(hist_daily['Close'],window=14).rsi().iloc[-1])
+                if not (math.isnan(rv) or math.isinf(rv)): rsi_val=round(rv,1)
+            except: pass
         name=KR_NAMES.get(ticker) or info.get('longName',ticker); sector=info.get('sector') or 'Unknown'
-        return sanitize({
+        return {
             "ticker":ticker,"name":name,"sector":sector,"etf":SECTOR_TO_ETF.get(sector,""),
             "market":market,
-            "price":round(current_price,2),"change_pct":round(change_pct,2),
+            "price":round(current_price,2),"change_pct":change_pct,
             "classic_score":classic,"growth_score":growth,"modern_score":modern,
             "total_score":total,"recommendation":get_recommendation(total,classic,growth,modern),
             "weight":0,"rsi":rsi_val,
@@ -716,7 +721,7 @@ def fetch_single_stock(ticker, market):
             "c_ema":c_ema,"c_stoch":c_stoch,"c_break":c_break,
             "g_roe":g_roe,"g_debt":g_debt,"g_eps":g_eps,"g_peg":g_peg,"g_ma200":g_ma200,"g_rsi":g_rsi,
             "m_anal":m_anal,"m_rs":m_rs,"m_obv":m_obv,
-        })
+        }
     except: return None
 
 # ══════════════════════════════════════════════════════════════
@@ -1347,13 +1352,16 @@ def get_market_data():
             try:
                 t=yf.Ticker(symbol); hist=t.history(period="10d")
                 if len(hist)>=2:
-                    current=hist['Close'].iloc[-1]; prev=hist['Close'].iloc[-2]
+                    current=float(hist['Close'].iloc[-1]); prev=float(hist['Close'].iloc[-2])
+                    if math.isnan(current) or math.isnan(prev) or prev==0:
+                        result[key]={"value":None,"change":None}
+                        continue
                     row={"value":round(current,2),"change":round((current/prev-1)*100,2)}
-                    # VIX: 5일 전 대비 방향성 추가
                     if key=="vix" and len(hist)>=6:
-                        prev5=hist['Close'].iloc[-6]
-                        row["direction"]="up" if current>prev5 else "down"
-                        row["prev5"]=round(prev5,2)
+                        prev5=float(hist['Close'].iloc[-6])
+                        if not math.isnan(prev5):
+                            row["direction"]="up" if current>prev5 else "down"
+                            row["prev5"]=round(prev5,2)
                     result[key]=row
             except: result[key]={"value":None,"change":None}
 
@@ -1618,34 +1626,63 @@ def analyze_etf(etf_info: dict):
     try:
         t=yf.Ticker(ticker); info=t.info; hist=t.history(period="2y")
         if hist.empty or len(hist)<60: return None
-        price=float(hist['Close'].iloc[-1])
-        p1d=float(hist['Close'].iloc[-2])  if len(hist)>=2   else price
-        p1w=float(hist['Close'].iloc[-6])  if len(hist)>=6   else price
-        p1m=float(hist['Close'].iloc[-22]) if len(hist)>=22  else price
-        p3m=float(hist['Close'].iloc[-66]) if len(hist)>=66  else price
-        p6m=float(hist['Close'].iloc[-132])if len(hist)>=132 else price
-        p1y=float(hist['Close'].iloc[-252])if len(hist)>=252 else float(hist['Close'].iloc[0])
-        r1d=round((price/p1d-1)*100,2); r1w=round((price/p1w-1)*100,2)
-        r1m=round((price/p1m-1)*100,2); r3m=round((price/p3m-1)*100,2)
-        r6m=round((price/p6m-1)*100,2); r1y=round((price/p1y-1)*100,2)
-        vol5d=float(hist['Volume'].iloc[-5:].mean()); vol20d=float(hist['Volume'].iloc[-20:].mean())
-        vol_ratio=round(vol5d/vol20d,2) if vol20d>0 else 1.0
+
+        def safe_float(val, fallback=None):
+            try:
+                v = float(val)
+                return fallback if (math.isnan(v) or math.isinf(v)) else v
+            except: return fallback
+
+        def safe_ret(a, b):
+            if a is None or b is None or b == 0: return None
+            try:
+                v = (a/b-1)*100
+                return round(v,2) if not (math.isnan(v) or math.isinf(v)) else None
+            except: return None
+
+        price=safe_float(hist['Close'].iloc[-1])
+        if price is None: return None
+
+        p1d=safe_float(hist['Close'].iloc[-2]) if len(hist)>=2 else price
+        p1w=safe_float(hist['Close'].iloc[-6]) if len(hist)>=6 else price
+        p1m=safe_float(hist['Close'].iloc[-22]) if len(hist)>=22 else price
+        p3m=safe_float(hist['Close'].iloc[-66]) if len(hist)>=66 else price
+        p6m=safe_float(hist['Close'].iloc[-132]) if len(hist)>=132 else price
+        p1y=safe_float(hist['Close'].iloc[-252]) if len(hist)>=252 else safe_float(hist['Close'].iloc[0])
+
+        r1d=safe_ret(price,p1d); r1w=safe_ret(price,p1w)
+        r1m=safe_ret(price,p1m); r3m=safe_ret(price,p3m)
+        r6m=safe_ret(price,p6m); r1y=safe_ret(price,p1y)
+
+        vol5d=safe_float(hist['Volume'].iloc[-5:].mean(),0)
+        vol20d=safe_float(hist['Volume'].iloc[-20:].mean(),0)
+        vol_ratio=round(vol5d/vol20d,2) if vol20d and vol20d>0 else 1.0
+
         rsi_val=0.0
-        if len(hist)>=14: rsi_val=round(float(ta.momentum.RSIIndicator(hist['Close'],window=14).rsi().iloc[-1]),1)
-        high_52w=float(hist['High'].iloc[-252:].max()) if len(hist)>=252 else float(hist['High'].max())
-        from_high=round((price/high_52w-1)*100,1)
-        inst_pct=round(float(info.get('heldPercentInstitutions') or 0)*100,1)
+        try:
+            if len(hist)>=14:
+                rv=safe_float(ta.momentum.RSIIndicator(hist['Close'],window=14).rsi().iloc[-1])
+                if rv is not None: rsi_val=round(rv,1)
+        except: pass
+
+        high_52w_raw=hist['High'].iloc[-252:].max() if len(hist)>=252 else hist['High'].max()
+        high_52w=safe_float(high_52w_raw)
+        from_high=round((price/high_52w-1)*100,1) if high_52w and high_52w>0 else None
+        inst_pct=round(safe_float(info.get('heldPercentInstitutions') or 0, 0)*100,1)
+
         sc=0
-        if r1m>5:sc+=3
-        elif r1m>2:sc+=2
-        elif r1m>0:sc+=1
-        elif r1m<-5:sc-=3
-        elif r1m<-2:sc-=2
-        elif r1m<0:sc-=1
-        if r3m>10:sc+=2
-        elif r3m>3:sc+=1
-        elif r3m<-10:sc-=2
-        elif r3m<-3:sc-=1
+        if r1m is not None:
+            if r1m>5:sc+=3
+            elif r1m>2:sc+=2
+            elif r1m>0:sc+=1
+            elif r1m<-5:sc-=3
+            elif r1m<-2:sc-=2
+            elif r1m<0:sc-=1
+        if r3m is not None:
+            if r3m>10:sc+=2
+            elif r3m>3:sc+=1
+            elif r3m<-10:sc-=2
+            elif r3m<-3:sc-=1
         if vol_ratio>1.3:sc+=2
         elif vol_ratio>1.1:sc+=1
         elif vol_ratio<0.7:sc-=2
@@ -1659,12 +1696,14 @@ def analyze_etf(etf_info: dict):
         elif sc>=-3: trend,ts="소폭유출",-3
         elif sc>=-5: trend,ts="유출",-5
         else:        trend,ts="강한유출",-10
-        return sanitize({"ticker":ticker,"name":etf_info["name"],"name_en":etf_info["name_en"],"emoji":etf_info["emoji"],
+        return {"ticker":ticker,"name":etf_info["name"],"name_en":etf_info["name_en"],"emoji":etf_info["emoji"],
                 "price":round(price,2),"ret_1d":r1d,"ret_1w":r1w,"ret_1m":r1m,
                 "ret_3m":r3m,"ret_6m":r6m,"ret_1y":r1y,
                 "vol_ratio":vol_ratio,"rsi":rsi_val,"from_52w_high":from_high,
-                "inst_pct":inst_pct,"trend":trend,"trend_score":ts,"momentum_score":sc})
-    except: return None
+                "inst_pct":inst_pct,"trend":trend,"trend_score":ts,"momentum_score":sc}
+    except Exception as e:
+        logger.warning(f"analyze_etf 오류 [{ticker}]: {e}")
+        return None
 
 @app.get("/api/smartmoney")
 def get_smart_money():
