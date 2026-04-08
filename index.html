@@ -2,7 +2,10 @@
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>WISEMAC STOCK — 멀티모델 주식 스크리너</title>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@400;500;600;700;800&display=swap');
@@ -13,7 +16,11 @@
   --blue:#3b82f6;--green:#22c55e;--red:#ef4444;
   --orange:#f59e0b;--purple:#8b5cf6;
 }
-body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:var(--text);display:flex;min-height:100vh;font-size:14px;}
+body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:var(--text);display:flex;min-height:100vh;font-size:14px;-webkit-tap-highlight-color:transparent;}
+/* 버튼 전체 — 터치 최적화 */
+button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
+/* 한국어 단어 단위 줄바꿈 */
+.nav-label,.nav-sub,.page-title,.section-title,.mkt-label,.bt-stat-label{word-break:keep-all;}
 .sidebar{width:200px;background:var(--sidebar);min-height:100vh;display:flex;flex-direction:column;flex-shrink:0;position:fixed;top:0;left:0;height:100%;overflow-y:auto;}
 .logo-area{padding:22px 18px 18px;border-bottom:1px solid rgba(255,255,255,.07);}
 .logo-name{font-size:16px;font-weight:800;color:#fff;letter-spacing:-.3px;}
@@ -122,22 +129,28 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
   .sidebar{transform:translateX(-100%);transition:transform .25s ease;z-index:999;}
   .sidebar.open{transform:translateX(0);}
   .sidebar-overlay.open{display:block;}
-  .main{margin-left:0 !important;padding:14px 12px;padding-top:54px;}
+  .main{margin-left:0 !important;padding:12px 10px;padding-top:52px;}
 
-  /* 타이틀/헤더 */
-  .page-title{font-size:18px;}
-  .topbar{flex-direction:column;gap:8px;margin-bottom:14px;}
-  .topbar-right{flex-wrap:wrap;gap:6px;}
+  /* ── 타이틀/헤더 ── */
+  .page-title{font-size:17px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .topbar{flex-direction:column;gap:8px;margin-bottom:12px;}
+  .topbar-right{flex-wrap:wrap;gap:6px;width:100%;}
+  .update-row{font-size:11px;flex-wrap:wrap;gap:4px;}
 
-  /* 버튼 */
-  .run-btn{padding:7px 11px;font-size:12px;}
-  .seg-btn{padding:5px 9px;font-size:11px;}
-  .back-btn{padding:6px 12px;font-size:13px;}
+  /* ── 버튼 — 줄바꿈 방지 ── */
+  .run-btn{padding:7px 10px;font-size:12px;white-space:nowrap;}
+  .seg-btn{padding:5px 7px;font-size:11px;white-space:nowrap;}
+  .back-btn{padding:6px 12px;font-size:13px;white-space:nowrap;}
+  .filter-btn{padding:4px 10px;font-size:11px;white-space:nowrap;}
 
-  /* 종목 점수 조회 — 타이틀 우측 설명 숨김 */
+  /* ── section-right 숨김 ── */
   .section-right{display:none;}
 
-  /* 그리드 통일 */
+  /* ── 카드/섹션 패딩 ── */
+  .card{padding:14px 12px;}
+  .section-title{font-size:13px;}
+
+  /* ── 그리드 통일 ── */
   .mkt-grid{grid-template-columns:1fr 1fr !important;}
   .macro-grid{grid-template-columns:1fr 1fr !important;}
   .picks-grid{grid-template-columns:1fr 1fr !important;}
@@ -145,35 +158,89 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
   .rb-grid{grid-template-columns:1fr 1fr !important;}
   .bt-summary-grid{grid-template-columns:1fr 1fr !important;}
   .fred-chart-grid{grid-template-columns:1fr !important;}
-  .sector-heatmap{grid-template-columns:repeat(4,1fr) !important;}
+  .sector-heatmap{grid-template-columns:repeat(3,1fr) !important;}
 
-  /* 인라인 그리드 강제 오버라이드 */
+  /* ── 인라인 grid 강제 오버라이드 ── */
   [style*="grid-template-columns:repeat(4"]{grid-template-columns:1fr 1fr !important;}
   [style*="grid-template-columns:repeat(3"]{grid-template-columns:1fr 1fr !important;}
   [style*="grid-template-columns:repeat(5"]{grid-template-columns:1fr 1fr !important;}
 
-  /* 테이블 */
+  /* ── 시장 선택 버튼 행 — 가로 스크롤 허용 ── */
+  .topbar-right>div{overflow-x:auto;-webkit-overflow-scrolling:touch;white-space:nowrap;display:flex;gap:6px;flex-wrap:nowrap;max-width:100%;}
+
+  /* ── 종목 카드 (베스트픽) — 너무 작아지지 않도록 ── */
+  .picks-grid>div{min-width:0;}
+
+  /* ── 사이드바 네비 라벨 줄바꿈 방지 ── */
+  .nav-label{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12px;}
+  .nav-sub{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:9px;}
+
+  /* ── 섹터 히트맵 셀 ── */
+  .sector-cell{padding:8px 4px;}
+  .sector-cell .sc-emoji{font-size:16px;margin-bottom:2px;}
+  .sector-cell .sc-name{font-size:8px;}
+  .sector-cell .sc-ret{font-size:11px;}
+  .sector-cell .sc-badge{font-size:8px;padding:1px 4px;}
+
+  /* ── 상대강도 바차트 라벨 ── */
+  .sm-bar-label{width:80px;font-size:10px;}
+
+  /* ── 테이블 ── */
   .stbl{font-size:11px;}
-  .stbl th,.stbl td{padding:7px 6px;}
+  .stbl th,.stbl td{padding:6px 6px;white-space:nowrap;}
 
-  /* 종목 카드 */
+  /* ── 종목 카드 (모델 설명) ── */
   .cond-step{padding:10px 12px;}
+  .cond-step>div:first-child{font-size:12px !important;white-space:normal;word-break:keep-all;}
 
-  /* 리밸런싱 */
+  /* ── 리밸런싱 ── */
   .rb-input-grid{grid-template-columns:1fr !important;}
 
-  /* 유동성 척도 5단계 → 3열 */
-  .liq-scale-grid{grid-template-columns:repeat(3,1fr) !important;}
+  /* ── 유동성 척도 5단계 — 모바일에서도 5열 유지하되 셀 작게 ── */
+  .liq-scale-grid{grid-template-columns:repeat(5,1fr) !important;}
+  #stage-1,#stage-2,#stage-3,#stage-4,#stage-5{padding:10px 4px !important;}
+  #stage-1 div,#stage-2 div,#stage-3 div,#stage-4 div,#stage-5 div{font-size:9px !important;}
+  #stage-1>div:nth-child(2),#stage-2>div:nth-child(2),#stage-3>div:nth-child(2),
+  #stage-4>div:nth-child(2),#stage-5>div:nth-child(2){font-size:10px !important;}
 
-  /* 매크로 신호 3열 → 1열 */
-  [style*="grid-template-columns:repeat(3"]{grid-template-columns:1fr !important;}
-
-  /* 섹터 ETF 테이블 가로 스크롤 */
+  /* ── 섹터 ETF 테이블 가로 스크롤 ── */
   .table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;}
 
-  /* 베스트픽 카드 폰트 */
+  /* ── 베스트픽 카드 폰트 ── */
   .picks-grid [style*="font-size:14px"]{font-size:12px !important;}
   .picks-grid [style*="font-size:18px"]{font-size:15px !important;}
+
+  /* ── 시장 지수 카드 수치 줄바꿈 방지 ── */
+  .mkt-val{font-size:17px;white-space:nowrap;}
+  .mkt-chg{font-size:11px;white-space:nowrap;}
+
+  /* ── 유동성 신호 카드 ── */
+  #liq-signal-card{padding:14px;gap:10px;}
+  #liq-signal-card [style*="font-size:48px"]{font-size:32px !important;}
+  #liq-signal-card [style*="font-size:28px"]{font-size:18px !important;}
+  #liq-signal-card [style*="font-size:44px"]{font-size:28px !important;}
+  #liq-signal-card [style*="min-width:120px"]{min-width:80px !important;}
+  #liq-signal-card [style*="width:160px"]{width:100% !important;}
+
+  /* ── 베스트픽 트래커 통계 카드 ── */
+  .bt-stat-label{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:10px !important;}
+  .bt-stat-val{font-size:20px !important;}
+
+  /* ── 사이드바 지수 라벨 ── */
+  .idx-name{white-space:nowrap;font-size:10px;}
+  .idx-val{font-size:10px;white-space:nowrap;}
+
+  /* ── 리밸런싱 매크로 신호 3열 → 1열 ── */
+  #page-rebalance [style*="grid-template-columns:repeat(3"]{grid-template-columns:1fr 1fr !important;}
+
+  /* ── 스마트머니 장세 판단 카드 ── */
+  .market-judge-card [style*="font-size:36px"]{font-size:24px !important;}
+  .market-judge-card [style*="font-size:18px"]{font-size:14px !important;}
+
+  /* ── FRED 차트 높이 ── */
+  .fred-chart-wrap{height:160px !important;}
+  /* ── 모델 설명 카드 3열→1열 ── */
+  .cond-grid{grid-template-columns:1fr !important;}
 }
 .fred-chart-grid>div{min-width:0;overflow:hidden;}
 .fred-chart-wrap{position:relative;width:100%;height:200px;min-width:0;}
@@ -292,22 +359,24 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
         </div>
       </div>
       <div class="topbar-right">
-        <div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center;">
+        <div style="display:flex;gap:4px;align-items:center;overflow-x:auto;-webkit-overflow-scrolling:touch;flex-wrap:nowrap;max-width:100%;padding-bottom:2px;">
           <button class="seg-btn active" id="btn-nasdaq" onclick="switchMarket('nasdaq')">🇺🇸 나스닥</button>
           <button class="seg-btn" id="btn-sp500" onclick="switchMarket('sp500')">🇺🇸 S&P500</button>
           <button class="seg-btn" id="btn-kospi" onclick="switchMarket('kospi')">🇰🇷 코스피</button>
           <button class="seg-btn" id="btn-kosdaq" onclick="switchMarket('kosdaq')">🇰🇷 코스닥</button>
         </div>
+        <div style="display:flex;gap:6px;flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;">
         <button class="run-btn" id="run-btn" onclick="runScreener()">🔄 스크리닝 실행</button>
         <button class="run-btn" id="merge-us-btn" onclick="mergeResults('us')" disabled style="background:#1e3a5f;opacity:0.4;">🇺🇸 미국 합산</button>
         <button class="run-btn" id="merge-kr-btn" onclick="mergeResults('kr')" disabled style="background:#dc2626;opacity:0.4;">🇰🇷 한국 합산</button>
+        </div>
       </div>
     </div>
 
     <div class="card" style="margin-bottom:14px;">
       <div class="section-title">🔍 종목 점수 조회 <span class="section-right">티커 또는 한국어 종목명 입력 (예: AAPL, 삼성전자)</span></div>
-      <div style="display:flex;gap:8px;align-items:center;position:relative;">
-        <div style="flex:1;position:relative;">
+      <div style="display:flex;gap:8px;align-items:center;position:relative;flex-wrap:nowrap;">
+        <div style="flex:1;position:relative;min-width:0;">
           <input id="stock-search-input" type="text" placeholder="티커 또는 종목명 (예: AAPL, 삼성전자)"
             style="width:100%;padding:11px 15px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;outline:none;font-family:inherit;transition:border-color .15s;"
             onkeydown="handleSearchKeydown(event)"
@@ -315,7 +384,7 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
             onfocus="this.style.borderColor='#3b82f6'" onblur="setTimeout(()=>hideDropdown(),200)">
           <div id="search-dropdown" style="display:none;position:absolute;top:100%;left:0;right:0;background:#fff;border:1.5px solid #3b82f6;border-top:none;border-radius:0 0 8px 8px;z-index:100;box-shadow:0 4px 16px rgba(0,0,0,.1);max-height:280px;overflow-y:auto;"></div>
         </div>
-        <button class="run-btn" onclick="searchStock()" id="search-btn">🔍 조회</button>
+        <button class="run-btn" onclick="searchStock()" id="search-btn" style="flex-shrink:0;white-space:nowrap;">🔍 조회</button>
       </div>
       <div id="stock-search-result" style="margin-top:14px;display:none;"></div>
     </div>
@@ -493,7 +562,7 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
       <button class="back-btn" onclick="showPage('dashboard')">← 종합 현황</button>
       <div><div class="page-title">📉 클래식 모델</div><div style="font-size:12px;color:var(--sub);margin-top:4px;">알렉산더 엘더 3중 스크린 · 30점 만점</div></div>
     </div>
-    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px;">
+    <div class="cond-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px;">
       <div class="cond-step" style="background:#eff6ff;border:1px solid #bfdbfe;">
         <div style="font-size:13px;font-weight:700;color:#1d4ed8;margin-bottom:7px;">1단계 — 조류 파악 (10점)</div>
         <div style="font-size:12px;color:#3b82f6;line-height:1.7;">주봉 26주 EMA 상승 중<br>시장의 큰 흐름 확인</div>
@@ -516,7 +585,7 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
       <button class="back-btn" onclick="showPage('dashboard')">← 종합 현황</button>
       <div><div class="page-title">📈 성장 모델</div><div style="font-size:12px;color:var(--sub);margin-top:4px;">퀀트 펀더멘털 성장주 스크린 · 40점 만점</div></div>
     </div>
-    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px;">
+    <div class="cond-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px;">
       <div class="cond-step" style="background:#f0fdf4;border:1px solid #bbf7d0;">
         <div style="font-size:13px;font-weight:700;color:#15803d;margin-bottom:7px;">1단계 — 퀄리티 필터 (15점)</div>
         <div style="font-size:12px;color:#16a34a;line-height:1.7;">ROE &gt; 15%<br>부채비율 &lt; 100%</div>
@@ -539,7 +608,7 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
       <button class="back-btn" onclick="showPage('dashboard')">← 종합 현황</button>
       <div><div class="page-title">🤖 모던 모델</div><div style="font-size:12px;color:var(--sub);margin-top:4px;">AI & 심리 스크린 · 30점 만점</div></div>
     </div>
-    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px;">
+    <div class="cond-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px;">
       <div class="cond-step" style="background:#fdf4ff;border:1px solid #e9d5ff;">
         <div style="font-size:13px;font-weight:700;color:#7e22ce;margin-bottom:7px;">1단계 — 실적 상향 (10점)</div>
         <div style="font-size:12px;color:#9333ea;line-height:1.7;">애널리스트 강력매수/매수<br>잭스 랭크 1~2 수준</div>
@@ -568,8 +637,10 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
           <option value="nasdaq">🇺🇸 나스닥</option>
           <option value="sp500">🇺🇸 S&amp;P500</option>
         </select>
+        <div style="display:flex;gap:6px;flex-wrap:nowrap;overflow-x:auto;">
         <button class="run-btn" id="bp-save-btn" onclick="saveBestpick()">📌 오늘 베스트픽 기록</button>
-        <button class="run-btn" style="background:#6366f1;" onclick="loadBestpickHistory()">🔄 이력 새로고침</button>
+        <button class="run-btn" style="background:#6366f1;white-space:nowrap;" onclick="loadBestpickHistory()">🔄 이력 새로고침</button>
+        </div>
       </div>
     </div>
 
@@ -628,14 +699,14 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
 
     <!-- 섹터 히트맵 -->
     <div class="card" style="margin-bottom:14px;">
-      <div class="section-title">🗺 섹터 히트맵
-        <span style="margin-left:10px;display:flex;gap:6px;">
+      <div style="display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:14px;">
+        <span class="section-title" style="margin-bottom:0;">🗺 섹터 히트맵</span>
+        <span style="display:flex;gap:6px;flex-wrap:nowrap;">
           <button class="sm-period-btn active" onclick="renderHeatmap('1m',this)">1개월</button>
           <button class="sm-period-btn" onclick="renderHeatmap('3m',this)">3개월</button>
           <button class="sm-period-btn" onclick="renderHeatmap('6m',this)">6개월</button>
           <button class="sm-period-btn" onclick="renderHeatmap('1y',this)">1년</button>
         </span>
-        <span class="section-right">진한 녹색=강한유입 · 진한 빨간색=강한유출</span>
       </div>
       <div class="sector-heatmap" id="sm-heatmap">
         <div class="empty" style="grid-column:1/-1;">🔄 섹터 트렌드 분석 버튼을 눌러주세요</div>
@@ -694,7 +765,7 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
       </div>
       <div class="topbar-right"><button class="run-btn" id="tb-run-btn" onclick="runTenbagger()">🚀 텐배거 스크리닝</button></div>
     </div>
-    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px;">
+    <div class="cond-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px;">
       <div class="card" style="border-left:4px solid #22c55e;">
         <div style="font-size:13px;font-weight:800;color:#15803d;margin-bottom:8px;">📗 피터 린치 (35점)</div>
         <div style="font-size:12px;color:var(--sub);line-height:1.8;"><b style="color:var(--text);">PEG &lt; 1.0</b> — 성장 대비 저평가<br><b style="color:var(--text);">EPS 성장 &gt; 25%</b> — 폭발적 이익 성장<br><b style="color:var(--text);">소형주 선호</b> — 시총 $10B 미만 우대<br><span style="font-size:10px;color:#94a3b8;">"PEG 1 이하면 공짜로 성장을 산다"</span></div>
@@ -782,17 +853,17 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
           </div>
         </div>
         <!-- 리밸런싱 트리거 설정 -->
-        <div style="display:flex;align-items:center;gap:16px;padding:12px 16px;background:#f8fafc;border-radius:8px;flex-wrap:wrap;">
-          <div style="font-size:12px;color:var(--sub);font-weight:600;">리밸런싱 트리거 이탈 허용 범위</div>
-          <div style="display:flex;gap:8px;">
-            <button onclick="setTrigger(3)" id="rb-trigger-3" class="run-btn" style="padding:4px 12px;font-size:12px;background:#e2e8f0;color:#374151;">±3%</button>
-            <button onclick="setTrigger(5)" id="rb-trigger-5" class="run-btn" style="padding:4px 12px;font-size:12px;background:#3b82f6;color:#fff;">±5%</button>
-            <button onclick="setTrigger(10)" id="rb-trigger-10" class="run-btn" style="padding:4px 12px;font-size:12px;background:#e2e8f0;color:#374151;">±10%</button>
+        <div style="display:flex;align-items:flex-start;gap:12px;padding:12px 16px;background:#f8fafc;border-radius:8px;flex-wrap:wrap;">
+          <div style="font-size:12px;color:var(--sub);font-weight:600;white-space:nowrap;">리밸런싱 트리거 이탈 허용 범위</div>
+          <div style="display:flex;gap:8px;flex-wrap:nowrap;">
+            <button onclick="setTrigger(3)" id="rb-trigger-3" class="run-btn" style="padding:4px 12px;font-size:12px;background:#e2e8f0;color:#374151;white-space:nowrap;">±3%</button>
+            <button onclick="setTrigger(5)" id="rb-trigger-5" class="run-btn" style="padding:4px 12px;font-size:12px;background:#3b82f6;color:#fff;white-space:nowrap;">±5%</button>
+            <button onclick="setTrigger(10)" id="rb-trigger-10" class="run-btn" style="padding:4px 12px;font-size:12px;background:#e2e8f0;color:#374151;white-space:nowrap;">±10%</button>
           </div>
-          <div style="font-size:11px;color:var(--sub);">현재: <span id="rb-trigger-val">±5%</span> 이탈 시 알림</div>
-          <div style="margin-left:auto;display:flex;align-items:center;gap:8px;">
-            <span style="font-size:11px;color:var(--sub);">📲 텔레그램 알림</span>
-            <button onclick="testTelegram()" class="run-btn" style="padding:4px 12px;font-size:11px;background:#22c55e;color:#fff;">연결 테스트</button>
+          <div style="font-size:11px;color:var(--sub);white-space:nowrap;">현재: <span id="rb-trigger-val">±5%</span> 이탈 시 알림</div>
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:nowrap;">
+            <span style="font-size:11px;color:var(--sub);white-space:nowrap;">📲 텔레그램 알림</span>
+            <button onclick="testTelegram()" class="run-btn" style="padding:4px 12px;font-size:11px;background:#22c55e;color:#fff;white-space:nowrap;">연결 테스트</button>
           </div>
         </div>
       </div>
@@ -1003,7 +1074,7 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
         <div class="section-title">📈 FRED 데이터 차트
           <span class="section-right">백엔드 FRED API 데이터 기반 · 분석 버튼 클릭 시 자동 갱신</span>
         </div>
-        <div class="fred-chart-grid">
+        <div class="fred-chart-grid" style="display:grid;grid-template-columns:repeat(2,1fr);gap:14px;">
 
           <!-- WALCL -->
           <div>
