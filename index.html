@@ -122,29 +122,58 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
   .sidebar{transform:translateX(-100%);transition:transform .25s ease;z-index:999;}
   .sidebar.open{transform:translateX(0);}
   .sidebar-overlay.open{display:block;}
-  .main{margin-left:0 !important;padding:16px 14px;padding-top:52px;}
-  .topbar{flex-direction:column;gap:10px;}
+  .main{margin-left:0 !important;padding:14px 12px;padding-top:54px;}
+
+  /* 타이틀/헤더 */
+  .page-title{font-size:18px;}
+  .topbar{flex-direction:column;gap:8px;margin-bottom:14px;}
   .topbar-right{flex-wrap:wrap;gap:6px;}
+
+  /* 버튼 */
+  .run-btn{padding:7px 11px;font-size:12px;}
+  .seg-btn{padding:5px 9px;font-size:11px;}
+  .back-btn{padding:6px 12px;font-size:13px;}
+
+  /* 종목 점수 조회 — 타이틀 우측 설명 숨김 */
+  .section-right{display:none;}
+
+  /* 그리드 통일 */
   .mkt-grid{grid-template-columns:1fr 1fr !important;}
   .macro-grid{grid-template-columns:1fr 1fr !important;}
   .picks-grid{grid-template-columns:1fr 1fr !important;}
   .model-grid{grid-template-columns:1fr !important;}
   .rb-grid{grid-template-columns:1fr 1fr !important;}
-  .run-btn{padding:7px 12px;font-size:12px;}
-  .seg-btn{padding:6px 10px;font-size:12px;}
-  .stbl{font-size:12px;}
-  .stbl th,.stbl td{padding:8px 8px;}
-  .page-title{font-size:20px;}
-  .fred-chart-grid{grid-template-columns:1fr !important;}
-  .sector-grid{grid-template-columns:repeat(3,1fr) !important;}
-  .sector-heatmap{grid-template-columns:repeat(4,1fr) !important;}
   .bt-summary-grid{grid-template-columns:1fr 1fr !important;}
-  /* 인라인 스타일 그리드 강제 오버라이드 */
+  .fred-chart-grid{grid-template-columns:1fr !important;}
+  .sector-heatmap{grid-template-columns:repeat(4,1fr) !important;}
+
+  /* 인라인 그리드 강제 오버라이드 */
   [style*="grid-template-columns:repeat(4"]{grid-template-columns:1fr 1fr !important;}
   [style*="grid-template-columns:repeat(3"]{grid-template-columns:1fr 1fr !important;}
   [style*="grid-template-columns:repeat(5"]{grid-template-columns:1fr 1fr !important;}
-  /* 리밸런싱 입력 영역 */
-  [style*="display:grid"][style*="3,1fr"]{grid-template-columns:1fr !important;}
+
+  /* 테이블 */
+  .stbl{font-size:11px;}
+  .stbl th,.stbl td{padding:7px 6px;}
+
+  /* 종목 카드 */
+  .cond-step{padding:10px 12px;}
+
+  /* 리밸런싱 */
+  .rb-input-grid{grid-template-columns:1fr !important;}
+
+  /* 유동성 척도 5단계 → 3열 */
+  .liq-scale-grid{grid-template-columns:repeat(3,1fr) !important;}
+
+  /* 매크로 신호 3열 → 1열 */
+  [style*="grid-template-columns:repeat(3"]{grid-template-columns:1fr !important;}
+
+  /* 섹터 ETF 테이블 가로 스크롤 */
+  .table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;}
+
+  /* 베스트픽 카드 폰트 */
+  .picks-grid [style*="font-size:14px"]{font-size:12px !important;}
+  .picks-grid [style*="font-size:18px"]{font-size:15px !important;}
 }
 .fred-chart-grid>div{min-width:0;overflow:hidden;}
 .fred-chart-wrap{position:relative;width:100%;height:200px;min-width:0;}
@@ -276,10 +305,10 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
     </div>
 
     <div class="card" style="margin-bottom:14px;">
-      <div class="section-title">🔍 종목 점수 조회 <span class="section-right">티커 또는 한국어 종목명 입력 (예: AAPL, 삼성전자, 005930.KS)</span></div>
+      <div class="section-title">🔍 종목 점수 조회 <span class="section-right">티커 또는 한국어 종목명 입력 (예: AAPL, 삼성전자)</span></div>
       <div style="display:flex;gap:8px;align-items:center;position:relative;">
         <div style="flex:1;position:relative;">
-          <input id="stock-search-input" type="text" placeholder="티커 또는 한국어 종목명 입력 (예: AAPL, 삼성전자, 005930.KS)"
+          <input id="stock-search-input" type="text" placeholder="티커 또는 종목명 (예: AAPL, 삼성전자)"
             style="width:100%;padding:11px 15px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;outline:none;font-family:inherit;transition:border-color .15s;"
             onkeydown="handleSearchKeydown(event)"
             oninput="onSearchInput(this.value)"
@@ -720,7 +749,7 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
       <!-- 입력 카드 -->
       <div class="card" style="margin-bottom:14px;">
         <div class="section-title">💼 포트폴리오 입력</div>
-        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px;">
+        <div class="rb-input-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px;">
           <div>
             <div style="font-size:11px;color:var(--sub);margin-bottom:6px;font-weight:600;">총 자산 (원)</div>
             <input id="rb-total" type="number" placeholder="예: 130000000" value="130000000"
@@ -881,33 +910,33 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
 
     <!-- STEP 안내 -->
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;">
-      <div style="background:linear-gradient(135deg,#eff6ff,#dbeafe);border:1px solid #93c5fd;border-radius:12px;padding:16px;display:flex;align-items:center;gap:12px;">
-        <div style="font-size:28px;">1️⃣</div>
+      <div style="background:linear-gradient(135deg,#eff6ff,#dbeafe);border:1px solid #93c5fd;border-radius:12px;padding:14px;display:flex;align-items:flex-start;gap:10px;">
+        <div style="font-size:24px;flex-shrink:0;">1️⃣</div>
         <div>
-          <div style="font-size:14px;font-weight:800;color:#1d4ed8;">STEP 1 — 유동성 판단 (지금 여기)</div>
-          <div style="font-size:12px;color:#3b82f6;margin-top:4px;line-height:1.6;">연준·RRP·TGA·MMF 4개 지표로<br>시장 유동성 환경을 먼저 판단합니다.</div>
+          <div style="font-size:13px;font-weight:800;color:#1d4ed8;">STEP 1 — 유동성 판단</div>
+          <div style="font-size:11px;color:#3b82f6;margin-top:4px;line-height:1.6;">연준·RRP·TGA·MMF<br>4개 지표로 판단</div>
         </div>
       </div>
-      <div style="background:#f8fafc;border:1px solid var(--border);border-radius:12px;padding:16px;display:flex;align-items:center;gap:12px;">
-        <div style="font-size:28px;">2️⃣</div>
+      <div style="background:#f8fafc;border:1px solid var(--border);border-radius:12px;padding:14px;display:flex;align-items:flex-start;gap:10px;">
+        <div style="font-size:24px;flex-shrink:0;">2️⃣</div>
         <div>
-          <div style="font-size:14px;font-weight:800;color:var(--sub);">STEP 2 — 종목 스크리닝 (이후 참고)</div>
-          <div style="font-size:12px;color:var(--sub);margin-top:4px;line-height:1.6;">유동성 단계 확인 후<br>종합현황 탭에서 스크리닝을 실행하세요.</div>
+          <div style="font-size:13px;font-weight:800;color:var(--sub);">STEP 2 — 종목 스크리닝</div>
+          <div style="font-size:11px;color:var(--sub);margin-top:4px;line-height:1.6;">유동성 확인 후<br>종합현황에서 실행</div>
         </div>
       </div>
     </div>
 
     <!-- 유동성 단계 알림 카드 -->
-    <div id="liq-signal-card" style="background:linear-gradient(135deg,#f8fafc,#f1f5f9);border:2px solid var(--border);border-radius:16px;padding:28px 32px;margin-bottom:14px;display:flex;align-items:center;gap:24px;flex-wrap:wrap;">
-      <div style="font-size:56px;" id="liq-signal-emoji">⏳</div>
-      <div style="flex:1;min-width:200px;">
-        <div style="font-size:13px;font-weight:700;color:var(--sub);margin-bottom:6px;">현재 유동성 단계</div>
-        <div style="font-size:32px;font-weight:800;color:var(--text);margin-bottom:8px;" id="liq-signal-text">분석 전</div>
-        <div style="font-size:14px;color:var(--sub);line-height:1.6;" id="liq-signal-desc">유동성 분석 버튼을 눌러 시장 환경을 확인하세요.</div>
+    <div id="liq-signal-card" style="background:linear-gradient(135deg,#f8fafc,#f1f5f9);border:2px solid var(--border);border-radius:16px;padding:20px;margin-bottom:14px;display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
+      <div style="font-size:48px;flex-shrink:0;" id="liq-signal-emoji">⏳</div>
+      <div style="flex:1;min-width:160px;">
+        <div style="font-size:12px;font-weight:700;color:var(--sub);margin-bottom:6px;">현재 유동성 단계</div>
+        <div style="font-size:28px;font-weight:800;color:var(--text);margin-bottom:8px;" id="liq-signal-text">분석 전</div>
+        <div style="font-size:13px;color:var(--sub);line-height:1.6;" id="liq-signal-desc">유동성 분석 버튼을 눌러 시장 환경을 확인하세요.</div>
       </div>
-      <div style="text-align:right;min-width:160px;">
+      <div style="text-align:right;min-width:120px;">
         <div style="font-size:11px;color:var(--sub);font-weight:600;margin-bottom:6px;">유동성 종합 점수</div>
-        <div style="font-size:56px;font-weight:800;line-height:1;" id="liq-total-score">—</div>
+        <div style="font-size:44px;font-weight:800;line-height:1;" id="liq-total-score">—</div>
         <div style="font-size:12px;color:var(--sub);">/ 60점</div>
         <div style="width:160px;height:8px;background:#e2e8f0;border-radius:4px;margin-top:10px;overflow:hidden;">
           <div id="liq-score-bar" style="height:100%;border-radius:4px;background:var(--blue);width:0%;transition:width .8s ease;"></div>
@@ -924,7 +953,7 @@ body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:va
     <!-- 5단계 척도 -->
     <div style="background:#fff;border:1px solid var(--border);border-radius:12px;padding:18px;margin-bottom:14px;">
       <div class="section-title">📊 5단계 유동성 척도</div>
-      <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;">
+      <div class="liq-scale-grid" style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;">
         <div id="stage-1" style="border-radius:10px;padding:14px 10px;text-align:center;border:2px solid #e2e8f0;transition:all .3s;">
           <div style="font-size:20px;margin-bottom:6px;">🟢</div>
           <div style="font-size:12px;font-weight:800;color:#15803d;">적극매수</div>
