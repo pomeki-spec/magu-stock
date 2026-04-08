@@ -1707,39 +1707,41 @@ async function loadMarketData() {
   try {
     const res=await fetch(`${API}/api/market`);
     const d=await res.json();
-    const chgHtml=(c)=>`<span class="${c>=0?'up':'dn'}">${c>=0?'▲':'▼'}${Math.abs(c).toFixed(2)}%</span>`;
-    if(d.gold){document.getElementById('gold-val').textContent='$'+d.gold.value.toLocaleString();document.getElementById('gold-chg').innerHTML=chgHtml(d.gold.change);}
-    if(d.wti){document.getElementById('wti-val').textContent='$'+d.wti.value.toFixed(1);document.getElementById('wti-chg').innerHTML=chgHtml(d.wti.change);}
-    if(d.usdkrw){document.getElementById('krw-val').textContent='₩'+Math.round(d.usdkrw.value).toLocaleString();document.getElementById('krw-chg').innerHTML=chgHtml(d.usdkrw.change);}
-    if(d.us10y){document.getElementById('bond-val').textContent=d.us10y.value.toFixed(2)+'%';document.getElementById('bond-chg').innerHTML=chgHtml(d.us10y.change);}
-    if(d.sp500){document.getElementById('sp500-val').textContent=d.sp500.value.toLocaleString();document.getElementById('sp500-chg').innerHTML=chgHtml(d.sp500.change);}
-    if(d.nasdaq){document.getElementById('nasdaq-val').textContent=d.nasdaq.value.toLocaleString();document.getElementById('nasdaq-chg').innerHTML=chgHtml(d.nasdaq.change);}
-    if(d.dow){document.getElementById('dow-val').textContent=d.dow.value.toLocaleString();document.getElementById('dow-chg').innerHTML=chgHtml(d.dow.change);}
-    if(d.russell){document.getElementById('russell-val').textContent=d.russell.value.toLocaleString();document.getElementById('russell-chg').innerHTML=chgHtml(d.russell.change);}
-    if(d.kospi){document.getElementById('kospi-idx-val').textContent=d.kospi.value.toLocaleString();document.getElementById('kospi-idx-chg').innerHTML=chgHtml(d.kospi.change);}
-    if(d.kosdaq){document.getElementById('kosdaq-idx-val').textContent=d.kosdaq.value.toLocaleString();document.getElementById('kosdaq-idx-chg').innerHTML=chgHtml(d.kosdaq.change);}
+    const chgHtml=(c)=>c==null?'':`<span class="${c>=0?'up':'dn'}">${c>=0?'▲':'▼'}${Math.abs(c).toFixed(2)}%</span>`;
+    const fmtNum=(v,digits=2)=>v==null?'—':typeof v==='number'?v.toLocaleString(undefined,{minimumFractionDigits:digits,maximumFractionDigits:digits}):v;
+    if(d.gold){document.getElementById('gold-val').textContent='$'+(d.gold.value?.toLocaleString()??'—');document.getElementById('gold-chg').innerHTML=chgHtml(d.gold.change);}
+    if(d.wti){document.getElementById('wti-val').textContent='$'+(d.wti.value?.toFixed(1)??'—');document.getElementById('wti-chg').innerHTML=chgHtml(d.wti.change);}
+    if(d.usdkrw){document.getElementById('krw-val').textContent='₩'+(d.usdkrw.value!=null?Math.round(d.usdkrw.value).toLocaleString():'—');document.getElementById('krw-chg').innerHTML=chgHtml(d.usdkrw.change);}
+    if(d.us10y){document.getElementById('bond-val').textContent=(d.us10y.value?.toFixed(2)??'—')+'%';document.getElementById('bond-chg').innerHTML=chgHtml(d.us10y.change);}
+    if(d.sp500){document.getElementById('sp500-val').textContent=d.sp500.value!=null?d.sp500.value.toLocaleString():'—';document.getElementById('sp500-chg').innerHTML=chgHtml(d.sp500.change);}
+    if(d.nasdaq){document.getElementById('nasdaq-val').textContent=d.nasdaq.value!=null?d.nasdaq.value.toLocaleString():'—';document.getElementById('nasdaq-chg').innerHTML=chgHtml(d.nasdaq.change);}
+    if(d.dow){document.getElementById('dow-val').textContent=d.dow.value!=null?d.dow.value.toLocaleString():'—';document.getElementById('dow-chg').innerHTML=chgHtml(d.dow.change);}
+    if(d.russell){document.getElementById('russell-val').textContent=d.russell.value!=null?d.russell.value.toLocaleString():'—';document.getElementById('russell-chg').innerHTML=chgHtml(d.russell.change);}
+    if(d.kospi){document.getElementById('kospi-idx-val').textContent=d.kospi.value!=null?d.kospi.value.toLocaleString():'—';document.getElementById('kospi-idx-chg').innerHTML=chgHtml(d.kospi.change);}
+    if(d.kosdaq){document.getElementById('kosdaq-idx-val').textContent=d.kosdaq.value!=null?d.kosdaq.value.toLocaleString():'—';document.getElementById('kosdaq-idx-chg').innerHTML=chgHtml(d.kosdaq.change);}
 
     // ── VIX + 방향성 ──────────────────────────────────────────
     if(d.vix){
       const v=d.vix;
-      document.getElementById('vix-val').textContent=v.value.toFixed(1);
-      const isUp=v.direction==='up';
-      const dirIcon=isUp?'↑':'↓';
-      const dirColor=isUp?'#ef4444':'#22c55e';
-      document.getElementById('vix-dir').innerHTML=`<span style="color:${dirColor};">${dirIcon}</span>`;
-      document.getElementById('vix-change').innerHTML=chgHtml(v.change);
-      document.getElementById('vix-prev5').textContent=v.prev5??'—';
-      let vixSig,vixCol,vixBorder;
-      if(v.value>=35)            {vixSig='적극 분할 매수';vixCol='#15803d';vixBorder='#22c55e';}
-      else if(v.value>=25)       {vixSig='분할 매수 시작';vixCol='#b45309';vixBorder='#f59e0b';}
-      else if(v.value>=15)       {vixSig='매수 적기 — 시장 안정';vixCol='#1d4ed8';vixBorder='#3b82f6';}
-      else                       {vixSig='비중 축소 고려 — 과열';vixCol='#991b1b';vixBorder='#ef4444';}
-      // VIX 바늘: 0~50 범위, 낮을수록 왼쪽(빨강), 높을수록 오른쪽(초록)
-      const vixPct=Math.min(Math.max(v.value/50*100,2),98);
-      document.getElementById('vix-needle').style.left=vixPct+'%';
-      const sigEl=document.getElementById('vix-signal');
-      sigEl.textContent=vixSig; sigEl.style.color=vixCol;
-      document.getElementById('vix-card').style.borderTopColor=vixBorder;
+      if(v.value!=null) {
+        document.getElementById('vix-val').textContent=v.value.toFixed(1);
+        const isUp=v.direction==='up';
+        const dirIcon=isUp?'↑':'↓';
+        const dirColor=isUp?'#ef4444':'#22c55e';
+        document.getElementById('vix-dir').innerHTML=`<span style="color:${dirColor};">${dirIcon}</span>`;
+        document.getElementById('vix-change').innerHTML=chgHtml(v.change);
+        document.getElementById('vix-prev5').textContent=v.prev5??'—';
+        let vixSig,vixCol,vixBorder;
+        if(v.value>=35)            {vixSig='적극 분할 매수';vixCol='#15803d';vixBorder='#22c55e';}
+        else if(v.value>=25)       {vixSig='분할 매수 시작';vixCol='#b45309';vixBorder='#f59e0b';}
+        else if(v.value>=15)       {vixSig='매수 적기 — 시장 안정';vixCol='#1d4ed8';vixBorder='#3b82f6';}
+        else                       {vixSig='비중 축소 고려 — 과열';vixCol='#991b1b';vixBorder='#ef4444';}
+        const vixPct=Math.min(Math.max(v.value/50*100,2),98);
+        document.getElementById('vix-needle').style.left=vixPct+'%';
+        const sigEl=document.getElementById('vix-signal');
+        sigEl.textContent=vixSig; sigEl.style.color=vixCol;
+        document.getElementById('vix-card').style.borderTopColor=vixBorder;
+      }
     }
 
     // ── 하이일드 스프레드 ─────────────────────────────────────
