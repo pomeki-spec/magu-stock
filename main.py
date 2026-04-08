@@ -1355,7 +1355,7 @@ def get_market_data():
                         row["direction"]="up" if current>prev5 else "down"
                         row["prev5"]=round(prev5,2)
                     result[key]=row
-            except: result[key]={"value":0,"change":0}
+            except: result[key]={"value":None,"change":None}
 
         # ── 하이일드 스프레드 (HYG vs LQD) ──────────────────────
         try:
