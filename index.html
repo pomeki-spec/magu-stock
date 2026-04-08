@@ -1571,26 +1571,35 @@ function renderHeatmap(period, btn) {
   const field = fieldMap[period]||'ret_1m';
   document.getElementById('sm-bar-period-label').textContent = lblMap[period]+' 기준';
   if(!_smSectorData.length) return;
-  const sorted = [..._smSectorData].sort((a,b)=>b[field]-a[field]);
+  const sorted = [..._smSectorData].sort((a,b)=>(b[field]??-999)-(a[field]??-999));
   const trendIcon = {'강한유입':'▲▲','유입':'▲','소폭유입':'↗','중립':'→','소폭유출':'↘','유출':'▼','강한유출':'▼▼'};
 
   // 히트맵
   document.getElementById('sm-heatmap').innerHTML = sorted.map(s=>{
-    const ret=s[field]; const c=getHeatmapColors(ret);
+    const ret=s[field]; const c=getHeatmapColors(ret??0);
+    const retStr=ret!=null?(ret>=0?'+':'')+ret+'%':'—';
     return `<div class="sector-cell" style="background:${c.bg};border-color:${c.border};">
       <div class="sc-emoji">${s.emoji}</div>
       <div class="sc-name" style="color:${c.color};">${s.name}</div>
-      <div class="sc-ret" style="color:${c.color};">${ret>=0?'+':''}${ret}%</div>
-      <div class="sc-badge" style="background:${c.border};color:${c.color};">${trendIcon[s.trend]||''} ${s.trend}</div>
+      <div class="sc-ret" style="color:${c.color};">${retStr}</div>
+      <div class="sc-badge" style="background:${c.border};color:${c.color};">${trendIcon[s.trend]||''} ${s.trend||'—'}</div>
     </div>`;
   }).join('');
 
   // 바 차트
   const spyRet = _smSpyRet[field]||0;
-  const maxAbs = Math.max(...sorted.map(s=>Math.abs(s[field]-spyRet)),1);
+  const validRets = sorted.map(s=>s[field]).filter(v=>v!=null);
+  const maxAbs = validRets.length>0 ? Math.max(...validRets.map(v=>Math.abs(v-spyRet)),1) : 1;
   const mid=50;
   document.getElementById('sm-bar-chart').innerHTML = sorted.map(s=>{
-    const ret=s[field]; const rel=ret-spyRet;
+    const ret=s[field];
+    if(ret==null) return `<div class="sm-bar-row">
+      <div class="sm-bar-label">${s.emoji} ${s.name}</div>
+      <div class="sm-bar-track"><div class="sm-bar-spy" style="left:${mid}%;"></div></div>
+      <div style="width:54px;text-align:right;font-size:12px;color:var(--sub);">—</div>
+      <div style="width:44px;text-align:right;font-size:11px;color:var(--sub);">RSI ${s.rsi??'—'}</div>
+    </div>`;
+    const rel=ret-spyRet;
     const barPct=Math.min(Math.abs(rel)/maxAbs*45,45);
     const isPos=rel>=0; const barColor=isPos?'#16a34a':'#dc2626';
     const startPct=isPos?mid:mid-barPct;
@@ -1603,7 +1612,7 @@ function renderHeatmap(period, btn) {
         <div class="sm-bar-spy" style="left:${mid}%;"></div>
       </div>
       <div style="width:54px;text-align:right;font-size:12px;font-weight:700;" class="${ret>=0?'up':'dn'}">${ret>=0?'+':''}${ret}%</div>
-      <div style="width:44px;text-align:right;font-size:11px;color:var(--sub);">RSI ${s.rsi}</div>
+      <div style="width:44px;text-align:right;font-size:11px;color:var(--sub);">RSI ${s.rsi??'—'}</div>
     </div>`;
   }).join('');
 }
@@ -1641,7 +1650,7 @@ async function loadSmartMoney() {
     else if(ratio>=0.5){jEmoji='📈';jTitle='부분 강세 — 일부 섹터 중심 상승';jDesc='선별 매수 필요. 자금 들어오는 섹터 종목을 우선 고려하세요.';jBg='#eff6ff';jBorder='#93c5fd';}
     else if(ratio>=0.35){jEmoji='🌊';jTitle='혼조세 — 섹터 간 자금 이동 중';jDesc='관망 권장. 주도 섹터를 파악한 후 선별 진입하세요.';jBg='#fefce8';jBorder='#fde047';}
     else{jEmoji='🛡';jTitle='방어적 장세 — 대부분 섹터 자금 이탈 중';jDesc='신규 매수 자제. 방어주·현금 비중을 높이는 것을 고려하세요.';jBg='#fff1f2';jBorder='#fca5a5';}
-    const bySorted=[..._smSectorData].sort((a,b)=>b.ret_1m-a.ret_1m);
+    const bySorted=[..._smSectorData].sort((a,b)=>(b.ret_1m??-999)-(a.ret_1m??-999));
     document.getElementById('sm-judge-card').style.display='block';
     document.getElementById('sm-judge-card').style.background=jBg;
     document.getElementById('sm-judge-card').style.borderColor=jBorder;
@@ -1657,20 +1666,25 @@ async function loadSmartMoney() {
     // 상세 테이블
     const trendStyle={'강한유입':'background:#14532d;color:#86efac;','유입':'background:#dcfce7;color:#15803d;','소폭유입':'background:#f0fdf4;color:#16a34a;','중립':'background:#f1f5f9;color:#64748b;','소폭유출':'background:#fff1f2;color:#9f1239;','유출':'background:#fee2e2;color:#991b1b;','강한유출':'background:#7f1d1d;color:#fca5a5;'};
     const trendIcon2={'강한유입':'▲▲▲','유입':'▲▲','소폭유입':'▲','중립':'➡','소폭유출':'▼','유출':'▼▼','강한유출':'▼▼▼'};
-    const tblSorted=[..._smSectorData].sort((a,b)=>b.momentum_score-a.momentum_score);
+    const tblSorted=[..._smSectorData].sort((a,b)=>(b.momentum_score||0)-(a.momentum_score||0));
     document.getElementById('sm-etf-tbody').innerHTML=tblSorted.map(s=>{
-      const rc=(v)=>{const cls=v>=0?'up':'dn';const sign=v>=0?'+':'';return `<td style="font-weight:600;text-align:right;" class="${cls}">${sign}${v}%</td>`;};
-      const vc=s.vol_ratio>1.2?'#22c55e':s.vol_ratio<0.8?'#ef4444':'var(--sub)';
-      const bc=s.trend_score>0?'#22c55e':s.trend_score<0?'#ef4444':'#94a3b8';
-      const rsiC=s.rsi>65?'#ef4444':s.rsi<35?'#3b82f6':'var(--text)';
+      const rc=(v)=>{
+        if(v==null) return `<td style="text-align:right;color:var(--sub);">—</td>`;
+        const cls=v>=0?'up':'dn';const sign=v>=0?'+':'';
+        return `<td style="font-weight:600;text-align:right;" class="${cls}">${sign}${v}%</td>`;
+      };
+      const vc=(s.vol_ratio||0)>1.2?'#22c55e':(s.vol_ratio||0)<0.8?'#ef4444':'var(--sub)';
+      const bc=(s.trend_score||0)>0?'#22c55e':(s.trend_score||0)<0?'#ef4444':'#94a3b8';
+      const rsiC=(s.rsi||0)>65?'#ef4444':(s.rsi||0)<35?'#3b82f6':'var(--text)';
+      const priceStr=s.price!=null?'$'+s.price.toLocaleString():'—';
       return `<tr><td style="min-width:180px;padding:13px 16px;"><div style="display:flex;align-items:center;gap:10px;"><div style="font-size:22px;width:28px;text-align:center;flex-shrink:0;">${s.emoji}</div><div><div style="font-size:14px;font-weight:800;">${s.name}</div><div style="display:flex;align-items:center;gap:5px;margin-top:2px;"><span style="font-size:11px;font-weight:700;color:#fff;background:#1d4ed8;padding:1px 6px;border-radius:4px;">${s.ticker}</span><span style="font-size:11px;color:var(--sub);">${s.name_en}</span></div></div></div></td>
-      <td style="font-weight:700;text-align:right;">$${s.price.toLocaleString()}</td>
+      <td style="font-weight:700;text-align:right;">${priceStr}</td>
       ${rc(s.ret_1d)}${rc(s.ret_1w)}${rc(s.ret_1m)}${rc(s.ret_3m)}${rc(s.ret_6m)}${rc(s.ret_1y)}
-      <td style="font-weight:700;color:${vc};text-align:center;">${s.vol_ratio}배</td>
-      <td style="font-weight:700;color:${rsiC};text-align:center;">${s.rsi}</td>
-      <td style="text-align:center;" class="${s.from_52w_high>-5?'up':'dn'}">${s.from_52w_high}%</td>
-      <td style="text-align:center;"><span style="padding:4px 10px;border-radius:6px;font-size:12px;font-weight:700;white-space:nowrap;${trendStyle[s.trend]||''}">${trendIcon2[s.trend]||''} ${s.trend}</span></td>
-      <td style="font-weight:800;color:${bc};font-size:14px;text-align:center;">${s.trend_score>0?'+':''}${s.trend_score}점</td></tr>`;
+      <td style="font-weight:700;color:${vc};text-align:center;">${s.vol_ratio??'—'}배</td>
+      <td style="font-weight:700;color:${rsiC};text-align:center;">${s.rsi??'—'}</td>
+      <td style="text-align:center;" class="${(s.from_52w_high||0)>-5?'up':'dn'}">${s.from_52w_high??'—'}%</td>
+      <td style="text-align:center;"><span style="padding:4px 10px;border-radius:6px;font-size:12px;font-weight:700;white-space:nowrap;${trendStyle[s.trend]||''}">${trendIcon2[s.trend]||''} ${s.trend||'—'}</span></td>
+      <td style="font-weight:800;color:${bc};font-size:14px;text-align:center;">${s.trend_score!=null?(s.trend_score>0?'+':'')+s.trend_score+'점':'—'}</td></tr>`;
     }).join('');
   } catch(e){
     document.getElementById('sm-etf-tbody').innerHTML=`<tr><td colspan="13" class="empty">❌ 오류: ${e.message}</td></tr>`;
