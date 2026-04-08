@@ -1668,26 +1668,34 @@ def analyze_etf(etf_info: dict):
 
 @app.get("/api/smartmoney")
 def get_smart_money():
-    results=[]
-    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-        futures={executor.submit(analyze_etf,etf):etf for etf in SECTOR_ETFS}
-        for f in concurrent.futures.as_completed(futures):
-            r=f.result()
-            if r: results.append(r)
-    results.sort(key=lambda x:x["momentum_score"],reverse=True)
-    if results:
-        avg=sum(r["ret_1m"] for r in results)/len(results)
-        for r in results: r["rel_strength"]=round(r["ret_1m"]-avg,2)
     try:
-        spy=yf.Ticker("SPY").history(period="2y")
-        spy_1m=round(float((spy['Close'].iloc[-1]/spy['Close'].iloc[-22]-1)*100),2) if len(spy)>=22 else 0
-        spy_3m=round(float((spy['Close'].iloc[-1]/spy['Close'].iloc[-66]-1)*100),2) if len(spy)>=66 else 0
-        spy_6m=round(float((spy['Close'].iloc[-1]/spy['Close'].iloc[-132]-1)*100),2) if len(spy)>=132 else 0
-        spy_1y=round(float((spy['Close'].iloc[-1]/spy['Close'].iloc[-252]-1)*100),2) if len(spy)>=252 else 0
-    except: spy_1m=spy_3m=spy_6m=spy_1y=0
-    return safe_json({"updated_at":datetime.now().strftime("%Y-%m-%d %H:%M"),
-            "spy_ret_1m":spy_1m,"spy_ret_3m":spy_3m,"spy_ret_6m":spy_6m,"spy_ret_1y":spy_1y,
-            "sectors":results,"total":len(results)})
+        results=[]
+        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+            futures={executor.submit(analyze_etf,etf):etf for etf in SECTOR_ETFS}
+            for f in concurrent.futures.as_completed(futures):
+                try:
+                    r=f.result()
+                    if r: results.append(r)
+                except: pass
+        results.sort(key=lambda x:x.get("momentum_score",0),reverse=True)
+        if results:
+            valid_rets=[r["ret_1m"] for r in results if r.get("ret_1m") is not None and not (isinstance(r["ret_1m"],float) and math.isnan(r["ret_1m"]))]
+            avg=sum(valid_rets)/len(valid_rets) if valid_rets else 0
+            for r in results:
+                r["rel_strength"]=round(r["ret_1m"]-avg,2) if r.get("ret_1m") is not None else None
+        try:
+            spy=yf.Ticker("SPY").history(period="2y")
+            spy_1m=round(float((spy['Close'].iloc[-1]/spy['Close'].iloc[-22]-1)*100),2) if len(spy)>=22 else 0
+            spy_3m=round(float((spy['Close'].iloc[-1]/spy['Close'].iloc[-66]-1)*100),2) if len(spy)>=66 else 0
+            spy_6m=round(float((spy['Close'].iloc[-1]/spy['Close'].iloc[-132]-1)*100),2) if len(spy)>=132 else 0
+            spy_1y=round(float((spy['Close'].iloc[-1]/spy['Close'].iloc[-252]-1)*100),2) if len(spy)>=252 else 0
+        except: spy_1m=spy_3m=spy_6m=spy_1y=0
+        return safe_json({"updated_at":datetime.now().strftime("%Y-%m-%d %H:%M"),
+                "spy_ret_1m":spy_1m,"spy_ret_3m":spy_3m,"spy_ret_6m":spy_6m,"spy_ret_1y":spy_1y,
+                "sectors":results,"total":len(results)})
+    except Exception as e:
+        logger.error(f"섹터 모멘텀 오류: {e}")
+        return safe_json({"error":str(e),"sectors":[],"total":0,"updated_at":datetime.now().strftime("%Y-%m-%d %H:%M")})
 
 @app.get("/api/tenbagger")
 def get_tenbagger():
@@ -1714,7 +1722,7 @@ def get_tenbagger():
                 r=f.result(timeout=20)
                 if r: results.append(r)
             except: continue
-    results.sort(key=lambda x:x['total_score'],reverse=True)
+    results.sort(key=lambda x:x.get('total_score',0),reverse=True)
     return safe_json({"updated_at":datetime.now().strftime("%Y-%m-%d %H:%M"),
             "total":len(results),"universe":f"나스닥 중소형 성장주 {len(TICKERS_TENBAGGER)}개",
             "results":results,"from_cache":False})
