@@ -823,13 +823,13 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
         <div class="rb-input-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px;">
           <div>
             <div style="font-size:11px;color:var(--sub);margin-bottom:6px;font-weight:600;">총 자산 (원)</div>
-            <input id="rb-total" type="number" placeholder="예: 130000000" value="130000000"
+            <input id="rb-total" type="number" placeholder="예: 130000000"
               style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-weight:700;background:var(--card);color:var(--text);box-sizing:border-box;"
               oninput="calcRebalance()">
           </div>
           <div>
             <div style="font-size:11px;color:var(--sub);margin-bottom:6px;font-weight:600;">현재 주식 금액 (원)</div>
-            <input id="rb-stock" type="number" placeholder="예: 100000000" value="100000000"
+            <input id="rb-stock" type="number" placeholder="예: 100000000"
               style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-weight:700;background:var(--card);color:var(--text);box-sizing:border-box;"
               oninput="calcRebalance()">
           </div>
@@ -1934,15 +1934,34 @@ setInterval(loadBreadth,1800000);    // 30분마다
 let _rbTrigger = 5;
 let _rbLogs = JSON.parse(localStorage.getItem('rb_logs')||'[]');
 
-// 저장된 입력값 복원
-(function restoreRbInputs() {
+// 저장된 입력값 복원 (DB 우선, fallback: localStorage)
+async function restoreRbInputs() {
+  try {
+    const res = await fetch(`${API}/api/rb/settings`);
+    const d = await res.json();
+    if(d.ok && d.data) {
+      const s = d.data;
+      if(s.total !== null && s.total !== undefined) document.getElementById('rb-total').value = s.total;
+      if(s.stock !== null && s.stock !== undefined) document.getElementById('rb-stock').value = s.stock;
+      if(s.target !== null && s.target !== undefined) document.getElementById('rb-target').value = s.target;
+      const trigger = s.trigger_pct || 5;
+      _rbTrigger = trigger;
+      [3,5,10].forEach(t => {
+        const btn = document.getElementById('rb-trigger-'+t);
+        if(btn) { btn.style.background = t===trigger ? '#3b82f6' : '#e2e8f0'; btn.style.color = t===trigger ? '#fff' : '#374151'; }
+      });
+      const tv = document.getElementById('rb-trigger-val');
+      if(tv) tv.textContent = '±'+trigger+'%';
+      return;
+    }
+  } catch(e) { console.log('DB 복원 실패, localStorage fallback', e); }
+  // fallback: localStorage
   const saved = JSON.parse(localStorage.getItem('rb_inputs')||'{}');
-  if(saved.total) {
-    // 구버전 만원 단위 저장값 자동 변환 (10000 미만이면 만원 단위로 판단)
+  if(saved.total !== undefined && saved.total !== null && saved.total !== '') {
     const v = parseFloat(saved.total);
     document.getElementById('rb-total').value = v < 10000 ? v * 10000 : v;
   }
-  if(saved.stock) {
+  if(saved.stock !== undefined && saved.stock !== null && saved.stock !== '') {
     const v = parseFloat(saved.stock);
     document.getElementById('rb-stock').value = v < 10000 ? v * 10000 : v;
   }
@@ -1956,9 +1975,23 @@ let _rbLogs = JSON.parse(localStorage.getItem('rb_logs')||'[]');
     const tv = document.getElementById('rb-trigger-val');
     if(tv) tv.textContent = '±'+saved.trigger+'%';
   }
-})();
+}
+restoreRbInputs();
 
 function saveRbInputs() {
+  const payload = {
+    total:       parseInt(document.getElementById('rb-total').value) || null,
+    stock:       parseInt(document.getElementById('rb-stock').value) || null,
+    target:      parseInt(document.getElementById('rb-target').value) || null,
+    trigger_pct: _rbTrigger
+  };
+  // DB 저장 (비동기, fire-and-forget)
+  fetch(`${API}/api/rb/settings`, {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify(payload)
+  }).catch(e => console.log('rb 설정 저장 실패', e));
+  // localStorage fallback도 유지
   localStorage.setItem('rb_inputs', JSON.stringify({
     total: document.getElementById('rb-total').value,
     stock: document.getElementById('rb-stock').value,
@@ -2095,13 +2128,21 @@ function calcRebalance() {
       labelEl.textContent = '현금 → 주식 매수';
       labelEl.style.color = '#22c55e';
     }
-    // 텔레그램 알림 — 오늘 날짜 기준 1회만 발송
-    const today = new Date().toDateString();
-    const lastAlert = localStorage.getItem('rb_last_alert');
-    if(lastAlert !== today) {
-      localStorage.setItem('rb_last_alert', today);
-      sendRebalanceAlert(total, stock, cash, curStockPct, target, gap, Math.abs(diff));
-    }
+    // 텔레그램 알림 — 오늘 날짜 기준 1회만 발송 (DB 기준)
+    const today = new Date().toISOString().slice(0,10);
+    fetch(`${API}/api/rb/last_alert`).then(r=>r.json()).then(d => {
+      if(!d.last_alert || d.last_alert !== today) {
+        fetch(`${API}/api/rb/last_alert`, {method:'POST'}).catch(()=>{});
+        sendRebalanceAlert(total, stock, cash, curStockPct, target, gap, Math.abs(diff));
+      }
+    }).catch(() => {
+      // fallback: localStorage
+      const lastAlert = localStorage.getItem('rb_last_alert');
+      if(lastAlert !== today) {
+        localStorage.setItem('rb_last_alert', today);
+        sendRebalanceAlert(total, stock, cash, curStockPct, target, gap, Math.abs(diff));
+      }
+    });
   } else {
     signalCard.style.borderTopColor = '#3b82f6';
     titleEl.textContent = '✅ 현재 포트폴리오 균형 유지 중';
