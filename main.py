@@ -170,6 +170,17 @@ def init_db():
             UNIQUE (record_id, price_date)
         );
         CREATE INDEX IF NOT EXISTS idx_bpp_record ON bestpick_prices(record_id);
+
+        CREATE TABLE IF NOT EXISTS rb_settings (
+            id           INT PRIMARY KEY DEFAULT 1,
+            total        BIGINT,
+            stock        BIGINT,
+            target       INT,
+            trigger_pct  INT DEFAULT 5,
+            last_alert   DATE,
+            updated_at   TIMESTAMP DEFAULT NOW()
+        );
+        INSERT INTO rb_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
     """)
     conn.commit()
     cur.close()
@@ -2077,6 +2088,69 @@ scheduler.add_job(
     replace_existing=True,
     misfire_grace_time=3600
 )
+
+
+@app.get("/api/rb/settings")
+def get_rb_settings():
+    """리밸런싱 설정값 불러오기"""
+    try:
+        conn = get_conn(); cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("SELECT * FROM rb_settings WHERE id = 1")
+        row = cur.fetchone(); cur.close(); conn.close()
+        if row:
+            return {"ok": True, "data": dict(row)}
+        return {"ok": True, "data": {}}
+    except Exception as e:
+        logger.error(f"rb_settings GET 오류: {e}")
+        return {"ok": False, "error": str(e)}
+
+@app.post("/api/rb/settings")
+def save_rb_settings(payload: dict):
+    """리밸런싱 설정값 저장"""
+    try:
+        conn = get_conn(); cur = conn.cursor()
+        cur.execute("""
+            UPDATE rb_settings SET
+                total       = %(total)s,
+                stock       = %(stock)s,
+                target      = %(target)s,
+                trigger_pct = %(trigger_pct)s,
+                updated_at  = NOW()
+            WHERE id = 1
+        """, {
+            "total":       payload.get("total"),
+            "stock":       payload.get("stock"),
+            "target":      payload.get("target"),
+            "trigger_pct": payload.get("trigger_pct", 5),
+        })
+        conn.commit(); cur.close(); conn.close()
+        return {"ok": True}
+    except Exception as e:
+        logger.error(f"rb_settings POST 오류: {e}")
+        return {"ok": False, "error": str(e)}
+
+@app.get("/api/rb/last_alert")
+def get_rb_last_alert():
+    """오늘 알림 발송 여부 확인"""
+    try:
+        conn = get_conn(); cur = conn.cursor()
+        cur.execute("SELECT last_alert FROM rb_settings WHERE id = 1")
+        row = cur.fetchone(); cur.close(); conn.close()
+        last = str(row[0]) if row and row[0] else None
+        return {"ok": True, "last_alert": last}
+    except Exception as e:
+        return {"ok": False, "last_alert": None}
+
+@app.post("/api/rb/last_alert")
+def set_rb_last_alert():
+    """오늘 날짜로 알림 발송 기록"""
+    try:
+        conn = get_conn(); cur = conn.cursor()
+        cur.execute("UPDATE rb_settings SET last_alert = CURRENT_DATE WHERE id = 1")
+        conn.commit(); cur.close(); conn.close()
+        return {"ok": True}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
 
 @app.post("/api/telegram/rebalance")
 def telegram_rebalance_alert(payload: dict):
