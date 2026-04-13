@@ -1,6 +1,9 @@
-from fastapi import FastAPI, BackgroundTasks
+from fastapi import FastAPI, BackgroundTasks, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 import yfinance as yf
 import ta
 import pandas as pd
@@ -42,7 +45,11 @@ def safe_json(data):
     """sanitize 후 JSONResponse 반환"""
     return JSONResponse(content=sanitize(data))
 
+# ── Rate Limiter 설정 ──
+limiter = Limiter(key_func=get_remote_address, default_limits=["60/minute"])
 app = FastAPI()
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 @app.get("/dashboard")
 def dashboard():
@@ -52,11 +59,17 @@ def dashboard():
     response.headers["Expires"] = "0"
     return response
 
+# ── CORS — 허용 도메인 명시 ──
+ALLOWED_ORIGINS = [
+    "https://magu-stock-production.up.railway.app",
+    "http://localhost:8000",
+    "http://127.0.0.1:8000",
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=ALLOWED_ORIGINS,
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type"],
 )
 
 # ══════════════════════════════════════════════════════════════
@@ -1353,7 +1366,8 @@ def root():
     return {"status":"MAGU STOCK API 실행 중","version":"2.0"}
 
 @app.get("/api/market")
-def get_market_data():
+@limiter.limit("30/minute")
+def get_market_data(request: Request):
     try:
         tickers={"gold":"GC=F","wti":"CL=F","usdkrw":"KRW=X","us10y":"^TNX",
                  "vix":"^VIX","sp500":"^GSPC","nasdaq":"^IXIC","dow":"^DJI","russell":"^RUT",
@@ -1422,7 +1436,8 @@ def get_market_data():
 
 
 @app.get("/api/fear_greed")
-def get_fear_greed():
+@limiter.limit("30/minute")
+def get_fear_greed(request: Request):
     """CNN 공포탐욕지수 — CNN 내부 API 직접 호출"""
     try:
         url="https://production.dataviz.cnn.io/index/fearandgreed/graphdata/"
@@ -1465,7 +1480,8 @@ def get_fear_greed():
 
 
 @app.get("/api/breadth")
-def get_market_breadth():
+@limiter.limit("30/minute")
+def get_market_breadth(request: Request):
     """MMTH 자체 계산 — DB 스크리닝 결과 기반 시장 폭 지표"""
     if not DATABASE_URL:
         return {"error":"DATABASE_URL 없음"}
@@ -1520,7 +1536,8 @@ def _currency(market):
     return "KRW" if market in ("kospi","kosdaq","kr") else "USD"
 
 @app.get("/api/screen/{market}")
-def screen_stocks(market: str = "nasdaq"):
+@limiter.limit("30/minute")
+def screen_stocks(request: Request, market: str = "nasdaq"):
     """DB 캐시 우선 → 없으면 실시간 계산 (기존 방식)"""
     cached = load_screening_from_db(market)
     if cached:
@@ -1544,7 +1561,8 @@ def screen_stocks(market: str = "nasdaq"):
             "total_screened":len(results),"results":results,"from_cache":False})
 
 @app.post("/api/screen/run")
-def trigger_screening(background_tasks: BackgroundTasks):
+@limiter.limit("5/minute")
+def trigger_screening(request: Request, background_tasks: BackgroundTasks):
     """수동으로 전체 스크리닝 즉시 실행 (백그라운드)"""
     background_tasks.add_task(run_full_screening_job)
     return {"message":"스크리닝 시작됨. 나스닥200+S&P500+코스피200+코스닥150 약 10~15분 소요. /api/screen/status 로 확인하세요."}
@@ -1717,7 +1735,8 @@ def analyze_etf(etf_info: dict):
         return None
 
 @app.get("/api/smartmoney")
-def get_smart_money():
+@limiter.limit("10/minute")
+def get_smart_money(request: Request):
     try:
         results=[]
         with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
@@ -1748,7 +1767,8 @@ def get_smart_money():
         return safe_json({"error":str(e),"sectors":[],"total":0,"updated_at":datetime.now().strftime("%Y-%m-%d %H:%M")})
 
 @app.get("/api/tenbagger")
-def get_tenbagger():
+@limiter.limit("5/minute")
+def get_tenbagger(request: Request):
     if DATABASE_URL:
         try:
             conn=get_conn(); cur=conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -1778,7 +1798,8 @@ def get_tenbagger():
             "results":results,"from_cache":False})
 
 @app.get("/api/liquidity")
-def get_liquidity():
+@limiter.limit("10/minute")
+def get_liquidity(request: Request):
     if not FRED_API_KEY:
         return {"error":"FRED_API_KEY 환경변수가 설정되지 않았습니다.",
                 "guide":"https://fred.stlouisfed.org/docs/api/api_key.html 에서 무료 발급 후 Railway 환경변수에 추가하세요.",
@@ -2105,7 +2126,8 @@ def get_rb_settings():
         return {"ok": False, "error": str(e)}
 
 @app.post("/api/rb/settings")
-def save_rb_settings(payload: dict):
+@limiter.limit("30/minute")
+def save_rb_settings(request: Request, payload: dict):
     """리밸런싱 설정값 저장"""
     try:
         conn = get_conn(); cur = conn.cursor()
@@ -2153,7 +2175,8 @@ def set_rb_last_alert():
         return {"ok": False, "error": str(e)}
 
 @app.post("/api/telegram/rebalance")
-def telegram_rebalance_alert(payload: dict):
+@limiter.limit("10/minute")
+def telegram_rebalance_alert(request: Request, payload: dict):
     """리밸런싱 트리거 발동 시 프론트에서 호출"""
     try:
         total    = payload.get("total", 0)
