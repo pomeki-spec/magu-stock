@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+  <title>WISEMAC STOCK</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: #0a0f1a;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+
+    .login-wrap {
+      width: 100%;
+      max-width: 400px;
+      padding: 24px;
+    }
+
+    .logo {
+      text-align: center;
+      margin-bottom: 40px;
+    }
+
+    .logo-icon {
+      font-size: 48px;
+      margin-bottom: 12px;
+    }
+
+    .logo h1 {
+      color: #f5f0e5;
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: 2px;
+    }
+
+    .logo p {
+      color: #6b7a99;
+      font-size: 13px;
+      margin-top: 6px;
+    }
+
+    .card {
+      background: #131c2e;
+      border: 1px solid #1e2d47;
+      border-radius: 16px;
+      padding: 36px 32px;
+    }
+
+    label {
+      display: block;
+      color: #8a97b0;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      margin-bottom: 10px;
+    }
+
+    .input-wrap {
+      position: relative;
+    }
+
+    input[type="password"] {
+      width: 100%;
+      background: #0a0f1a;
+      border: 1px solid #1e2d47;
+      border-radius: 10px;
+      padding: 14px 48px 14px 16px;
+      color: #f5f0e5;
+      font-size: 16px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    input[type="password"]:focus {
+      border-color: #3b82f6;
+    }
+
+    .toggle-pw {
+      position: absolute;
+      right: 14px;
+      top: 50%;
+      transform: translateY(-50%);
+      background: none;
+      border: none;
+      color: #6b7a99;
+      cursor: pointer;
+      font-size: 18px;
+      padding: 4px;
+      line-height: 1;
+    }
+
+    .btn {
+      width: 100%;
+      margin-top: 20px;
+      padding: 14px;
+      background: #3b82f6;
+      border: none;
+      border-radius: 10px;
+      color: #fff;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s, transform 0.1s;
+    }
+
+    .btn:hover { background: #2563eb; }
+    .btn:active { transform: scale(0.98); }
+    .btn:disabled { background: #1e2d47; color: #4a5568; cursor: not-allowed; }
+
+    .error {
+      margin-top: 14px;
+      padding: 10px 14px;
+      background: rgba(239,68,68,0.12);
+      border: 1px solid rgba(239,68,68,0.3);
+      border-radius: 8px;
+      color: #f87171;
+      font-size: 13px;
+      text-align: center;
+      display: none;
+    }
+
+    .shake {
+      animation: shake 0.4s ease;
+    }
+
+    @keyframes shake {
+      0%,100% { transform: translateX(0); }
+      20%,60% { transform: translateX(-6px); }
+      40%,80% { transform: translateX(6px); }
+    }
+
+    .footer {
+      text-align: center;
+      margin-top: 28px;
+      color: #2d3a52;
+      font-size: 12px;
+    }
+  </style>
+</head>
+<body>
+
+<div class="login-wrap">
+  <div class="logo">
+    <div class="logo-icon">📈</div>
+    <h1>WISEMAC STOCK</h1>
+    <p>투자 분석 대시보드</p>
+  </div>
+
+  <div class="card" id="card">
+    <label for="pw">비밀번호</label>
+    <div class="input-wrap">
+      <input type="password" id="pw" placeholder="비밀번호를 입력하세요" autocomplete="current-password">
+      <button class="toggle-pw" id="togglePw" type="button">👁</button>
+    </div>
+
+    <button class="btn" id="loginBtn" onclick="doLogin()">입장하기</button>
+    <div class="error" id="errMsg">비밀번호가 틀렸습니다</div>
+  </div>
+
+  <div class="footer">© 2026 WISEMAC STOCK</div>
+</div>
+
+<script>
+  const pwInput = document.getElementById('pw');
+  const btn = document.getElementById('loginBtn');
+  const errMsg = document.getElementById('errMsg');
+  const card = document.getElementById('card');
+
+  // 엔터키 지원
+  pwInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter') doLogin();
+  });
+
+  // 비밀번호 보이기/숨기기
+  document.getElementById('togglePw').addEventListener('click', () => {
+    pwInput.type = pwInput.type === 'password' ? 'text' : 'password';
+  });
+
+  async function doLogin() {
+    const pw = pwInput.value.trim();
+    if (!pw) { pwInput.focus(); return; }
+
+    btn.disabled = true;
+    btn.textContent = '확인 중...';
+    errMsg.style.display = 'none';
+
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: pw })
+      });
+
+      if (res.ok) {
+        btn.textContent = '✓ 입장 중...';
+        btn.style.background = '#22c55e';
+        setTimeout(() => { window.location.href = '/dashboard'; }, 400);
+      } else {
+        errMsg.style.display = 'block';
+        card.classList.remove('shake');
+        void card.offsetWidth;
+        card.classList.add('shake');
+        pwInput.value = '';
+        pwInput.focus();
+        btn.disabled = false;
+        btn.textContent = '입장하기';
+      }
+    } catch(e) {
+      errMsg.textContent = '서버 연결 오류';
+      errMsg.style.display = 'block';
+      btn.disabled = false;
+      btn.textContent = '입장하기';
+    }
+  }
+
+  // 자동 포커스
+  window.onload = () => pwInput.focus();
+</script>
+
+</body>
+</html>
