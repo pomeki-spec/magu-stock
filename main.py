@@ -1,5 +1,7 @@
-from fastapi import FastAPI, BackgroundTasks, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi import FastAPI, BackgroundTasks, Request, Response, Cookie
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+import secrets
+import hashlib
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
@@ -51,13 +53,50 @@ app = FastAPI()
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
+# ── 비밀번호 인증 설정 ──
+SITE_PASSWORD = os.environ.get("SITE_PASSWORD", "wisemac2024")
+SESSION_TOKEN = hashlib.sha256(SITE_PASSWORD.encode()).hexdigest()
+
+def is_authenticated(session: str = None) -> bool:
+    return session == SESSION_TOKEN
+
+@app.post("/api/auth/login")
+async def login(request: Request, response: Response):
+    try:
+        body = await request.json()
+        password = body.get("password", "")
+    except:
+        return JSONResponse({"ok": False, "message": "잘못된 요청"}, status_code=400)
+    
+    if password == SITE_PASSWORD:
+        response.set_cookie(
+            key="session",
+            value=SESSION_TOKEN,
+            httponly=True,
+            max_age=60 * 60 * 24 * 30,  # 30일
+            samesite="lax"
+        )
+        return {"ok": True}
+    else:
+        return JSONResponse({"ok": False, "message": "비밀번호가 틀렸습니다"}, status_code=401)
+
+@app.get("/api/auth/check")
+def auth_check(session: str = Cookie(default=None)):
+    return {"authenticated": is_authenticated(session)}
+
 @app.get("/dashboard")
-def dashboard():
+def dashboard(session: str = Cookie(default=None)):
+    if not is_authenticated(session):
+        return RedirectResponse(url="/login", status_code=302)
     response = FileResponse("index.html")
     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     response.headers["Pragma"] = "no-cache"
     response.headers["Expires"] = "0"
     return response
+
+@app.get("/login")
+def login_page():
+    return FileResponse("login.html")
 
 # ── CORS — 허용 도메인 명시 ──
 ALLOWED_ORIGINS = [
@@ -1363,7 +1402,7 @@ def get_liquidity_signal(total_score: int) -> dict:
 
 @app.get("/")
 def root():
-    return {"status":"MAGU STOCK API 실행 중","version":"2.0"}
+    return RedirectResponse(url="/login", status_code=302)
 
 @app.get("/api/market")
 @limiter.limit("30/minute")
