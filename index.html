@@ -823,15 +823,15 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
         <div class="rb-input-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px;">
           <div>
             <div style="font-size:11px;color:var(--sub);margin-bottom:6px;font-weight:600;">총 자산 (원)</div>
-            <input id="rb-total" type="number" placeholder="예: 130000000"
+            <input id="rb-total" type="text" inputmode="numeric" placeholder="예: 130,000,000"
               style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-weight:700;background:var(--card);color:var(--text);box-sizing:border-box;"
-              oninput="calcRebalance()">
+              oninput="formatRbInput(this)">
           </div>
           <div>
             <div style="font-size:11px;color:var(--sub);margin-bottom:6px;font-weight:600;">현재 주식 금액 (원)</div>
-            <input id="rb-stock" type="number" placeholder="예: 100000000"
+            <input id="rb-stock" type="text" inputmode="numeric" placeholder="예: 100,000,000"
               style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-weight:700;background:var(--card);color:var(--text);box-sizing:border-box;"
-              oninput="calcRebalance()">
+              oninput="formatRbInput(this)">
           </div>
           <div>
             <div style="font-size:11px;color:var(--sub);margin-bottom:6px;font-weight:600;">목표 주식 비율 — 매크로 자동 산정</div>
@@ -1934,15 +1934,21 @@ setInterval(loadBreadth,1800000);    // 30분마다
 let _rbTrigger = 5;
 let _rbLogs = JSON.parse(localStorage.getItem('rb_logs')||'[]');
 
+function formatRbInput(el) {
+  const raw = el.value.replace(/[^0-9]/g, '');
+  el.value = raw ? Number(raw).toLocaleString('ko-KR') : '';
+  calcRebalance();
+}
+
 // 저장된 입력값 복원 (DB 우선, fallback: localStorage)
 async function restoreRbInputs() {
   try {
     const res = await fetch(`${API}/api/rb/settings`);
     const d = await res.json();
-    if(d.ok && d.data) {
+    if(d.ok && d.data && d.data.total !== null && d.data.stock !== null) {
       const s = d.data;
-      if(s.total !== null && s.total !== undefined) document.getElementById('rb-total').value = s.total;
-      if(s.stock !== null && s.stock !== undefined) document.getElementById('rb-stock').value = s.stock;
+      if(s.total !== null && s.total !== undefined) document.getElementById('rb-total').value = Number(s.total).toLocaleString('ko-KR');
+      if(s.stock !== null && s.stock !== undefined) document.getElementById('rb-stock').value = Number(s.stock).toLocaleString('ko-KR');
       if(s.target !== null && s.target !== undefined) document.getElementById('rb-target').value = s.target;
       const trigger = s.trigger_pct || 5;
       _rbTrigger = trigger;
@@ -1958,12 +1964,12 @@ async function restoreRbInputs() {
   // fallback: localStorage
   const saved = JSON.parse(localStorage.getItem('rb_inputs')||'{}');
   if(saved.total !== undefined && saved.total !== null && saved.total !== '') {
-    const v = parseFloat(saved.total);
-    document.getElementById('rb-total').value = v < 10000 ? v * 10000 : v;
+    const v = parseFloat(String(saved.total).replace(/,/g,''));
+    document.getElementById('rb-total').value = v < 10000 ? (v * 10000).toLocaleString('ko-KR') : v.toLocaleString('ko-KR');
   }
   if(saved.stock !== undefined && saved.stock !== null && saved.stock !== '') {
-    const v = parseFloat(saved.stock);
-    document.getElementById('rb-stock').value = v < 10000 ? v * 10000 : v;
+    const v = parseFloat(String(saved.stock).replace(/,/g,''));
+    document.getElementById('rb-stock').value = v < 10000 ? (v * 10000).toLocaleString('ko-KR') : v.toLocaleString('ko-KR');
   }
   if(saved.target) document.getElementById('rb-target').value = saved.target;
   if(saved.trigger) {
@@ -1979,9 +1985,11 @@ async function restoreRbInputs() {
 restoreRbInputs();
 
 function saveRbInputs() {
+  const rawTotal = parseInt(document.getElementById('rb-total').value.replace(/,/g,'')) || null;
+  const rawStock = parseInt(document.getElementById('rb-stock').value.replace(/,/g,'')) || null;
   const payload = {
-    total:       parseInt(document.getElementById('rb-total').value) || null,
-    stock:       parseInt(document.getElementById('rb-stock').value) || null,
+    total:       rawTotal,
+    stock:       rawStock,
     target:      parseInt(document.getElementById('rb-target').value) || null,
     trigger_pct: _rbTrigger
   };
@@ -1991,10 +1999,10 @@ function saveRbInputs() {
     headers: {'Content-Type':'application/json'},
     body: JSON.stringify(payload)
   }).catch(e => console.log('rb 설정 저장 실패', e));
-  // localStorage fallback도 유지
+  // localStorage fallback도 유지 (숫자로 저장)
   localStorage.setItem('rb_inputs', JSON.stringify({
-    total: document.getElementById('rb-total').value,
-    stock: document.getElementById('rb-stock').value,
+    total: rawTotal,
+    stock: rawStock,
     target: document.getElementById('rb-target').value,
     trigger: _rbTrigger
   }));
@@ -2068,8 +2076,8 @@ function setTrigger(v) {
 }
 
 function calcRebalance() {
-  const total = parseFloat(document.getElementById('rb-total').value) || 0;
-  const stock = parseFloat(document.getElementById('rb-stock').value) || 0;
+  const total = parseFloat(document.getElementById('rb-total').value.replace(/,/g,'')) || 0;
+  const stock = parseFloat(document.getElementById('rb-stock').value.replace(/,/g,'')) || 0;
   const cash = total - stock;
   saveRbInputs();
 
@@ -2301,11 +2309,47 @@ function renderRbLogs() {
   const el = document.getElementById('rb-log-list');
   if(!el) return;
   if(!_rbLogs.length) { el.innerHTML = '<div style="text-align:center;padding:16px;color:var(--sub);">기록이 없습니다.</div>'; return; }
-  el.innerHTML = _rbLogs.map(l => `
-    <div style="display:flex;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);">
-      <span style="color:var(--sub);min-width:80px;">${l.date}</span>
-      <span>${l.text}</span>
+  el.innerHTML = _rbLogs.map((l, i) => `
+    <div id="rb-log-row-${i}" style="display:flex;align-items:flex-start;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);">
+      <span style="color:var(--sub);min-width:80px;padding-top:2px;">${l.date}</span>
+      <span id="rb-log-text-${i}" style="flex:1;">${l.text}</span>
+      <div style="display:flex;gap:4px;flex-shrink:0;">
+        <button onclick="editRbLog(${i})" style="padding:2px 8px;font-size:11px;border:1px solid #94a3b8;border-radius:5px;background:transparent;color:#64748b;cursor:pointer;">수정</button>
+        <button onclick="deleteRbLog(${i})" style="padding:2px 8px;font-size:11px;border:1px solid #fca5a5;border-radius:5px;background:transparent;color:#ef4444;cursor:pointer;">삭제</button>
+      </div>
     </div>`).join('');
+}
+
+function editRbLog(i) {
+  const row = document.getElementById('rb-log-row-'+i);
+  const textEl = document.getElementById('rb-log-text-'+i);
+  const original = _rbLogs[i].text;
+  row.innerHTML = `
+    <span style="color:var(--sub);min-width:80px;padding-top:6px;">${_rbLogs[i].date}</span>
+    <input id="rb-log-edit-${i}" type="text" value="${original.replace(/"/g,'&quot;')}"
+      style="flex:1;padding:4px 8px;border:1px solid #3b82f6;border-radius:6px;font-size:12px;background:var(--card);color:var(--text);">
+    <div style="display:flex;gap:4px;flex-shrink:0;">
+      <button onclick="saveRbLog(${i})" style="padding:2px 8px;font-size:11px;border:none;border-radius:5px;background:#3b82f6;color:#fff;cursor:pointer;">저장</button>
+      <button onclick="renderRbLogs()" style="padding:2px 8px;font-size:11px;border:1px solid #94a3b8;border-radius:5px;background:transparent;color:#64748b;cursor:pointer;">취소</button>
+    </div>`;
+  const inp = document.getElementById('rb-log-edit-'+i);
+  inp.focus();
+  inp.addEventListener('keydown', e => { if(e.key==='Enter') saveRbLog(i); if(e.key==='Escape') renderRbLogs(); });
+}
+
+function saveRbLog(i) {
+  const val = document.getElementById('rb-log-edit-'+i)?.value.trim();
+  if(!val) return;
+  _rbLogs[i].text = val;
+  localStorage.setItem('rb_logs', JSON.stringify(_rbLogs));
+  renderRbLogs();
+}
+
+function deleteRbLog(i) {
+  if(!confirm('이 기록을 삭제할까요?')) return;
+  _rbLogs.splice(i, 1);
+  localStorage.setItem('rb_logs', JSON.stringify(_rbLogs));
+  renderRbLogs();
 }
 
 // 페이지 로드 시 초기화
