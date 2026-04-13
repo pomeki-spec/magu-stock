@@ -958,7 +958,7 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
             style="flex:1;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:12px;background:var(--card);color:var(--text);">
           <button onclick="addRebalanceLog()" class="run-btn" style="padding:8px 16px;font-size:12px;">기록 추가</button>
         </div>
-        <div id="rb-log-list" style="font-size:12px;color:var(--sub);text-align:center;padding:16px;">기록이 없습니다.</div>
+        <div id="rb-log-list" style="font-size:12px;color:var(--sub);padding:16px;">기록이 없습니다.</div>
       </div>
 
     </div>
@@ -2308,7 +2308,7 @@ function addRebalanceLog() {
 function renderRbLogs() {
   const el = document.getElementById('rb-log-list');
   if(!el) return;
-  if(!_rbLogs.length) { el.innerHTML = '<div style="text-align:center;padding:16px;color:var(--sub);">기록이 없습니다.</div>'; return; }
+  if(!_rbLogs.length) { el.innerHTML = '<div style="padding:16px;color:var(--sub);">기록이 없습니다.</div>'; return; }
   el.innerHTML = _rbLogs.map((l, i) => `
     <div id="rb-log-row-${i}" style="display:flex;align-items:flex-start;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);">
       <span style="color:var(--sub);min-width:80px;padding-top:2px;">${l.date}</span>
