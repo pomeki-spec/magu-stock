@@ -233,6 +233,13 @@ def init_db():
             updated_at   TIMESTAMP DEFAULT NOW()
         );
         INSERT INTO rb_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
+
+        CREATE TABLE IF NOT EXISTS rb_logs (
+            id         SERIAL PRIMARY KEY,
+            log_date   VARCHAR(20) NOT NULL,
+            log_text   TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT NOW()
+        );
     """)
     conn.commit()
     cur.close()
@@ -2209,6 +2216,58 @@ def set_rb_last_alert():
     try:
         conn = get_conn(); cur = conn.cursor()
         cur.execute("UPDATE rb_settings SET last_alert = CURRENT_DATE WHERE id = 1")
+        conn.commit(); cur.close(); conn.close()
+        return {"ok": True}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+@app.get("/api/rb/logs")
+def get_rb_logs():
+    try:
+        conn = get_conn(); cur = conn.cursor()
+        cur.execute("SELECT id, log_date, log_text FROM rb_logs ORDER BY id DESC LIMIT 50")
+        rows = cur.fetchall()
+        cur.close(); conn.close()
+        return {"ok": True, "data": [{"id": r[0], "date": r[1], "text": r[2]} for r in rows]}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+@app.post("/api/rb/logs")
+async def add_rb_log(request: Request):
+    try:
+        body = await request.json()
+        log_date = body.get("date", "")
+        log_text = body.get("text", "")
+        if not log_text:
+            return {"ok": False, "error": "text required"}
+        conn = get_conn(); cur = conn.cursor()
+        cur.execute("INSERT INTO rb_logs (log_date, log_text) VALUES (%s, %s) RETURNING id", (log_date, log_text))
+        new_id = cur.fetchone()[0]
+        conn.commit(); cur.close(); conn.close()
+        return {"ok": True, "id": new_id}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+@app.put("/api/rb/logs/{log_id}")
+async def update_rb_log(log_id: int, request: Request):
+    try:
+        body = await request.json()
+        log_text = body.get("text", "")
+        if not log_text:
+            return {"ok": False, "error": "text required"}
+        conn = get_conn(); cur = conn.cursor()
+        cur.execute("UPDATE rb_logs SET log_text = %s WHERE id = %s", (log_text, log_id))
+        conn.commit(); cur.close(); conn.close()
+        return {"ok": True}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+@app.delete("/api/rb/logs/{log_id}")
+async def delete_rb_log(log_id: int, request: Request):
+    try:
+        conn = get_conn(); cur = conn.cursor()
+        cur.execute("DELETE FROM rb_logs WHERE id = %s", (log_id,))
         conn.commit(); cur.close(); conn.close()
         return {"ok": True}
     except Exception as e:
