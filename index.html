@@ -1932,7 +1932,7 @@ setInterval(loadBreadth,1800000);    // 30분마다
 
 // ── 리밸런싱 대시보드 ──────────────────────────────────────────
 let _rbTrigger = 5;
-let _rbLogs = JSON.parse(localStorage.getItem('rb_logs')||'[]');
+let _rbLogs = [];
 
 function formatRbInput(el) {
   const raw = el.value.replace(/[^0-9]/g, '');
@@ -2293,16 +2293,24 @@ function updateRbMacro() {
   }
 }
 
-function addRebalanceLog() {
+async function addRebalanceLog() {
   const input = document.getElementById('rb-log-input');
   const text = input.value.trim();
   if(!text) return;
   const now = new Date().toLocaleDateString('ko-KR');
-  _rbLogs.unshift({ date: now, text });
-  if(_rbLogs.length > 20) _rbLogs.pop();
-  localStorage.setItem('rb_logs', JSON.stringify(_rbLogs));
-  input.value = '';
-  renderRbLogs();
+  try {
+    const res = await fetch(`${API}/api/rb/logs`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ date: now, text })
+    });
+    const d = await res.json();
+    if(d.ok) {
+      _rbLogs.unshift({ id: d.id, date: now, text });
+      input.value = '';
+      renderRbLogs();
+    }
+  } catch(e) { console.error('기록 추가 실패', e); }
 }
 
 function renderRbLogs() {
@@ -2337,24 +2345,43 @@ function editRbLog(i) {
   inp.addEventListener('keydown', e => { if(e.key==='Enter') saveRbLog(i); if(e.key==='Escape') renderRbLogs(); });
 }
 
-function saveRbLog(i) {
+async function saveRbLog(i) {
   const val = document.getElementById('rb-log-edit-'+i)?.value.trim();
   if(!val) return;
-  _rbLogs[i].text = val;
-  localStorage.setItem('rb_logs', JSON.stringify(_rbLogs));
-  renderRbLogs();
+  const log = _rbLogs[i];
+  try {
+    const res = await fetch(`${API}/api/rb/logs/${log.id}`, {
+      method: 'PUT',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ text: val })
+    });
+    const d = await res.json();
+    if(d.ok) { _rbLogs[i].text = val; renderRbLogs(); }
+  } catch(e) { console.error('기록 수정 실패', e); }
 }
 
-function deleteRbLog(i) {
+async function deleteRbLog(i) {
   if(!confirm('이 기록을 삭제할까요?')) return;
-  _rbLogs.splice(i, 1);
-  localStorage.setItem('rb_logs', JSON.stringify(_rbLogs));
+  const log = _rbLogs[i];
+  try {
+    const res = await fetch(`${API}/api/rb/logs/${log.id}`, { method: 'DELETE' });
+    const d = await res.json();
+    if(d.ok) { _rbLogs.splice(i, 1); renderRbLogs(); }
+  } catch(e) { console.error('기록 삭제 실패', e); }
+}
+
+async function loadRbLogs() {
+  try {
+    const res = await fetch(`${API}/api/rb/logs`);
+    const d = await res.json();
+    if(d.ok) { _rbLogs = d.data; }
+  } catch(e) { console.error('기록 로드 실패', e); }
   renderRbLogs();
 }
 
 // 페이지 로드 시 초기화
 calcRebalance();
-renderRbLogs();
+loadRbLogs();
 
 async function testTelegram() {
   const btn = event.target;
