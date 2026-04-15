@@ -1684,31 +1684,36 @@ const SV_ETF_INFO = {
 function getSvRatioColor(ratio) {
   if (ratio == null) return {bg:'#f8fafc', color:'#64748b', label:'데이터 없음'};
   const pct = ratio * 100;
-  if (pct >= 60) return {bg:'#7f1d1d', color:'#fca5a5', label:'극단적 공매도'};
-  if (pct >= 55) return {bg:'#fee2e2', color:'#991b1b', label:'높은 공매도'};
-  if (pct >= 50) return {bg:'#fff1f2', color:'#be123c', label:'다소 높음'};
-  if (pct >= 45) return {bg:'#f8fafc', color:'#64748b', label:'보통'};
-  if (pct >= 40) return {bg:'#f0fdf4', color:'#15803d', label:'낮은 공매도'};
+  if (pct >= 75) return {bg:'#7f1d1d', color:'#fca5a5', label:'극단적 공매도'};
+  if (pct >= 70) return {bg:'#fee2e2', color:'#991b1b', label:'높은 공매도'};
+  if (pct >= 65) return {bg:'#fff1f2', color:'#be123c', label:'다소 높음'};
+  if (pct >= 55) return {bg:'#f8fafc', color:'#64748b', label:'보통'};
+  if (pct >= 45) return {bg:'#f0fdf4', color:'#15803d', label:'낮은 공매도'};
   return          {bg:'#dcfce7', color:'#14532d', label:'매우 낮음'};
 }
 
-// FINRA REGSHO: 브라우저에서 직접 호출 (최근 5영업일 소급)
-async function fetchFinraShortVolume(tickers) {
-  const result = {};
+// FINRA REGSHO: 브라우저에서 직접 호출 — 최근 2영업일치 동시 수집
+async function fetchFinraShortVolume2Days(tickers) {
+  // 최근 영업일 날짜 2개 추출
+  const bizDays = [];
   const today = new Date();
-  for (let delta = 0; delta < 7; delta++) {
+  for (let delta = 0; delta < 10 && bizDays.length < 2; delta++) {
     const d = new Date(today);
     d.setDate(d.getDate() - delta);
-    if (d.getDay() === 0 || d.getDay() === 6) continue; // 주말 스킵
-    const yyyymmdd = d.toISOString().slice(0,10).replace(/-/g,'');
+    if (d.getDay() === 0 || d.getDay() === 6) continue;
+    bizDays.push(d.toISOString().slice(0,10).replace(/-/g,''));
+  }
+
+  // 두 날짜 병렬 fetch
+  async function fetchOneDay(yyyymmdd) {
     const url = `https://cdn.finra.org/equity/regsho/daily/CNMSshvol${yyyymmdd}.txt`;
     try {
       const res = await fetch(url);
-      if (!res.ok) continue;
+      if (!res.ok) return null;
       const text = await res.text();
-      if (!text.includes('Date|Symbol')) continue;
+      if (!text.includes('Date|Symbol')) return null;
       const dateStr = `${yyyymmdd.slice(0,4)}-${yyyymmdd.slice(4,6)}-${yyyymmdd.slice(6,8)}`;
-      let found = 0;
+      const result = {};
       for (const line of text.split('\n')) {
         const parts = line.split('|');
         if (parts.length < 5) continue;
@@ -1722,23 +1727,39 @@ async function fetchFinraShortVolume(tickers) {
             total_volume: tv,
             short_vol_ratio: tv > 0 ? Math.round(sv/tv*10000)/10000 : null
           };
-          found++;
         }
       }
-      if (found > 0) break; // 데이터 찾으면 중단
-    } catch(e) { continue; }
+      return Object.keys(result).length > 0 ? result : null;
+    } catch(e) { return null; }
   }
-  return result;
+
+  const [day0, day1] = await Promise.all(bizDays.map(fetchOneDay));
+
+  // day0 = 최신, day1 = 전일 (둘 다 null이면 하루씩 더 소급)
+  let today_data = day0, prev_data = day1;
+  if (!today_data) {
+    // 오늘 데이터 없으면 하루 밀기 (장 마감 전 접속)
+    const extra = [];
+    for (let delta = 2; delta < 12 && extra.length < 2; delta++) {
+      const d = new Date(today);
+      d.setDate(d.getDate() - delta);
+      if (d.getDay() === 0 || d.getDay() === 6) continue;
+      extra.push(d.toISOString().slice(0,10).replace(/-/g,''));
+    }
+    const [e0, e1] = await Promise.all(extra.map(fetchOneDay));
+    today_data = e0; prev_data = e1;
+  }
+  return { today: today_data || {}, prev: prev_data || {} };
 }
 
 async function loadShortVolume() {
   document.getElementById('sv-cards').innerHTML = '<div class="empty" style="grid-column:1/-1;"><div class="spinner" style="margin:0 auto 8px;"></div>공매도 데이터 수집 중...</div>';
   const tickers = ['SPY','QQQ','IWM'];
   try {
-    // FINRA Short Volume — 브라우저 직접 호출
-    const svData = await fetchFinraShortVolume(tickers);
+    // FINRA Short Volume 2일치 — 브라우저 직접 호출
+    const { today: svToday, prev: svPrev } = await fetchFinraShortVolume2Days(tickers);
 
-    // Short Interest (Float%) — 백엔드 경유 (yfinance history에서 근사치 없으므로 캐시 활용)
+    // Short Interest — 백엔드 캐시 (현재 Railway에서 차단으로 — 표시)
     let siData = {};
     try {
       const siRes  = await fetch(`${API}/api/short_volume`);
@@ -1746,22 +1767,36 @@ async function loadShortVolume() {
       if (!siJson.error && siJson.data) siData = siJson.data;
     } catch(e) {}
 
-    // 날짜 표시
-    const tradeDate = Object.values(svData)[0]?.trade_date || '—';
+    const tradeDate = Object.values(svToday)[0]?.trade_date || '—';
+    const prevDate  = Object.values(svPrev)[0]?.trade_date  || '—';
     const now = new Date().toLocaleString('ko-KR',{timeZone:'Asia/Seoul',hour12:false}).slice(0,16);
-    document.getElementById('sv-updated').textContent = `기준일: ${tradeDate} · 조회: ${now}`;
+    document.getElementById('sv-updated').textContent = `기준일: ${tradeDate} · 전일: ${prevDate} · 조회: ${now}`;
 
     const cards = tickers.map(ticker => {
-      const sv  = svData[ticker]  || {};
-      const si  = siData[ticker]  || {};
-      const inf = SV_ETF_INFO[ticker];
+      const sv   = svToday[ticker] || {};
+      const svP  = svPrev[ticker]  || {};
+      const si   = siData[ticker]  || {};
+      const inf  = SV_ETF_INFO[ticker];
       const ratio = sv.short_vol_ratio ?? null;
-      const c   = getSvRatioColor(ratio);
-      const pct = ratio != null ? (ratio*100).toFixed(1)+'%' : '—';
+      const ratioP = svP.short_vol_ratio ?? null;
+      const c    = getSvRatioColor(ratio);
+      const pct  = ratio != null ? (ratio*100).toFixed(1)+'%' : '—';
+
+      // 전일 대비 변화
+      let diffStr = '', diffColor = '#64748b';
+      if (ratio != null && ratioP != null) {
+        const diff = (ratio - ratioP) * 100;
+        const sign = diff >= 0 ? '+' : '';
+        diffColor  = diff >= 1.5 ? '#dc2626' : diff <= -1.5 ? '#16a34a' : '#64748b';
+        diffStr    = `${sign}${diff.toFixed(1)}%p`;
+      }
+
       const floatPct = si.short_pct_float != null ? si.short_pct_float.toFixed(1)+'%' : '—';
-      const sratio   = si.short_ratio     != null ? si.short_ratio.toFixed(1)+'일'   : '—';
+      const sratio   = si.short_ratio     != null ? si.short_ratio.toFixed(1)+'일'    : '—';
       const sharesM  = si.shares_short    != null ? (si.shares_short/1e6).toFixed(1)+'M' : '—';
       const svVol    = sv.short_volume    != null ? (sv.short_volume/1e6).toFixed(1)+'M주' : '—';
+      const pvVol    = svP.short_vol_ratio != null ? (svP.short_vol_ratio*100).toFixed(1)+'%' : '—';
+
       return `<div style="background:var(--card);border:1.5px solid ${c.bg==='#f8fafc'?'var(--border)':c.bg};border-radius:12px;padding:16px;">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
           <span style="font-size:24px;">${inf.emoji}</span>
@@ -1775,7 +1810,8 @@ async function loadShortVolume() {
           <div style="background:${c.bg};border-radius:8px;padding:10px;text-align:center;">
             <div style="font-size:10px;color:${c.color};font-weight:600;margin-bottom:2px;">Short Volume Ratio</div>
             <div style="font-size:26px;font-weight:900;color:${c.color};">${pct}</div>
-            <div style="font-size:10px;color:${c.color};opacity:.8;">${svVol} · ${tradeDate}</div>
+            ${diffStr ? `<div style="font-size:12px;font-weight:700;color:${diffColor};margin-top:2px;">${diffStr} <span style="font-size:10px;font-weight:400;color:var(--sub);">전일(${pvVol}) 대비</span></div>` : ''}
+            <div style="font-size:10px;color:${c.color};opacity:.8;margin-top:2px;">${svVol} · ${tradeDate}</div>
           </div>
           <div style="background:var(--bg);border-radius:8px;padding:10px;">
             <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
