@@ -1692,25 +1692,76 @@ function getSvRatioColor(ratio) {
   return          {bg:'#dcfce7', color:'#14532d', label:'매우 낮음'};
 }
 
+// FINRA REGSHO: 브라우저에서 직접 호출 (최근 5영업일 소급)
+async function fetchFinraShortVolume(tickers) {
+  const result = {};
+  const today = new Date();
+  for (let delta = 0; delta < 7; delta++) {
+    const d = new Date(today);
+    d.setDate(d.getDate() - delta);
+    if (d.getDay() === 0 || d.getDay() === 6) continue; // 주말 스킵
+    const yyyymmdd = d.toISOString().slice(0,10).replace(/-/g,'');
+    const url = `https://cdn.finra.org/equity/regsho/daily/CNMSshvol${yyyymmdd}.txt`;
+    try {
+      const res = await fetch(url);
+      if (!res.ok) continue;
+      const text = await res.text();
+      if (!text.includes('Date|Symbol')) continue;
+      const dateStr = `${yyyymmdd.slice(0,4)}-${yyyymmdd.slice(4,6)}-${yyyymmdd.slice(6,8)}`;
+      let found = 0;
+      for (const line of text.split('\n')) {
+        const parts = line.split('|');
+        if (parts.length < 5) continue;
+        const sym = parts[1].trim().toUpperCase();
+        if (tickers.includes(sym)) {
+          const sv = parseInt(parts[2]);
+          const tv = parseInt(parts[4]);
+          result[sym] = {
+            trade_date: dateStr,
+            short_volume: sv,
+            total_volume: tv,
+            short_vol_ratio: tv > 0 ? Math.round(sv/tv*10000)/10000 : null
+          };
+          found++;
+        }
+      }
+      if (found > 0) break; // 데이터 찾으면 중단
+    } catch(e) { continue; }
+  }
+  return result;
+}
+
 async function loadShortVolume() {
   document.getElementById('sv-cards').innerHTML = '<div class="empty" style="grid-column:1/-1;"><div class="spinner" style="margin:0 auto 8px;"></div>공매도 데이터 수집 중...</div>';
+  const tickers = ['SPY','QQQ','IWM'];
   try {
-    const res  = await fetch(`${API}/api/short_volume`);
-    const json = await res.json();
-    if (json.error) throw new Error(json.error);
-    const data = json.data || {};
-    document.getElementById('sv-updated').textContent = '업데이트: ' + (json.updated_at || '—') + (json.from_cache ? ' (캐시)' : ' (실시간)');
+    // FINRA Short Volume — 브라우저 직접 호출
+    const svData = await fetchFinraShortVolume(tickers);
 
-    const cards = ['SPY','QQQ','IWM'].map(ticker => {
-      const d   = data[ticker] || {};
+    // Short Interest (Float%) — 백엔드 경유 (yfinance history에서 근사치 없으므로 캐시 활용)
+    let siData = {};
+    try {
+      const siRes  = await fetch(`${API}/api/short_volume`);
+      const siJson = await siRes.json();
+      if (!siJson.error && siJson.data) siData = siJson.data;
+    } catch(e) {}
+
+    // 날짜 표시
+    const tradeDate = Object.values(svData)[0]?.trade_date || '—';
+    const now = new Date().toLocaleString('ko-KR',{timeZone:'Asia/Seoul',hour12:false}).slice(0,16);
+    document.getElementById('sv-updated').textContent = `기준일: ${tradeDate} · 조회: ${now}`;
+
+    const cards = tickers.map(ticker => {
+      const sv  = svData[ticker]  || {};
+      const si  = siData[ticker]  || {};
       const inf = SV_ETF_INFO[ticker];
-      const ratio = d.short_vol_ratio;
+      const ratio = sv.short_vol_ratio ?? null;
       const c   = getSvRatioColor(ratio);
       const pct = ratio != null ? (ratio*100).toFixed(1)+'%' : '—';
-      const floatPct = d.short_pct_float != null ? d.short_pct_float.toFixed(1)+'%' : '—';
-      const sratio   = d.short_ratio     != null ? d.short_ratio.toFixed(1)+'일'   : '—';
-      const sharesM  = d.shares_short    != null ? (d.shares_short/1e6).toFixed(1)+'M' : '—';
-      const dateStr  = d.trade_date ? `(${d.trade_date} 기준)` : '';
+      const floatPct = si.short_pct_float != null ? si.short_pct_float.toFixed(1)+'%' : '—';
+      const sratio   = si.short_ratio     != null ? si.short_ratio.toFixed(1)+'일'   : '—';
+      const sharesM  = si.shares_short    != null ? (si.shares_short/1e6).toFixed(1)+'M' : '—';
+      const svVol    = sv.short_volume    != null ? (sv.short_volume/1e6).toFixed(1)+'M주' : '—';
       return `<div style="background:var(--card);border:1.5px solid ${c.bg==='#f8fafc'?'var(--border)':c.bg};border-radius:12px;padding:16px;">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
           <span style="font-size:24px;">${inf.emoji}</span>
@@ -1723,8 +1774,8 @@ async function loadShortVolume() {
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
           <div style="background:${c.bg};border-radius:8px;padding:10px;text-align:center;">
             <div style="font-size:10px;color:${c.color};font-weight:600;margin-bottom:2px;">Short Volume Ratio</div>
-            <div style="font-size:22px;font-weight:900;color:${c.color};">${pct}</div>
-            <div style="font-size:10px;color:${c.color};opacity:.8;">당일 거래량 중 공매도 ${dateStr}</div>
+            <div style="font-size:26px;font-weight:900;color:${c.color};">${pct}</div>
+            <div style="font-size:10px;color:${c.color};opacity:.8;">${svVol} · ${tradeDate}</div>
           </div>
           <div style="background:var(--bg);border-radius:8px;padding:10px;">
             <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
