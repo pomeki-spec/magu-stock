@@ -241,34 +241,21 @@ def init_db():
             created_at TIMESTAMP DEFAULT NOW()
         );
 
-        CREATE TABLE IF NOT EXISTS sector_momentum_cache (
-            id             SERIAL PRIMARY KEY,
-            ticker         VARCHAR(10) NOT NULL,
-            name           VARCHAR(30),
-            name_en        VARCHAR(50),
-            emoji          VARCHAR(10),
-            price          NUMERIC(12,2),
-            ret_1d         NUMERIC(8,2),
-            ret_1w         NUMERIC(8,2),
-            ret_1m         NUMERIC(8,2),
-            ret_3m         NUMERIC(8,2),
-            ret_6m         NUMERIC(8,2),
-            ret_1y         NUMERIC(8,2),
-            vol_ratio      NUMERIC(6,2),
-            rsi            NUMERIC(6,1),
-            from_52w_high  NUMERIC(8,1),
-            trend          VARCHAR(20),
-            trend_score    INT,
-            momentum_score INT,
-            rel_strength   NUMERIC(8,2),
-            spy_ret_1m     NUMERIC(8,2),
-            spy_ret_3m     NUMERIC(8,2),
-            spy_ret_6m     NUMERIC(8,2),
-            spy_ret_1y     NUMERIC(8,2),
-            screened_at    TIMESTAMP DEFAULT NOW()
+        CREATE TABLE IF NOT EXISTS short_volume_cache (
+            id              SERIAL PRIMARY KEY,
+            ticker          VARCHAR(10) NOT NULL,
+            trade_date      DATE NOT NULL,
+            short_volume    BIGINT,
+            total_volume    BIGINT,
+            short_vol_ratio NUMERIC(6,4),
+            short_pct_float NUMERIC(6,2),
+            short_ratio     NUMERIC(8,2),
+            shares_short    BIGINT,
+            updated_at      TIMESTAMP DEFAULT NOW(),
+            UNIQUE(ticker, trade_date)
         );
-        CREATE INDEX IF NOT EXISTS idx_smc_ticker ON sector_momentum_cache(ticker);
-        CREATE INDEX IF NOT EXISTS idx_smc_screened ON sector_momentum_cache(screened_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_svc_ticker ON short_volume_cache(ticker);
+        CREATE INDEX IF NOT EXISTS idx_svc_date   ON short_volume_cache(trade_date DESC);
     """)
     conn.commit()
     cur.close()
@@ -999,69 +986,118 @@ def _run_tenbagger_job():
     results.sort(key=lambda x: x['total_score'], reverse=True)
     save_tenbagger_to_db(results)
 
-def _run_sector_momentum_job():
-    """섹터 ETF 모멘텀 수집 → DB 저장 (매일 KST 04:00 스크리닝 job에서 호출)"""
-    logger.info("[섹터모멘텀] 수집 시작")
-    try:
-        results = []
-        with concurrent.futures.ThreadPoolExecutor(max_workers=11) as executor:
-            futures = {executor.submit(analyze_etf, etf): etf for etf in SECTOR_ETFS}
-            for f in concurrent.futures.as_completed(futures, timeout=120):
-                try:
-                    r = f.result(timeout=30)
-                    if r: results.append(r)
-                except Exception as e:
-                    logger.warning(f"[섹터모멘텀] ETF 수집 오류: {e}")
-        if not results:
-            logger.warning("[섹터모멘텀] 결과 없음, 저장 스킵")
-            return
+# ══════════════════════════════════════════════════════════════
+# 공매도 Short Volume (FINRA REGSHO) + Short Interest (yfinance)
+# ══════════════════════════════════════════════════════════════
 
-        # rel_strength 계산 (1개월 수익률 기준 평균 대비)
-        valid_rets = [r["ret_1m"] for r in results if r.get("ret_1m") is not None]
-        avg = sum(valid_rets) / len(valid_rets) if valid_rets else 0
-        for r in results:
-            r["rel_strength"] = round(r["ret_1m"] - avg, 2) if r.get("ret_1m") is not None else None
+SHORT_VOL_TICKERS = ["SPY", "QQQ", "IWM"]
 
-        # SPY 수익률
-        spy_1m = spy_3m = spy_6m = spy_1y = 0.0
+def fetch_finra_short_volume(tickers: list, max_days_back: int = 5) -> dict:
+    """FINRA REGSHO Consolidated NMS 파일에서 Short Volume 파싱
+    최근 영업일 파일을 찾아 반환: {ticker: {date, short_volume, total_volume, ratio}}
+    """
+    import io
+    results = {}
+    today = datetime.now()
+    for delta in range(max_days_back):
+        dt = today - timedelta(days=delta)
+        if dt.weekday() >= 5:  # 토/일 스킵
+            continue
+        date_str = dt.strftime("%Y%m%d")
+        url = f"https://cdn.finra.org/equity/regsho/daily/CNMSshvol{date_str}.txt"
         try:
-            spy = yf.Ticker("SPY").history(period="1y")
-            if len(spy) >= 22:  spy_1m = round(float((spy['Close'].iloc[-1]/spy['Close'].iloc[-22]-1)*100), 2)
-            if len(spy) >= 66:  spy_3m = round(float((spy['Close'].iloc[-1]/spy['Close'].iloc[-66]-1)*100), 2)
-            if len(spy) >= 132: spy_6m = round(float((spy['Close'].iloc[-1]/spy['Close'].iloc[-132]-1)*100), 2)
-            if len(spy) >= 252: spy_1y = round(float((spy['Close'].iloc[-1]/spy['Close'].iloc[-252]-1)*100), 2)
+            resp = requests.get(url, timeout=15)
+            if resp.status_code != 200:
+                continue
+            text = resp.text
+            if not text.strip() or "Date|Symbol" not in text:
+                continue
+            # 파싱: Date|Symbol|ShortVolume|ShortExemptVolume|TotalVolume|Market
+            found = {}
+            for line in text.splitlines():
+                parts = line.split("|")
+                if len(parts) < 5:
+                    continue
+                sym = parts[1].strip().upper()
+                if sym in tickers:
+                    try:
+                        sv = int(parts[2])
+                        tv = int(parts[4])
+                        ratio = round(sv / tv, 4) if tv > 0 else None
+                        found[sym] = {
+                            "trade_date": dt.strftime("%Y-%m-%d"),
+                            "short_volume": sv,
+                            "total_volume": tv,
+                            "short_vol_ratio": ratio
+                        }
+                    except: pass
+            if found:
+                results = found
+                logger.info(f"[공매도] FINRA {date_str} 파싱 완료: {list(found.keys())}")
+                break
         except Exception as e:
-            logger.warning(f"[섹터모멘텀] SPY 수집 오류: {e}")
+            logger.warning(f"[공매도] FINRA {date_str} 요청 실패: {e}")
+            continue
+    return results
 
+def fetch_short_interest_yf(tickers: list) -> dict:
+    """yfinance t.info에서 Short Interest % / Short Ratio / Shares Short 수집"""
+    result = {}
+    for ticker in tickers:
+        try:
+            info = yf.Ticker(ticker).info
+            result[ticker] = {
+                "short_pct_float": round((info.get("shortPercentOfFloat") or 0) * 100, 2),
+                "short_ratio":     round(info.get("shortRatio") or 0, 2),
+                "shares_short":    info.get("sharesShort") or 0,
+            }
+        except Exception as e:
+            logger.warning(f"[공매도] yfinance {ticker} 실패: {e}")
+            result[ticker] = {"short_pct_float": None, "short_ratio": None, "shares_short": None}
+    return result
+
+def _run_short_volume_job():
+    """FINRA Short Volume + yfinance Short Interest → DB 저장 (매일 KST 08:00 job에서 호출)"""
+    logger.info("[공매도] 수집 시작")
+    try:
+        sv_data  = fetch_finra_short_volume(SHORT_VOL_TICKERS)
+        si_data  = fetch_short_interest_yf(SHORT_VOL_TICKERS)
+
+        if not sv_data and not si_data:
+            logger.warning("[공매도] 데이터 없음, 저장 스킵")
+            return
         if not DATABASE_URL:
-            logger.warning("[섹터모멘텀] DATABASE_URL 없음, 저장 스킵")
             return
 
         conn = get_conn(); cur = conn.cursor()
-        # 기존 데이터 삭제 후 새로 저장
-        cur.execute("DELETE FROM sector_momentum_cache")
-        for r in results:
+        for ticker in SHORT_VOL_TICKERS:
+            sv = sv_data.get(ticker, {})
+            si = si_data.get(ticker, {})
+            if not sv and not si:
+                continue
+            trade_date = sv.get("trade_date") or datetime.now().strftime("%Y-%m-%d")
             cur.execute("""
-                INSERT INTO sector_momentum_cache
-                (ticker, name, name_en, emoji, price,
-                 ret_1d, ret_1w, ret_1m, ret_3m, ret_6m, ret_1y,
-                 vol_ratio, rsi, from_52w_high,
-                 trend, trend_score, momentum_score, rel_strength,
-                 spy_ret_1m, spy_ret_3m, spy_ret_6m, spy_ret_1y, screened_at)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s, NOW())
+                INSERT INTO short_volume_cache
+                (ticker, trade_date, short_volume, total_volume, short_vol_ratio,
+                 short_pct_float, short_ratio, shares_short, updated_at)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s, NOW())
+                ON CONFLICT (ticker, trade_date) DO UPDATE SET
+                    short_volume    = EXCLUDED.short_volume,
+                    total_volume    = EXCLUDED.total_volume,
+                    short_vol_ratio = EXCLUDED.short_vol_ratio,
+                    short_pct_float = EXCLUDED.short_pct_float,
+                    short_ratio     = EXCLUDED.short_ratio,
+                    shares_short    = EXCLUDED.shares_short,
+                    updated_at      = NOW()
             """, (
-                r["ticker"], r["name"], r["name_en"], r["emoji"], r.get("price"),
-                r.get("ret_1d"), r.get("ret_1w"), r.get("ret_1m"), r.get("ret_3m"),
-                r.get("ret_6m"), r.get("ret_1y"),
-                r.get("vol_ratio"), r.get("rsi"), r.get("from_52w_high"),
-                r.get("trend"), r.get("trend_score"), r.get("momentum_score"),
-                r.get("rel_strength"),
-                spy_1m, spy_3m, spy_6m, spy_1y
+                ticker, trade_date,
+                sv.get("short_volume"), sv.get("total_volume"), sv.get("short_vol_ratio"),
+                si.get("short_pct_float"), si.get("short_ratio"), si.get("shares_short")
             ))
         conn.commit(); cur.close(); conn.close()
-        logger.info(f"[섹터모멘텀] {len(results)}개 ETF 저장 완료")
+        logger.info(f"[공매도] 저장 완료: {list(sv_data.keys())}")
     except Exception as e:
-        logger.error(f"[섹터모멘텀] job 오류: {e}")
+        logger.error(f"[공매도] job 오류: {e}")
 
 # ══════════════════════════════════════════════════════════════
 # 텐배거 스크리너 (기존 그대로)
@@ -1793,7 +1829,7 @@ def get_stock_score(ticker: str):
 def analyze_etf(etf_info: dict):
     ticker=etf_info["ticker"]
     try:
-        t=yf.Ticker(ticker); hist=t.history(period="1y")
+        t=yf.Ticker(ticker); info=t.info; hist=t.history(period="2y")
         if hist.empty or len(hist)<60: return None
 
         def safe_float(val, fallback=None):
@@ -1837,7 +1873,7 @@ def analyze_etf(etf_info: dict):
         high_52w_raw=hist['High'].iloc[-252:].max() if len(hist)>=252 else hist['High'].max()
         high_52w=safe_float(high_52w_raw)
         from_high=round((price/high_52w-1)*100,1) if high_52w and high_52w>0 else None
-        inst_pct=0.0
+        inst_pct=round(safe_float(info.get('heldPercentInstitutions') or 0, 0)*100,1)
 
         sc=0
         if r1m is not None:
@@ -1877,59 +1913,13 @@ def analyze_etf(etf_info: dict):
 @app.get("/api/smartmoney")
 @limiter.limit("10/minute")
 def get_smart_money(request: Request):
-    # ── DB 캐시 우선 ──────────────────────────────────────────
-    if DATABASE_URL:
-        try:
-            conn=get_conn(); cur=conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-            cur.execute("""
-                SELECT * FROM sector_momentum_cache
-                ORDER BY momentum_score DESC
-            """)
-            rows=cur.fetchall(); cur.close(); conn.close()
-            if rows:
-                sectors=[]
-                spy_1m=spy_3m=spy_6m=spy_1y=0.0
-                for r in rows:
-                    d=dict(r)
-                    spy_1m=float(d.get("spy_ret_1m") or 0)
-                    spy_3m=float(d.get("spy_ret_3m") or 0)
-                    spy_6m=float(d.get("spy_ret_6m") or 0)
-                    spy_1y=float(d.get("spy_ret_1y") or 0)
-                    sectors.append({
-                        "ticker":d["ticker"],"name":d["name"],"name_en":d["name_en"],"emoji":d["emoji"],
-                        "price":float(d["price"]) if d.get("price") else None,
-                        "ret_1d":float(d["ret_1d"]) if d.get("ret_1d") is not None else None,
-                        "ret_1w":float(d["ret_1w"]) if d.get("ret_1w") is not None else None,
-                        "ret_1m":float(d["ret_1m"]) if d.get("ret_1m") is not None else None,
-                        "ret_3m":float(d["ret_3m"]) if d.get("ret_3m") is not None else None,
-                        "ret_6m":float(d["ret_6m"]) if d.get("ret_6m") is not None else None,
-                        "ret_1y":float(d["ret_1y"]) if d.get("ret_1y") is not None else None,
-                        "vol_ratio":float(d["vol_ratio"]) if d.get("vol_ratio") is not None else 1.0,
-                        "rsi":float(d["rsi"]) if d.get("rsi") is not None else 0.0,
-                        "from_52w_high":float(d["from_52w_high"]) if d.get("from_52w_high") is not None else None,
-                        "inst_pct":0.0,
-                        "trend":d.get("trend","중립"),
-                        "trend_score":int(d["trend_score"]) if d.get("trend_score") is not None else 0,
-                        "momentum_score":int(d["momentum_score"]) if d.get("momentum_score") is not None else 0,
-                        "rel_strength":float(d["rel_strength"]) if d.get("rel_strength") is not None else None,
-                    })
-                updated_at=rows[0]["screened_at"].strftime("%Y-%m-%d %H:%M") if rows[0].get("screened_at") else datetime.now().strftime("%Y-%m-%d %H:%M")
-                return safe_json({
-                    "updated_at":updated_at,"from_cache":True,
-                    "spy_ret_1m":spy_1m,"spy_ret_3m":spy_3m,"spy_ret_6m":spy_6m,"spy_ret_1y":spy_1y,
-                    "sectors":sectors,"total":len(sectors)
-                })
-        except Exception as e:
-            logger.warning(f"섹터 모멘텀 캐시 조회 실패, 실시간 수집으로 fallback: {e}")
-
-    # ── DB 없거나 캐시 비어있으면 실시간 수집 (fallback) ──────
     try:
         results=[]
-        with concurrent.futures.ThreadPoolExecutor(max_workers=11) as executor:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
             futures={executor.submit(analyze_etf,etf):etf for etf in SECTOR_ETFS}
-            for f in concurrent.futures.as_completed(futures, timeout=120):
+            for f in concurrent.futures.as_completed(futures):
                 try:
-                    r=f.result(timeout=30)
+                    r=f.result()
                     if r: results.append(r)
                 except: pass
         results.sort(key=lambda x:x.get("momentum_score",0),reverse=True)
@@ -1939,18 +1929,80 @@ def get_smart_money(request: Request):
             for r in results:
                 r["rel_strength"]=round(r["ret_1m"]-avg,2) if r.get("ret_1m") is not None else None
         try:
-            spy=yf.Ticker("SPY").history(period="1y")
+            spy=yf.Ticker("SPY").history(period="2y")
             spy_1m=round(float((spy['Close'].iloc[-1]/spy['Close'].iloc[-22]-1)*100),2) if len(spy)>=22 else 0
             spy_3m=round(float((spy['Close'].iloc[-1]/spy['Close'].iloc[-66]-1)*100),2) if len(spy)>=66 else 0
             spy_6m=round(float((spy['Close'].iloc[-1]/spy['Close'].iloc[-132]-1)*100),2) if len(spy)>=132 else 0
             spy_1y=round(float((spy['Close'].iloc[-1]/spy['Close'].iloc[-252]-1)*100),2) if len(spy)>=252 else 0
         except: spy_1m=spy_3m=spy_6m=spy_1y=0
-        return safe_json({"updated_at":datetime.now().strftime("%Y-%m-%d %H:%M"),"from_cache":False,
+        return safe_json({"updated_at":datetime.now().strftime("%Y-%m-%d %H:%M"),
                 "spy_ret_1m":spy_1m,"spy_ret_3m":spy_3m,"spy_ret_6m":spy_6m,"spy_ret_1y":spy_1y,
                 "sectors":results,"total":len(results)})
     except Exception as e:
         logger.error(f"섹터 모멘텀 오류: {e}")
         return safe_json({"error":str(e),"sectors":[],"total":0,"updated_at":datetime.now().strftime("%Y-%m-%d %H:%M")})
+
+@app.get("/api/short_volume")
+@limiter.limit("10/minute")
+def get_short_volume(request: Request):
+    """SPY/QQQ/IWM 공매도 데이터 — DB 캐시 우선, 없으면 실시간 수집"""
+    # ── DB 캐시 우선 ──────────────────────────────────────────
+    if DATABASE_URL:
+        try:
+            conn = get_conn(); cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            cur.execute("""
+                SELECT DISTINCT ON (ticker)
+                    ticker, trade_date, short_volume, total_volume,
+                    short_vol_ratio, short_pct_float, short_ratio, shares_short, updated_at
+                FROM short_volume_cache
+                ORDER BY ticker, trade_date DESC
+            """)
+            rows = cur.fetchall(); cur.close(); conn.close()
+            if len(rows) >= len(SHORT_VOL_TICKERS):
+                result = {}
+                for r in rows:
+                    d = dict(r)
+                    ticker = d["ticker"]
+                    result[ticker] = {
+                        "ticker":          ticker,
+                        "trade_date":      d["trade_date"].strftime("%Y-%m-%d") if d.get("trade_date") else None,
+                        "short_volume":    int(d["short_volume"]) if d.get("short_volume") else None,
+                        "total_volume":    int(d["total_volume"]) if d.get("total_volume") else None,
+                        "short_vol_ratio": float(d["short_vol_ratio"]) if d.get("short_vol_ratio") is not None else None,
+                        "short_pct_float": float(d["short_pct_float"]) if d.get("short_pct_float") is not None else None,
+                        "short_ratio":     float(d["short_ratio"]) if d.get("short_ratio") is not None else None,
+                        "shares_short":    int(d["shares_short"]) if d.get("shares_short") else None,
+                        "updated_at":      d["updated_at"].strftime("%Y-%m-%d %H:%M") if d.get("updated_at") else None,
+                    }
+                return safe_json({"from_cache": True, "data": result,
+                                  "updated_at": list(result.values())[0]["updated_at"] if result else None})
+        except Exception as e:
+            logger.warning(f"공매도 캐시 조회 실패, 실시간 수집으로 fallback: {e}")
+
+    # ── fallback: 실시간 수집 ──────────────────────────────────
+    try:
+        sv_data = fetch_finra_short_volume(SHORT_VOL_TICKERS)
+        si_data = fetch_short_interest_yf(SHORT_VOL_TICKERS)
+        result  = {}
+        for ticker in SHORT_VOL_TICKERS:
+            sv = sv_data.get(ticker, {})
+            si = si_data.get(ticker, {})
+            result[ticker] = {
+                "ticker":          ticker,
+                "trade_date":      sv.get("trade_date"),
+                "short_volume":    sv.get("short_volume"),
+                "total_volume":    sv.get("total_volume"),
+                "short_vol_ratio": sv.get("short_vol_ratio"),
+                "short_pct_float": si.get("short_pct_float"),
+                "short_ratio":     si.get("short_ratio"),
+                "shares_short":    si.get("shares_short"),
+                "updated_at":      datetime.now().strftime("%Y-%m-%d %H:%M"),
+            }
+        return safe_json({"from_cache": False, "data": result,
+                          "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M")})
+    except Exception as e:
+        logger.error(f"공매도 데이터 오류: {e}")
+        return safe_json({"error": str(e), "data": {}, "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M")})
 
 @app.get("/api/tenbagger")
 @limiter.limit("5/minute")
@@ -2292,6 +2344,14 @@ scheduler.add_job(
     update_bestpick_prices_job,
     CronTrigger(hour=23, minute=0, timezone=pytz.utc),
     id="daily_bestpick_price",
+    replace_existing=True,
+    misfire_grace_time=3600
+)
+# 매일 KST 09:00 (UTC 00:00) — FINRA Short Volume 수집 (ET 18:00 게시 후 충분한 여유)
+scheduler.add_job(
+    _run_short_volume_job,
+    CronTrigger(hour=0, minute=0, timezone=pytz.utc),
+    id="daily_short_volume",
     replace_existing=True,
     misfire_grace_time=3600
 )
