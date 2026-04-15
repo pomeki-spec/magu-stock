@@ -674,6 +674,23 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
       <div class="topbar-right"><button class="run-btn" id="sm-run-btn" onclick="loadSmartMoney()">🔄 섹터 트렌드 분석</button></div>
     </div>
 
+    <!-- 공매도 모니터 -->
+    <div class="card" style="margin-bottom:14px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:14px;">
+        <span class="section-title" style="margin-bottom:0;">🩳 공매도 모니터 <span style="font-size:11px;font-weight:400;color:var(--sub);">FINRA REGSHO · 매일 업데이트</span></span>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span style="font-size:11px;color:var(--sub);" id="sv-updated">—</span>
+          <button onclick="loadShortVolume()" style="padding:4px 12px;border-radius:6px;border:1px solid var(--border);background:var(--card);color:var(--text);font-size:12px;font-weight:600;cursor:pointer;">🔄 새로고침</button>
+        </div>
+      </div>
+      <div id="sv-cards" style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;">
+        <div class="empty" style="grid-column:1/-1;">📊 데이터 불러오는 중...</div>
+      </div>
+      <div style="margin-top:10px;padding:10px 14px;background:var(--bg);border-radius:8px;font-size:11px;color:var(--sub);line-height:1.7;">
+        <b style="color:var(--text);">Short Volume Ratio</b> — 당일 전체 거래량 중 공매도 비중 (FINRA OTC 집계, 매일 ET 18:00 이후 업데이트) &nbsp;|&nbsp;
+        <b style="color:var(--text);">Short % of Float</b> — 유통주식 대비 공매도 잔고 비율 (FINRA 월 2회 공시 기준)
+      </div>
+    </div>
     <!-- 장세 판단 카드 -->
     <div class="market-judge-card" id="sm-judge-card" style="background:#f8fafc;border-color:#e4e8f0;display:none;">
       <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
@@ -1107,6 +1124,9 @@ function showPage(page) {
   });
   if(page === 'rebalance') {
     setTimeout(calcRebalance, 100);
+  }
+  if(page === 'smartmoney') {
+    loadShortVolume();
   }
   if(['classic','growth','modern'].includes(page)) {
     if(_lastResults && _lastResults.length>0) renderModelPage(page);
@@ -1652,6 +1672,81 @@ function renderHeatmap(period, btn) {
       <div style="width:44px;text-align:right;font-size:11px;color:var(--sub);">RSI ${s.rsi??'—'}</div>
     </div>`;
   }).join('');
+}
+
+// ── 공매도 모니터 ──────────────────────────────────────────
+const SV_ETF_INFO = {
+  SPY: {name:'S&P500 ETF', emoji:'📊', desc:'S&P 500 추종'},
+  QQQ: {name:'나스닥100 ETF', emoji:'💻', desc:'Nasdaq-100 추종'},
+  IWM: {name:'러셀2000 ETF', emoji:'🏷', desc:'Russell 2000 추종'},
+};
+
+function getSvRatioColor(ratio) {
+  if (ratio == null) return {bg:'#f8fafc', color:'#64748b', label:'데이터 없음'};
+  const pct = ratio * 100;
+  if (pct >= 60) return {bg:'#7f1d1d', color:'#fca5a5', label:'극단적 공매도'};
+  if (pct >= 55) return {bg:'#fee2e2', color:'#991b1b', label:'높은 공매도'};
+  if (pct >= 50) return {bg:'#fff1f2', color:'#be123c', label:'다소 높음'};
+  if (pct >= 45) return {bg:'#f8fafc', color:'#64748b', label:'보통'};
+  if (pct >= 40) return {bg:'#f0fdf4', color:'#15803d', label:'낮은 공매도'};
+  return          {bg:'#dcfce7', color:'#14532d', label:'매우 낮음'};
+}
+
+async function loadShortVolume() {
+  document.getElementById('sv-cards').innerHTML = '<div class="empty" style="grid-column:1/-1;"><div class="spinner" style="margin:0 auto 8px;"></div>공매도 데이터 수집 중...</div>';
+  try {
+    const res  = await fetch(`${API}/api/short_volume`);
+    const json = await res.json();
+    if (json.error) throw new Error(json.error);
+    const data = json.data || {};
+    document.getElementById('sv-updated').textContent = '업데이트: ' + (json.updated_at || '—') + (json.from_cache ? ' (캐시)' : ' (실시간)');
+
+    const cards = ['SPY','QQQ','IWM'].map(ticker => {
+      const d   = data[ticker] || {};
+      const inf = SV_ETF_INFO[ticker];
+      const ratio = d.short_vol_ratio;
+      const c   = getSvRatioColor(ratio);
+      const pct = ratio != null ? (ratio*100).toFixed(1)+'%' : '—';
+      const floatPct = d.short_pct_float != null ? d.short_pct_float.toFixed(1)+'%' : '—';
+      const sratio   = d.short_ratio     != null ? d.short_ratio.toFixed(1)+'일'   : '—';
+      const sharesM  = d.shares_short    != null ? (d.shares_short/1e6).toFixed(1)+'M' : '—';
+      const dateStr  = d.trade_date ? `(${d.trade_date} 기준)` : '';
+      return `<div style="background:var(--card);border:1.5px solid ${c.bg==='#f8fafc'?'var(--border)':c.bg};border-radius:12px;padding:16px;">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
+          <span style="font-size:24px;">${inf.emoji}</span>
+          <div>
+            <div style="font-size:15px;font-weight:800;">${ticker}</div>
+            <div style="font-size:11px;color:var(--sub);">${inf.desc}</div>
+          </div>
+          <div style="margin-left:auto;padding:3px 10px;border-radius:6px;background:${c.bg};color:${c.color};font-size:11px;font-weight:700;">${c.label}</div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+          <div style="background:${c.bg};border-radius:8px;padding:10px;text-align:center;">
+            <div style="font-size:10px;color:${c.color};font-weight:600;margin-bottom:2px;">Short Volume Ratio</div>
+            <div style="font-size:22px;font-weight:900;color:${c.color};">${pct}</div>
+            <div style="font-size:10px;color:${c.color};opacity:.8;">당일 거래량 중 공매도 ${dateStr}</div>
+          </div>
+          <div style="background:var(--bg);border-radius:8px;padding:10px;">
+            <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+              <span style="font-size:11px;color:var(--sub);">Float 공매도</span>
+              <span style="font-size:13px;font-weight:700;">${floatPct}</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+              <span style="font-size:11px;color:var(--sub);">Short Ratio</span>
+              <span style="font-size:13px;font-weight:700;">${sratio}</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;">
+              <span style="font-size:11px;color:var(--sub);">공매도 주식수</span>
+              <span style="font-size:13px;font-weight:700;">${sharesM}</span>
+            </div>
+          </div>
+        </div>
+      </div>`;
+    }).join('');
+    document.getElementById('sv-cards').innerHTML = cards;
+  } catch(e) {
+    document.getElementById('sv-cards').innerHTML = `<div class="empty" style="grid-column:1/-1;">❌ 오류: ${e.message}</div>`;
+  }
 }
 
 async function loadSmartMoney() {
