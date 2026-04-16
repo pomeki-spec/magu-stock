@@ -795,6 +795,24 @@ def fetch_single_stock(ticker, market):
                 rv=float(ta.momentum.RSIIndicator(hist_daily['Close'],window=14).rsi().iloc[-1])
                 if not (math.isnan(rv) or math.isinf(rv)): rsi_val=round(rv,1)
             except: pass
+        # 진입 타이밍 지표 계산
+        ma20_pct=0.0; from_52w_high=0.0; vol_ratio=0.0
+        try:
+            if len(hist_daily)>=20:
+                ma20=float(hist_daily['Close'].rolling(20).mean().iloc[-1])
+                if ma20>0: ma20_pct=round((current_price/ma20-1)*100,1)
+        except: pass
+        try:
+            if len(hist_daily)>=20:
+                high_52w=float(hist_daily['High'].rolling(min(252,len(hist_daily))).max().iloc[-1])
+                if high_52w>0: from_52w_high=round((current_price/high_52w-1)*100,1)
+        except: pass
+        try:
+            if len(hist_daily)>=21:
+                avg_vol=float(hist_daily['Volume'].iloc[-21:-1].mean())
+                cur_vol=float(hist_daily['Volume'].iloc[-1])
+                if avg_vol>0: vol_ratio=round(cur_vol/avg_vol*100,0)
+        except: pass
         name=KR_NAMES.get(ticker) or info.get('longName',ticker); sector=info.get('sector') or 'Unknown'
         return {
             "ticker":ticker,"name":name,"sector":sector,"etf":SECTOR_TO_ETF.get(sector,""),
@@ -807,6 +825,7 @@ def fetch_single_stock(ticker, market):
             "c_ema":c_ema,"c_stoch":c_stoch,"c_break":c_break,
             "g_roe":g_roe,"g_debt":g_debt,"g_eps":g_eps,"g_peg":g_peg,"g_ma200":g_ma200,"g_rsi":g_rsi,
             "m_anal":m_anal,"m_rs":m_rs,"m_obv":m_obv,
+            "ma20_pct":ma20_pct,"from_52w_high":from_52w_high,"vol_ratio":vol_ratio,
         }
     except: return None
 
