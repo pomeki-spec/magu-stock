@@ -878,25 +878,17 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
                 </div>
               </div>
             </div>
-            <!-- 근거 + 공격적 가산 설정 -->
-            <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px;margin-bottom:4px;">
-              <div style="font-size:10px;color:#64748b;" id="rb-auto-reason">CNN + 하이일드<br>자동 계산 중</div>
-              <div style="display:flex;align-items:center;gap:5px;">
-                <span style="font-size:10px;color:var(--sub);white-space:nowrap;">공격적 가산</span>
-                <input id="rb-aggressive-add" type="number" value="10" min="1" max="30"
-                  style="width:48px;padding:3px 6px;border:1px solid var(--border);border-radius:5px;font-size:12px;font-weight:700;background:var(--card);color:var(--text);text-align:center;"
-                  oninput="calcAutoTarget();calcRebalance();">
-                <span style="font-size:10px;color:var(--sub);">%</span>
-              </div>
+            <!-- 공격적 가산 설정 -->
+            <div style="display:flex;align-items:center;justify-content:flex-end;gap:5px;">
+              <span style="font-size:10px;color:var(--sub);white-space:nowrap;">공격적 가산</span>
+              <input id="rb-aggressive-add" type="number" value="10" min="1" max="30"
+                style="width:48px;padding:3px 6px;border:1px solid var(--border);border-radius:5px;font-size:12px;font-weight:700;background:var(--card);color:var(--text);text-align:center;"
+                oninput="calcAutoTarget();calcRebalance();">
+              <span style="font-size:10px;color:var(--sub);">%</span>
             </div>
-            <!-- 수동 오버라이드 -->
-            <div style="margin-top:4px;display:flex;align-items:center;gap:6px;">
-              <input type="checkbox" id="rb-manual-toggle" onchange="toggleManualTarget(this.checked)" style="cursor:pointer;">
-              <label for="rb-manual-toggle" style="font-size:11px;color:var(--sub);cursor:pointer;">직접 입력</label>
-              <input id="rb-target" type="number" placeholder="70" value="70" min="10" max="100"
-                style="width:70px;padding:4px 8px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-weight:700;background:var(--card);color:var(--text);display:none;"
-                oninput="calcRebalance()">
-            </div>
+            <span id="rb-auto-reason" style="display:none;"></span>
+            <input type="checkbox" id="rb-manual-toggle" style="display:none;">
+            <input id="rb-target" type="number" value="70" style="display:none;">
           </div>
         </div>
         <!-- 리밸런싱 트리거 설정 -->
