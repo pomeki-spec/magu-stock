@@ -845,13 +845,13 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
             <div style="font-size:11px;color:var(--sub);margin-bottom:6px;font-weight:600;">총 자산 (원)</div>
             <input id="rb-total" type="text" inputmode="numeric" placeholder="예: 130,000,000"
               style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-weight:700;background:var(--card);color:var(--text);box-sizing:border-box;"
-              oninput="formatRbInput(this)">
+              oninput="formatRbInput(this)" onblur="saveRbInputs();calcRebalance();">
           </div>
           <div>
             <div style="font-size:11px;color:var(--sub);margin-bottom:6px;font-weight:600;">현재 주식 금액 (원)</div>
             <input id="rb-stock" type="text" inputmode="numeric" placeholder="예: 100,000,000"
               style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-weight:700;background:var(--card);color:var(--text);box-sizing:border-box;"
-              oninput="formatRbInput(this)">
+              oninput="formatRbInput(this)" onblur="saveRbInputs();calcRebalance();">
           </div>
           <div>
             <div style="font-size:11px;color:var(--sub);margin-bottom:6px;font-weight:600;">목표 주식 비율 — 매크로 자동 산정</div>
