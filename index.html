@@ -855,18 +855,45 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
           </div>
           <div>
             <div style="font-size:11px;color:var(--sub);margin-bottom:6px;font-weight:600;">목표 주식 비율 — 매크로 자동 산정</div>
-            <div style="padding:10px 12px;border:1.5px solid #3b82f6;border-radius:8px;background:#eff6ff;display:flex;align-items:center;justify-content:space-between;">
-              <div>
-                <span style="font-size:22px;font-weight:800;color:#1d4ed8;" id="rb-auto-target">—</span>
-                <span style="font-size:13px;color:#1d4ed8;font-weight:600;">%</span>
+            <!-- 보수적 / 공격적 2가지 표시 -->
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:6px;">
+              <div style="padding:10px 12px;border:1.5px solid #3b82f6;border-radius:8px;background:#eff6ff;cursor:pointer;transition:all .15s;"
+                id="rb-mode-conservative"
+                onclick="setRbMode('conservative')"
+                title="보수적 — CNN + 하이일드 조합">
+                <div style="font-size:9px;color:#64748b;font-weight:700;margin-bottom:2px;">보수적</div>
+                <div style="display:flex;align-items:baseline;gap:3px;">
+                  <span style="font-size:22px;font-weight:800;color:#1d4ed8;" id="rb-auto-target">—</span>
+                  <span style="font-size:13px;color:#1d4ed8;font-weight:600;">%</span>
+                </div>
               </div>
-              <div style="font-size:10px;color:#64748b;text-align:right;" id="rb-auto-reason">CNN + 하이일드<br>자동 계산 중</div>
+              <div style="padding:10px 12px;border:1.5px solid #e2e8f0;border-radius:8px;background:#f8fafc;cursor:pointer;transition:all .15s;"
+                id="rb-mode-aggressive"
+                onclick="setRbMode('aggressive')"
+                title="공격적 — 보수적 + 가산%">
+                <div style="font-size:9px;color:#64748b;font-weight:700;margin-bottom:2px;">공격적</div>
+                <div style="display:flex;align-items:baseline;gap:3px;">
+                  <span style="font-size:22px;font-weight:800;color:#64748b;" id="rb-aggressive-target">—</span>
+                  <span style="font-size:13px;color:#64748b;font-weight:600;">%</span>
+                </div>
+              </div>
+            </div>
+            <!-- 근거 + 공격적 가산 설정 -->
+            <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px;margin-bottom:4px;">
+              <div style="font-size:10px;color:#64748b;" id="rb-auto-reason">CNN + 하이일드<br>자동 계산 중</div>
+              <div style="display:flex;align-items:center;gap:5px;">
+                <span style="font-size:10px;color:var(--sub);white-space:nowrap;">공격적 가산</span>
+                <input id="rb-aggressive-add" type="number" value="10" min="1" max="30"
+                  style="width:48px;padding:3px 6px;border:1px solid var(--border);border-radius:5px;font-size:12px;font-weight:700;background:var(--card);color:var(--text);text-align:center;"
+                  oninput="calcAutoTarget();calcRebalance();">
+                <span style="font-size:10px;color:var(--sub);">%</span>
+              </div>
             </div>
             <!-- 수동 오버라이드 -->
-            <div style="margin-top:6px;display:flex;align-items:center;gap:6px;">
+            <div style="margin-top:4px;display:flex;align-items:center;gap:6px;">
               <input type="checkbox" id="rb-manual-toggle" onchange="toggleManualTarget(this.checked)" style="cursor:pointer;">
               <label for="rb-manual-toggle" style="font-size:11px;color:var(--sub);cursor:pointer;">직접 입력</label>
-              <input id="rb-target" type="number" placeholder="70" value="70" min="10" max="90"
+              <input id="rb-target" type="number" placeholder="70" value="70" min="10" max="100"
                 style="width:70px;padding:4px 8px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-weight:700;background:var(--card);color:var(--text);display:none;"
                 oninput="calcRebalance()">
             </div>
@@ -2192,6 +2219,8 @@ async function restoreRbInputs() {
       if(s.total !== null && s.total !== undefined) document.getElementById('rb-total').value = Number(s.total).toLocaleString('ko-KR');
       if(s.stock !== null && s.stock !== undefined) document.getElementById('rb-stock').value = Number(s.stock).toLocaleString('ko-KR');
       if(s.target !== null && s.target !== undefined) document.getElementById('rb-target').value = s.target;
+      if(s.rb_mode) { _rbMode = s.rb_mode; setRbMode(s.rb_mode); }
+      if(s.aggressive_add) { const el = document.getElementById('rb-aggressive-add'); if(el) el.value = s.aggressive_add; }
       const trigger = s.trigger_pct || 5;
       _rbTrigger = trigger;
       [3,5,10].forEach(t => {
@@ -2214,6 +2243,8 @@ async function restoreRbInputs() {
     document.getElementById('rb-stock').value = v < 10000 ? (v * 10000).toLocaleString('ko-KR') : v.toLocaleString('ko-KR');
   }
   if(saved.target) document.getElementById('rb-target').value = saved.target;
+  if(saved.rb_mode) { _rbMode = saved.rb_mode; setRbMode(saved.rb_mode); }
+  if(saved.aggressive_add) { const el = document.getElementById('rb-aggressive-add'); if(el) el.value = saved.aggressive_add; }
   if(saved.trigger) {
     _rbTrigger = saved.trigger;
     [3,5,10].forEach(t => {
@@ -2233,7 +2264,9 @@ function saveRbInputs() {
     total:       rawTotal,
     stock:       rawStock,
     target:      parseInt(document.getElementById('rb-target').value) || null,
-    trigger_pct: _rbTrigger
+    trigger_pct: _rbTrigger,
+    rb_mode:     _rbMode,
+    aggressive_add: parseInt(document.getElementById('rb-aggressive-add')?.value || '10') || 10
   };
   // DB 저장 (비동기, fire-and-forget)
   fetch(`${API}/api/rb/settings`, {
@@ -2246,7 +2279,9 @@ function saveRbInputs() {
     total: rawTotal,
     stock: rawStock,
     target: document.getElementById('rb-target').value,
-    trigger: _rbTrigger
+    trigger: _rbTrigger,
+    rb_mode: _rbMode,
+    aggressive_add: parseInt(document.getElementById('rb-aggressive-add')?.value || '10') || 10
   }));
 }
 
@@ -2269,40 +2304,90 @@ function toggleManualTarget(checked) {
   calcRebalance();
 }
 
+// 현재 선택 모드 ('conservative' | 'aggressive')
+let _rbMode = 'conservative';
+
+function setRbMode(mode) {
+  _rbMode = mode;
+  const cBtn = document.getElementById('rb-mode-conservative');
+  const aBtn = document.getElementById('rb-mode-aggressive');
+  if(cBtn && aBtn) {
+    if(mode === 'conservative') {
+      cBtn.style.border = '1.5px solid #3b82f6'; cBtn.style.background = '#eff6ff';
+      document.getElementById('rb-auto-target').style.color = '#1d4ed8';
+      aBtn.style.border = '1.5px solid #e2e8f0'; aBtn.style.background = '#f8fafc';
+      document.getElementById('rb-aggressive-target').style.color = '#64748b';
+    } else {
+      aBtn.style.border = '1.5px solid #22c55e'; aBtn.style.background = '#f0fdf4';
+      document.getElementById('rb-aggressive-target').style.color = '#15803d';
+      cBtn.style.border = '1.5px solid #e2e8f0'; cBtn.style.background = '#f8fafc';
+      document.getElementById('rb-auto-target').style.color = '#64748b';
+    }
+  }
+  calcRebalance();
+}
+
 function calcAutoTarget() {
   const fear = parseFloat(document.getElementById('fear-num')?.textContent || '50');
   const hyBadge = document.getElementById('hy-signal-badge');
   const hyGood = hyBadge?.getAttribute('data-direction') === 'narrowing';
 
-  let target, reason;
+  let conservative, reason, zoneName;
+  // 9단계 구간
   if(fear <= 10) {
-    target = hyGood ? 88 : 80;
-    reason = hyGood ? 'CNN≤10+신용안정\n역사적 매수 기회' : 'CNN≤10+신용위험\n신중한 적극매수';
+    conservative = hyGood ? 88 : 80;
+    zoneName = '극단 공포';
+    reason = hyGood ? 'CNN≤10 · 신용안정\n역사적 매수 기회' : 'CNN≤10 · 신용위험\n신중한 적극매수';
   } else if(fear <= 20) {
-    target = hyGood ? 82 : 75;
-    reason = hyGood ? 'CNN≤20+신용안정\n적극 매수' : 'CNN≤20+신용위험\n분할 매수';
+    conservative = hyGood ? 82 : 75;
+    zoneName = '공포';
+    reason = hyGood ? 'CNN≤20 · 신용안정\n적극 매수' : 'CNN≤20 · 신용위험\n분할 매수';
   } else if(fear <= 35) {
-    target = hyGood ? 76 : 70;
-    reason = hyGood ? 'CNN≤35+신용안정\n매수 우호' : 'CNN≤35+신용위험\n관망';
+    conservative = hyGood ? 76 : 70;
+    zoneName = '약한 공포';
+    reason = hyGood ? 'CNN≤35 · 신용안정\n매수 우호' : 'CNN≤35 · 신용위험\n관망';
+  } else if(fear <= 45) {
+    conservative = hyGood ? 72 : 67;
+    zoneName = '중립 하단';
+    reason = hyGood ? 'CNN≤45 · 신용안정\n중립 하단 · 기본 유지' : 'CNN≤45 · 신용위험\n소폭 보수적';
+  } else if(fear <= 55) {
+    conservative = hyGood ? 70 : 65;
+    zoneName = '중립';
+    reason = hyGood ? 'CNN≤55 · 신용안정\n기본 비율 유지' : 'CNN≤55 · 신용위험\n기본 유지';
   } else if(fear <= 65) {
-    target = 70;
-    reason = 'CNN중립구간\n기본 비율 유지';
+    conservative = hyGood ? 67 : 62;
+    zoneName = '중립 상단';
+    reason = hyGood ? 'CNN≤65 · 신용안정\n중립 상단 · 소폭 조정' : 'CNN≤65 · 신용위험\n현금 소폭 확보';
+  } else if(fear <= 72) {
+    conservative = hyGood ? 63 : 58;
+    zoneName = '약한 탐욕';
+    reason = hyGood ? 'CNN≤72 · 신용안정\n소폭 축소' : 'CNN≤72 · 신용위험\n현금 확보';
   } else if(fear <= 79) {
-    target = hyGood ? 65 : 60;
-    reason = hyGood ? 'CNN탐욕+신용안정\n소폭 축소' : 'CNN탐욕+신용위험\n현금 확보';
+    conservative = hyGood ? 60 : 54;
+    zoneName = '탐욕';
+    reason = hyGood ? 'CNN≤79 · 신용안정\n비중 축소' : 'CNN≤79 · 신용위험\n현금 확보 강화';
   } else {
-    target = hyGood ? 60 : 52;
-    reason = hyGood ? 'CNN극단탐욕+신용안정\n비중 축소' : 'CNN극단탐욕+신용위험\n강한 현금 확보';
+    conservative = hyGood ? 56 : 50;
+    zoneName = '극단 탐욕';
+    reason = hyGood ? 'CNN79+ · 신용안정\n비중 축소 권고' : 'CNN79+ · 신용위험\n강한 현금 확보';
   }
 
+  // 공격적 = 보수적 + 가산%
+  const addPct = parseInt(document.getElementById('rb-aggressive-add')?.value || '10') || 10;
+  const aggressive = conservative + addPct;
+
+  // UI 업데이트
   const autoEl = document.getElementById('rb-auto-target');
+  const aggEl  = document.getElementById('rb-aggressive-target');
   const reasonEl = document.getElementById('rb-auto-reason');
-  if(autoEl) {
-    autoEl.textContent = target;
-    autoEl.style.color = target >= 78 ? '#15803d' : target >= 70 ? '#1d4ed8' : target >= 62 ? '#b45309' : '#991b1b';
-  }
-  if(reasonEl) reasonEl.innerHTML = reason.replace('\n','<br>');
-  return target;
+
+  const getColor = (v) => v >= 78 ? '#15803d' : v >= 68 ? '#1d4ed8' : v >= 58 ? '#b45309' : '#991b1b';
+
+  if(autoEl) { autoEl.textContent = conservative; autoEl.style.color = _rbMode==='conservative' ? getColor(conservative) : '#64748b'; }
+  if(aggEl)  { aggEl.textContent  = aggressive;   aggEl.style.color  = _rbMode==='aggressive'  ? getColor(aggressive)  : '#64748b'; }
+  if(reasonEl) reasonEl.innerHTML = `<b>${zoneName}</b> (${fear})<br>${reason.replace('\n','<br>')}`;
+
+  return _rbMode === 'aggressive' ? aggressive : conservative;
 }
 
 function setTrigger(v) {
