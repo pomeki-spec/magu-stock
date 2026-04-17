@@ -156,9 +156,16 @@ def init_db():
             m_anal         INT,
             m_rs           INT,
             m_obv          INT,
+            ma20_pct       FLOAT,
+            from_52w_high  FLOAT,
+            vol_ratio      FLOAT,
             screened_at    TIMESTAMP DEFAULT NOW(),
             PRIMARY KEY (ticker, market)
         );
+        -- 기존 DB에도 컬럼 추가 (재배포 시 자동 적용)
+        ALTER TABLE screening_cache ADD COLUMN IF NOT EXISTS ma20_pct      FLOAT;
+        ALTER TABLE screening_cache ADD COLUMN IF NOT EXISTS from_52w_high FLOAT;
+        ALTER TABLE screening_cache ADD COLUMN IF NOT EXISTS vol_ratio     FLOAT;
         CREATE INDEX IF NOT EXISTS idx_sc_market ON screening_cache(market);
         CREATE INDEX IF NOT EXISTS idx_sc_score  ON screening_cache(total_score DESC);
 
@@ -844,13 +851,14 @@ def save_screening_to_db(results: list):
                      classic_score,growth_score,modern_score,total_score,
                      recommendation,weight,rsi,roe,peg,
                      c_ema,c_stoch,c_break,g_roe,g_debt,g_eps,g_peg,g_ma200,g_rsi,
-                     m_anal,m_rs,m_obv,screened_at)
+                     m_anal,m_rs,m_obv,ma20_pct,from_52w_high,vol_ratio,screened_at)
                 VALUES
                     (%(ticker)s,%(market)s,%(name)s,%(sector)s,%(etf)s,%(price)s,%(change_pct)s,
                      %(classic_score)s,%(growth_score)s,%(modern_score)s,%(total_score)s,
                      %(recommendation)s,%(weight)s,%(rsi)s,%(roe)s,%(peg)s,
                      %(c_ema)s,%(c_stoch)s,%(c_break)s,%(g_roe)s,%(g_debt)s,%(g_eps)s,
-                     %(g_peg)s,%(g_ma200)s,%(g_rsi)s,%(m_anal)s,%(m_rs)s,%(m_obv)s,NOW())
+                     %(g_peg)s,%(g_ma200)s,%(g_rsi)s,%(m_anal)s,%(m_rs)s,%(m_obv)s,
+                     %(ma20_pct)s,%(from_52w_high)s,%(vol_ratio)s,NOW())
                 ON CONFLICT (ticker, market) DO UPDATE SET
                     name=EXCLUDED.name, sector=EXCLUDED.sector, etf=EXCLUDED.etf,
                     price=EXCLUDED.price, change_pct=EXCLUDED.change_pct,
@@ -862,6 +870,7 @@ def save_screening_to_db(results: list):
                     g_roe=EXCLUDED.g_roe, g_debt=EXCLUDED.g_debt, g_eps=EXCLUDED.g_eps,
                     g_peg=EXCLUDED.g_peg, g_ma200=EXCLUDED.g_ma200, g_rsi=EXCLUDED.g_rsi,
                     m_anal=EXCLUDED.m_anal, m_rs=EXCLUDED.m_rs, m_obv=EXCLUDED.m_obv,
+                    ma20_pct=EXCLUDED.ma20_pct, from_52w_high=EXCLUDED.from_52w_high, vol_ratio=EXCLUDED.vol_ratio,
                     screened_at=NOW()
             """, r)
         conn.commit(); cur.close(); conn.close()
