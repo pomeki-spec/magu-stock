@@ -899,11 +899,7 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
             <button onclick="setTrigger(5)" id="rb-trigger-5" class="run-btn" style="padding:4px 12px;font-size:12px;background:#3b82f6;color:#fff;white-space:nowrap;">±5%</button>
             <button onclick="setTrigger(10)" id="rb-trigger-10" class="run-btn" style="padding:4px 12px;font-size:12px;background:#e2e8f0;color:#374151;white-space:nowrap;">±10%</button>
           </div>
-          <div style="font-size:11px;color:var(--sub);white-space:nowrap;">현재: <span id="rb-trigger-val">±5%</span> 이탈 시 알림</div>
-          <div style="display:flex;align-items:center;gap:8px;flex-wrap:nowrap;">
-            <span style="font-size:11px;color:var(--sub);white-space:nowrap;">📲 텔레그램 알림</span>
-            <button onclick="testTelegram()" class="run-btn" style="padding:4px 12px;font-size:11px;background:#22c55e;color:#fff;white-space:nowrap;">연결 테스트</button>
-          </div>
+          <div style="font-size:11px;color:var(--sub);white-space:nowrap;">현재: <span id="rb-trigger-val">±5%</span> 이탈 시 화면 알림</div>
         </div>
       </div>
 
@@ -2466,21 +2462,7 @@ function calcRebalance() {
       labelEl.textContent = '현금 → 주식 매수';
       labelEl.style.color = '#22c55e';
     }
-    // 텔레그램 알림 — 오늘 날짜 기준 1회만 발송 (DB 기준)
-    const today = new Date().toISOString().slice(0,10);
-    fetch(`${API}/api/rb/last_alert`).then(r=>r.json()).then(d => {
-      if(!d.last_alert || d.last_alert !== today) {
-        fetch(`${API}/api/rb/last_alert`, {method:'POST'}).catch(()=>{});
-        sendRebalanceAlert(total, stock, cash, curStockPct, target, gap, Math.abs(diff));
-      }
-    }).catch(() => {
-      // fallback: localStorage
-      const lastAlert = localStorage.getItem('rb_last_alert');
-      if(lastAlert !== today) {
-        localStorage.setItem('rb_last_alert', today);
-        sendRebalanceAlert(total, stock, cash, curStockPct, target, gap, Math.abs(diff));
-      }
-    });
+    // 리밸런싱 텔레그램 알림 제거 (베스트픽 알림만 유지)
   } else {
     signalCard.style.borderTopColor = '#3b82f6';
     titleEl.textContent = '✅ 현재 포트폴리오 균형 유지 중';
