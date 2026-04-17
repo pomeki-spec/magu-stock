@@ -239,6 +239,9 @@ def init_db():
             last_alert   DATE,
             updated_at   TIMESTAMP DEFAULT NOW()
         );
+        -- 리밸런싱 모드 추가 컬럼 (기존 DB 호환)
+        ALTER TABLE rb_settings ADD COLUMN IF NOT EXISTS rb_mode        TEXT DEFAULT 'conservative';
+        ALTER TABLE rb_settings ADD COLUMN IF NOT EXISTS aggressive_add INT  DEFAULT 10;
         INSERT INTO rb_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
 
         CREATE TABLE IF NOT EXISTS rb_logs (
@@ -2408,17 +2411,21 @@ async def save_rb_settings(request: Request):
         conn = get_conn(); cur = conn.cursor()
         cur.execute("""
             UPDATE rb_settings SET
-                total       = %(total)s,
-                stock       = %(stock)s,
-                target      = %(target)s,
-                trigger_pct = %(trigger_pct)s,
-                updated_at  = NOW()
+                total          = %(total)s,
+                stock          = %(stock)s,
+                target         = %(target)s,
+                trigger_pct    = %(trigger_pct)s,
+                rb_mode        = %(rb_mode)s,
+                aggressive_add = %(aggressive_add)s,
+                updated_at     = NOW()
             WHERE id = 1
         """, {
-            "total":       payload.get("total"),
-            "stock":       payload.get("stock"),
-            "target":      payload.get("target"),
-            "trigger_pct": payload.get("trigger_pct", 5),
+            "total":          payload.get("total"),
+            "stock":          payload.get("stock"),
+            "target":         payload.get("target"),
+            "trigger_pct":    payload.get("trigger_pct", 5),
+            "rb_mode":        payload.get("rb_mode", "conservative"),
+            "aggressive_add": payload.get("aggressive_add", 10),
         })
         conn.commit(); cur.close(); conn.close()
         return {"ok": True}
@@ -2561,6 +2568,50 @@ def on_startup():
         logger.warning("DATABASE_URL 없음 — 실시간 계산 모드로 동작")
     scheduler.start()
     logger.info("APScheduler 시작 — 매일 KST 04:00 전체 스크리닝 예약됨")
+
+    # ──── 부팅 시 자동 보정 스크리닝 ────
+    # Railway 재배포/재시작으로 KST 04:00 스크리닝을 놓친 경우,
+    # DB의 최근 스크리닝 시간이 오늘 KST 04:00 이전이면 즉시 한 번 실행
+    def _boot_catchup_check():
+        try:
+            import time as _time
+            _time.sleep(10)  # DB 준비 대기
+            if not DATABASE_URL:
+                return
+            conn = get_conn(); cur = conn.cursor()
+            cur.execute("SELECT MAX(screened_at) FROM screening_cache")
+            row = cur.fetchone()
+            cur.close(); conn.close()
+            last_run = row[0] if row else None
+
+            now_kst = datetime.now(pytz.timezone("Asia/Seoul"))
+            today_4am_kst = now_kst.replace(hour=4, minute=0, second=0, microsecond=0)
+            if now_kst.hour < 4:
+                today_4am_kst = today_4am_kst - timedelta(days=1)
+
+            need_catchup = False
+            if last_run is None:
+                need_catchup = True
+                logger.info("부팅 보정: DB 비어있음 → 스크리닝 실행")
+            else:
+                # last_run은 naive UTC timestamp (NOW()가 UTC 반환)
+                last_run_utc = last_run if last_run.tzinfo else pytz.utc.localize(last_run)
+                last_run_kst = last_run_utc.astimezone(pytz.timezone("Asia/Seoul"))
+                if last_run_kst < today_4am_kst:
+                    need_catchup = True
+                    logger.info(f"부팅 보정: 마지막 스크리닝 {last_run_kst} < 오늘 04:00 KST → 재실행")
+                else:
+                    logger.info(f"부팅 보정: 마지막 스크리닝 {last_run_kst} — 최신, 스킵")
+
+            if need_catchup:
+                import threading
+                threading.Thread(target=run_full_screening_job, daemon=True).start()
+                logger.info("부팅 보정 스크리닝 백그라운드 시작됨")
+        except Exception as e:
+            logger.error(f"부팅 보정 스크리닝 체크 실패: {e}")
+
+    import threading
+    threading.Thread(target=_boot_catchup_check, daemon=True).start()
 
 @app.on_event("shutdown")
 def on_shutdown():
