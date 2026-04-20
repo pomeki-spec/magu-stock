@@ -677,7 +677,7 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
   <!-- ───────── 섹터 모멘텀 ───────── -->
   <div id="page-smartmoney" style="display:none;">
     <div class="topbar">
-      <div><div class="page-title">🏦 섹터 모멘텀</div><div class="update-row">SPDR 섹터 ETF 기반 섹터별 자금 흐름 및 모멘텀 분석 — <span id="sm-updated" style="color:var(--sub);">분석 전</span></div></div>
+      <div><div class="page-title">🏦 섹터 모멘텀</div><div class="update-row"><span id="sm-updated" style="color:var(--sub);">분석 전</span></div></div>
       <div class="topbar-right"><button class="run-btn" id="sm-run-btn" onclick="loadSmartMoney()">🔄 섹터 트렌드 분석</button></div>
     </div>
 
@@ -1926,10 +1926,10 @@ async function loadSmartMoney() {
     const outflow=_smSectorData.filter(s=>['강한유출','유출','소폭유출'].includes(s.trend));
     const ratio=inflow.length/_smSectorData.length;
     let jEmoji,jTitle,jDesc,jBg,jBorder;
-    if(ratio>=0.7){jEmoji='🚀';jTitle='공격적 장세';jDesc='대부분 섹터 자금 유입 중. 스크리닝 신호를 적극 반영하세요.';jBg='#f0fdf4';jBorder='#86efac';}
-    else if(ratio>=0.5){jEmoji='📈';jTitle='부분 강세';jDesc='일부 섹터 중심 상승. 자금 들어오는 섹터 종목을 우선 고려하세요.';jBg='#eff6ff';jBorder='#93c5fd';}
-    else if(ratio>=0.35){jEmoji='🌊';jTitle='혼조세';jDesc='섹터 간 자금 이동 중. 주도 섹터 파악 후 선별 진입하세요.';jBg='#fefce8';jBorder='#fde047';}
-    else{jEmoji='🛡';jTitle='방어적 장세';jDesc='대부분 섹터 자금 이탈 중. 방어주·현금 비중을 높이세요.';jBg='#fff1f2';jBorder='#fca5a5';}
+    if(ratio>=0.7){jEmoji='🚀';jTitle='공격적 장세';jDesc='대부분 섹터 자금 유입';jBg='#f0fdf4';jBorder='#86efac';}
+    else if(ratio>=0.5){jEmoji='📈';jTitle='부분 강세';jDesc='일부 섹터 중심 상승';jBg='#eff6ff';jBorder='#93c5fd';}
+    else if(ratio>=0.35){jEmoji='🌊';jTitle='혼조세';jDesc='섹터 간 자금 이동';jBg='#fefce8';jBorder='#fde047';}
+    else{jEmoji='🛡';jTitle='방어적 장세';jDesc='대부분 섹터 자금 이탈';jBg='#fff1f2';jBorder='#fca5a5';}
     const bySorted=[..._smSectorData].sort((a,b)=>(b.ret_1m??-999)-(a.ret_1m??-999));
     document.getElementById('sm-judge-card').style.display='block';
     document.getElementById('sm-judge-card').style.background=jBg;
@@ -1937,8 +1937,8 @@ async function loadSmartMoney() {
     document.getElementById('sm-judge-emoji').textContent=jEmoji;
     document.getElementById('sm-judge-title').textContent=jTitle;
     document.getElementById('sm-judge-desc').textContent=jDesc;
-    document.getElementById('sm-lead-sector').innerHTML=bySorted.slice(0,3).map(s=>s.emoji+s.name).join('<br>');
-    document.getElementById('sm-weak-sector').innerHTML=bySorted.slice(-3).reverse().map(s=>s.emoji+s.name).join('<br>');
+    document.getElementById('sm-lead-sector').innerHTML=bySorted.slice(0,3).map(s=>s.name).join('<br>');
+    document.getElementById('sm-weak-sector').innerHTML=bySorted.slice(-3).reverse().map(s=>s.name).join('<br>');
 
     // 히트맵 + 바차트
     renderHeatmap(_smCurrentPeriod, null);
