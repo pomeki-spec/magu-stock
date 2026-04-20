@@ -2803,7 +2803,7 @@ function renderLiquidity(data) {
   document.getElementById('liq-signal-emoji').textContent=signal.emoji;
   document.getElementById('liq-signal-text').textContent=signal.signal;
   document.getElementById('liq-signal-text').style.color=signal.color;
-  document.getElementById('liq-signal-desc').textContent=signal.description;
+  document.getElementById('liq-signal-desc').innerHTML=(signal.description||'').replace(/\n/g,'<br>');
   document.getElementById('liq-total-score').textContent=score;
   document.getElementById('liq-total-score').style.color=signal.color;
   const bar=document.getElementById('liq-score-bar');
