@@ -166,6 +166,8 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
   [style*="grid-template-columns:repeat(5"]{grid-template-columns:1fr 1fr !important;}
   /* 공매도 3개 카드는 모바일에서도 3열 유지 */
   #sv-cards{grid-template-columns:repeat(3,minmax(0,1fr)) !important;gap:6px !important;}
+  /* 장세 판단 카드 하단 3개 박스도 3열 유지 */
+  #sm-judge-stats{grid-template-columns:repeat(3,minmax(0,1fr)) !important;gap:6px !important;}
 
   /* ── 시장 선택 버튼 행 — 가로 스크롤 허용 ── */
   .topbar-right>div{overflow-x:auto;-webkit-overflow-scrolling:touch;white-space:nowrap;display:flex;gap:6px;flex-wrap:nowrap;max-width:100%;}
@@ -702,19 +704,19 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
           <div style="font-size:12px;color:var(--sub);margin-top:3px;line-height:1.5;" id="sm-judge-desc">—</div>
         </div>
       </div>
-      <!-- 하단: 3개 정보 그리드 -->
-      <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;">
-        <div style="text-align:center;padding:10px 8px;border-radius:10px;background:rgba(255,255,255,.7);min-width:0;">
-          <div style="font-size:10px;color:var(--sub);font-weight:600;margin-bottom:4px;">주도 섹터</div>
-          <div style="font-size:12px;font-weight:800;line-height:1.3;word-break:keep-all;" id="sm-lead-sector">—</div>
+      <!-- 하단: 3개 정보 그리드 (모바일에서도 3열 유지) -->
+      <div id="sm-judge-stats" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;">
+        <div style="text-align:center;padding:10px 6px;border-radius:10px;background:rgba(255,255,255,.7);min-width:0;">
+          <div style="font-size:10px;color:var(--sub);font-weight:600;margin-bottom:6px;">주도 섹터</div>
+          <div style="font-size:11px;font-weight:800;line-height:1.6;word-break:keep-all;" id="sm-lead-sector">—</div>
         </div>
-        <div style="text-align:center;padding:10px 8px;border-radius:10px;background:rgba(255,255,255,.7);min-width:0;">
-          <div style="font-size:10px;color:var(--sub);font-weight:600;margin-bottom:4px;">이탈 섹터</div>
-          <div style="font-size:12px;font-weight:800;line-height:1.3;word-break:keep-all;" id="sm-weak-sector">—</div>
+        <div style="text-align:center;padding:10px 6px;border-radius:10px;background:rgba(255,255,255,.7);min-width:0;">
+          <div style="font-size:10px;color:var(--sub);font-weight:600;margin-bottom:6px;">이탈 섹터</div>
+          <div style="font-size:11px;font-weight:800;line-height:1.6;word-break:keep-all;" id="sm-weak-sector">—</div>
         </div>
-        <div style="text-align:center;padding:10px 8px;border-radius:10px;background:rgba(255,255,255,.7);min-width:0;">
-          <div style="font-size:10px;color:var(--sub);font-weight:600;margin-bottom:4px;">S&P500 1M</div>
-          <div style="font-size:16px;font-weight:800;line-height:1.3;" id="sm-spy-ret">—</div>
+        <div style="text-align:center;padding:10px 6px;border-radius:10px;background:rgba(255,255,255,.7);min-width:0;display:flex;flex-direction:column;justify-content:center;">
+          <div style="font-size:10px;color:var(--sub);font-weight:600;margin-bottom:6px;">S&P500 1M</div>
+          <div style="font-size:14px;font-weight:800;line-height:1.3;" id="sm-spy-ret">—</div>
         </div>
       </div>
     </div>
@@ -1869,24 +1871,21 @@ async function loadShortVolume() {
       const svVol    = sv.short_volume    != null ? (sv.short_volume/1e6).toFixed(1)+'M주' : '—';
       const pvVol    = svP.short_vol_ratio != null ? (svP.short_vol_ratio*100).toFixed(1)+'%' : '—';
 
-      return `<div style="background:var(--card);border:1px solid ${c.bg==='#f8fafc'?'var(--border)':c.bg};border-radius:12px;padding:14px;min-width:0;overflow:hidden;">
-        <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:12px;">
-          <div style="display:flex;align-items:center;gap:6px;min-width:0;">
-            <span style="font-size:20px;flex-shrink:0;">${inf.emoji}</span>
-            <div style="font-size:15px;font-weight:800;">${ticker}</div>
-          </div>
-          <div style="padding:3px 8px;border-radius:6px;background:${c.bg};color:${c.color};font-size:10px;font-weight:700;white-space:nowrap;flex-shrink:0;">${c.label}</div>
+      return `<div style="background:var(--card);border:1px solid ${c.bg==='#f8fafc'?'var(--border)':c.bg};border-radius:12px;padding:12px 10px;min-width:0;overflow:hidden;">
+        <div style="text-align:center;margin-bottom:10px;">
+          <div style="font-size:15px;font-weight:800;line-height:1.1;">${ticker}</div>
+          <div style="display:inline-block;margin-top:4px;padding:2px 7px;border-radius:5px;background:${c.bg};color:${c.color};font-size:10px;font-weight:700;white-space:nowrap;">${c.label}</div>
         </div>
-        <div style="background:${c.bg};border-radius:8px;padding:10px;text-align:center;margin-bottom:8px;">
-          <div style="font-size:10px;color:${c.color};font-weight:600;margin-bottom:2px;">공매도 비중</div>
-          <div style="font-size:24px;font-weight:900;color:${c.color};line-height:1;">${pct}</div>
-          ${diffStr ? `<div style="font-size:11px;font-weight:700;color:${diffColor};margin-top:4px;">전일 ${diffStr}</div>` : ''}
+        <div style="background:${c.bg};border-radius:8px;padding:8px 4px;text-align:center;margin-bottom:8px;">
+          <div style="font-size:9px;color:${c.color};font-weight:600;margin-bottom:2px;">공매도 비중</div>
+          <div style="font-size:20px;font-weight:900;color:${c.color};line-height:1;">${pct}</div>
+          ${diffStr ? `<div style="font-size:10px;font-weight:700;color:${diffColor};margin-top:3px;">전일 ${diffStr}</div>` : ''}
         </div>
-        <div style="display:flex;justify-content:space-between;font-size:11px;padding:0 2px;">
+        <div style="display:flex;justify-content:space-between;font-size:10px;padding:0 2px;">
           <span style="color:var(--sub);">Float</span>
           <span style="font-weight:700;">${floatPct}</span>
         </div>
-        <div style="display:flex;justify-content:space-between;font-size:11px;padding:0 2px;margin-top:4px;">
+        <div style="display:flex;justify-content:space-between;font-size:10px;padding:0 2px;margin-top:3px;">
           <span style="color:var(--sub);">잔고</span>
           <span style="font-weight:700;">${sharesM}</span>
         </div>
@@ -1927,10 +1926,10 @@ async function loadSmartMoney() {
     const outflow=_smSectorData.filter(s=>['강한유출','유출','소폭유출'].includes(s.trend));
     const ratio=inflow.length/_smSectorData.length;
     let jEmoji,jTitle,jDesc,jBg,jBorder;
-    if(ratio>=0.7){jEmoji='🚀';jTitle='공격적 장세 — 대부분 섹터 자금 유입 중';jDesc='적극 매수 가능. 스크리닝 신호를 적극 반영하세요.';jBg='#f0fdf4';jBorder='#86efac';}
-    else if(ratio>=0.5){jEmoji='📈';jTitle='부분 강세 — 일부 섹터 중심 상승';jDesc='선별 매수 필요. 자금 들어오는 섹터 종목을 우선 고려하세요.';jBg='#eff6ff';jBorder='#93c5fd';}
-    else if(ratio>=0.35){jEmoji='🌊';jTitle='혼조세 — 섹터 간 자금 이동 중';jDesc='관망 권장. 주도 섹터를 파악한 후 선별 진입하세요.';jBg='#fefce8';jBorder='#fde047';}
-    else{jEmoji='🛡';jTitle='방어적 장세 — 대부분 섹터 자금 이탈 중';jDesc='신규 매수 자제. 방어주·현금 비중을 높이는 것을 고려하세요.';jBg='#fff1f2';jBorder='#fca5a5';}
+    if(ratio>=0.7){jEmoji='🚀';jTitle='공격적 장세';jDesc='대부분 섹터 자금 유입 중. 스크리닝 신호를 적극 반영하세요.';jBg='#f0fdf4';jBorder='#86efac';}
+    else if(ratio>=0.5){jEmoji='📈';jTitle='부분 강세';jDesc='일부 섹터 중심 상승. 자금 들어오는 섹터 종목을 우선 고려하세요.';jBg='#eff6ff';jBorder='#93c5fd';}
+    else if(ratio>=0.35){jEmoji='🌊';jTitle='혼조세';jDesc='섹터 간 자금 이동 중. 주도 섹터 파악 후 선별 진입하세요.';jBg='#fefce8';jBorder='#fde047';}
+    else{jEmoji='🛡';jTitle='방어적 장세';jDesc='대부분 섹터 자금 이탈 중. 방어주·현금 비중을 높이세요.';jBg='#fff1f2';jBorder='#fca5a5';}
     const bySorted=[..._smSectorData].sort((a,b)=>(b.ret_1m??-999)-(a.ret_1m??-999));
     document.getElementById('sm-judge-card').style.display='block';
     document.getElementById('sm-judge-card').style.background=jBg;
@@ -1938,8 +1937,8 @@ async function loadSmartMoney() {
     document.getElementById('sm-judge-emoji').textContent=jEmoji;
     document.getElementById('sm-judge-title').textContent=jTitle;
     document.getElementById('sm-judge-desc').textContent=jDesc;
-    document.getElementById('sm-lead-sector').textContent=bySorted.slice(0,3).map(s=>s.emoji+s.name).join(' ');
-    document.getElementById('sm-weak-sector').textContent=bySorted.slice(-3).reverse().map(s=>s.emoji+s.name).join(' ');
+    document.getElementById('sm-lead-sector').innerHTML=bySorted.slice(0,3).map(s=>s.emoji+s.name).join('<br>');
+    document.getElementById('sm-weak-sector').innerHTML=bySorted.slice(-3).reverse().map(s=>s.emoji+s.name).join('<br>');
 
     // 히트맵 + 바차트
     renderHeatmap(_smCurrentPeriod, null);
