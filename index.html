@@ -164,6 +164,8 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
   [style*="grid-template-columns:repeat(4"]{grid-template-columns:1fr 1fr !important;}
   [style*="grid-template-columns:repeat(3"]{grid-template-columns:1fr 1fr !important;}
   [style*="grid-template-columns:repeat(5"]{grid-template-columns:1fr 1fr !important;}
+  /* 공매도 3개 카드는 모바일에서도 3열 유지 */
+  #sv-cards{grid-template-columns:repeat(3,minmax(0,1fr)) !important;gap:6px !important;}
 
   /* ── 시장 선택 버튼 행 — 가로 스크롤 허용 ── */
   .topbar-right>div{overflow-x:auto;-webkit-overflow-scrolling:touch;white-space:nowrap;display:flex;gap:6px;flex-wrap:nowrap;max-width:100%;}
@@ -680,18 +682,14 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
     <!-- 공매도 모니터 -->
     <div class="card" style="margin-bottom:14px;">
       <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:14px;">
-        <span class="section-title" style="margin-bottom:0;">🩳 공매도 모니터 <span style="font-size:11px;font-weight:400;color:var(--sub);">FINRA REGSHO · 매일 업데이트</span></span>
+        <span class="section-title" style="margin-bottom:0;">🩳 공매도 모니터</span>
         <div style="display:flex;align-items:center;gap:8px;">
           <span style="font-size:11px;color:var(--sub);" id="sv-updated">—</span>
-          <button onclick="loadShortVolume()" style="padding:4px 12px;border-radius:6px;border:1px solid var(--border);background:var(--card);color:var(--text);font-size:12px;font-weight:600;cursor:pointer;">🔄 새로고침</button>
+          <button onclick="loadShortVolume()" style="padding:4px 12px;border-radius:6px;border:1px solid var(--border);background:var(--card);color:var(--text);font-size:12px;font-weight:600;cursor:pointer;">🔄</button>
         </div>
       </div>
-      <div id="sv-cards" style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;">
+      <div id="sv-cards" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;">
         <div class="empty" style="grid-column:1/-1;">📊 데이터 불러오는 중...</div>
-      </div>
-      <div style="margin-top:10px;padding:10px 14px;background:var(--bg);border-radius:8px;font-size:11px;color:var(--sub);line-height:1.7;">
-        <b style="color:var(--text);">Short Volume Ratio</b> — 당일 전체 거래량 중 공매도 비중 (FINRA OTC 집계, 매일 ET 18:00 이후 업데이트) &nbsp;|&nbsp;
-        <b style="color:var(--text);">Short % of Float</b> — 유통주식 대비 공매도 잔고 비율 (FINRA 월 2회 공시 기준)
       </div>
     </div>
     <!-- 장세 판단 카드 -->
@@ -1867,36 +1865,26 @@ async function loadShortVolume() {
       const svVol    = sv.short_volume    != null ? (sv.short_volume/1e6).toFixed(1)+'M주' : '—';
       const pvVol    = svP.short_vol_ratio != null ? (svP.short_vol_ratio*100).toFixed(1)+'%' : '—';
 
-      return `<div style="background:var(--card);border:1.5px solid ${c.bg==='#f8fafc'?'var(--border)':c.bg};border-radius:12px;padding:16px;">
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
-          <span style="font-size:24px;">${inf.emoji}</span>
-          <div>
+      return `<div style="background:var(--card);border:1px solid ${c.bg==='#f8fafc'?'var(--border)':c.bg};border-radius:12px;padding:14px;min-width:0;overflow:hidden;">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:12px;">
+          <div style="display:flex;align-items:center;gap:6px;min-width:0;">
+            <span style="font-size:20px;flex-shrink:0;">${inf.emoji}</span>
             <div style="font-size:15px;font-weight:800;">${ticker}</div>
-            <div style="font-size:11px;color:var(--sub);">${inf.desc}</div>
           </div>
-          <div style="margin-left:auto;padding:3px 10px;border-radius:6px;background:${c.bg};color:${c.color};font-size:11px;font-weight:700;">${c.label}</div>
+          <div style="padding:3px 8px;border-radius:6px;background:${c.bg};color:${c.color};font-size:10px;font-weight:700;white-space:nowrap;flex-shrink:0;">${c.label}</div>
         </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
-          <div style="background:${c.bg};border-radius:8px;padding:10px;text-align:center;">
-            <div style="font-size:10px;color:${c.color};font-weight:600;margin-bottom:2px;">Short Volume Ratio</div>
-            <div style="font-size:26px;font-weight:900;color:${c.color};">${pct}</div>
-            ${diffStr ? `<div style="font-size:12px;font-weight:700;color:${diffColor};margin-top:2px;">${diffStr} <span style="font-size:10px;font-weight:400;color:var(--sub);">전일(${pvVol}) 대비</span></div>` : ''}
-            <div style="font-size:10px;color:${c.color};opacity:.8;margin-top:2px;">${svVol} · ${tradeDate}</div>
-          </div>
-          <div style="background:var(--bg);border-radius:8px;padding:10px;">
-            <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
-              <span style="font-size:11px;color:var(--sub);">Float 공매도</span>
-              <span style="font-size:13px;font-weight:700;">${floatPct}</span>
-            </div>
-            <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
-              <span style="font-size:11px;color:var(--sub);">Short Ratio</span>
-              <span style="font-size:13px;font-weight:700;">${sratio}</span>
-            </div>
-            <div style="display:flex;justify-content:space-between;">
-              <span style="font-size:11px;color:var(--sub);">공매도 주식수</span>
-              <span style="font-size:13px;font-weight:700;">${sharesM}</span>
-            </div>
-          </div>
+        <div style="background:${c.bg};border-radius:8px;padding:10px;text-align:center;margin-bottom:8px;">
+          <div style="font-size:10px;color:${c.color};font-weight:600;margin-bottom:2px;">공매도 비중</div>
+          <div style="font-size:24px;font-weight:900;color:${c.color};line-height:1;">${pct}</div>
+          ${diffStr ? `<div style="font-size:11px;font-weight:700;color:${diffColor};margin-top:4px;">전일 ${diffStr}</div>` : ''}
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:11px;padding:0 2px;">
+          <span style="color:var(--sub);">Float</span>
+          <span style="font-weight:700;">${floatPct}</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:11px;padding:0 2px;margin-top:4px;">
+          <span style="color:var(--sub);">잔고</span>
+          <span style="font-weight:700;">${sharesM}</span>
         </div>
       </div>`;
     }).join('');
