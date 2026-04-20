@@ -1014,100 +1014,84 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
     </div>
 
 
-    <!-- 유동성 단계 알림 카드 -->
-    <div id="liq-signal-card" style="background:linear-gradient(135deg,#f8fafc,#f1f5f9);border:2px solid var(--border);border-radius:16px;padding:20px;margin-bottom:14px;display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
-      <div style="font-size:48px;flex-shrink:0;" id="liq-signal-emoji">⏳</div>
+    <!-- 유동성 단계 알림 카드 — 간결 -->
+    <div id="liq-signal-card" style="background:#fff;border:1px solid var(--border);border-radius:16px;padding:20px;margin-bottom:12px;display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
+      <div style="font-size:42px;flex-shrink:0;" id="liq-signal-emoji">⏳</div>
       <div style="flex:1;min-width:160px;">
-        <div style="font-size:12px;font-weight:700;color:var(--sub);margin-bottom:6px;">현재 유동성 단계</div>
-        <div style="font-size:28px;font-weight:800;color:var(--text);margin-bottom:8px;" id="liq-signal-text">분석 전</div>
-        <div style="font-size:13px;color:var(--sub);line-height:1.6;" id="liq-signal-desc">유동성 분석 버튼을 눌러 시장 환경을 확인하세요.</div>
+        <div style="font-size:22px;font-weight:800;color:var(--text);margin-bottom:4px;" id="liq-signal-text">분석 전</div>
+        <div style="font-size:12px;color:var(--sub);line-height:1.5;" id="liq-signal-desc">분석 버튼을 눌러주세요</div>
       </div>
-      <div style="text-align:right;min-width:120px;">
-        <div style="font-size:11px;color:var(--sub);font-weight:600;margin-bottom:6px;">유동성 종합 점수</div>
-        <div style="font-size:44px;font-weight:800;line-height:1;" id="liq-total-score">—</div>
-        <div style="font-size:12px;color:var(--sub);">/ 60점</div>
-        <div style="width:160px;height:8px;background:#e2e8f0;border-radius:4px;margin-top:10px;overflow:hidden;">
-          <div id="liq-score-bar" style="height:100%;border-radius:4px;background:var(--blue);width:0%;transition:width .8s ease;"></div>
+      <div style="text-align:right;min-width:90px;">
+        <div style="font-size:40px;font-weight:800;line-height:1;" id="liq-total-score">—</div>
+        <div style="font-size:11px;color:var(--sub);margin-top:2px;"><span id="liq-score-max">/ 60</span></div>
+        <div style="width:120px;height:6px;background:#f1f5f9;border-radius:3px;margin-top:8px;overflow:hidden;">
+          <div id="liq-score-bar" style="height:100%;border-radius:3px;background:var(--blue);width:0%;transition:width .8s ease;"></div>
         </div>
       </div>
     </div>
 
-    <!-- 5단계 척도 -->
-    <div style="background:#fff;border:1px solid var(--border);border-radius:12px;padding:18px;margin-bottom:14px;">
-      <div class="section-title">📊 5단계 유동성 척도</div>
-      <div class="liq-scale-grid" style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;">
-        <div id="stage-1" style="border-radius:10px;padding:14px 10px;text-align:center;border:2px solid #e2e8f0;transition:all .3s;">
-          <div style="font-size:16px;font-weight:800;color:#15803d;">적극매수</div>
-          <div style="font-size:12px;color:#16a34a;margin-top:6px;">48점 이상</div>
+    <!-- 5단계 척도 — 간결 -->
+    <div style="background:#fff;border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:12px;">
+      <div class="liq-scale-grid" style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px;">
+        <div id="stage-1" style="border-radius:10px;padding:12px 6px;text-align:center;border:1px solid #e2e8f0;transition:all .25s;">
+          <div style="font-size:13px;font-weight:800;color:#15803d;">적극매수</div>
+          <div style="font-size:10px;color:var(--sub);margin-top:3px;">48+</div>
         </div>
-        <div id="stage-2" style="border-radius:10px;padding:14px 10px;text-align:center;border:2px solid #e2e8f0;transition:all .3s;">
-          <div style="font-size:16px;font-weight:800;color:#1d4ed8;">매수우호</div>
-          <div style="font-size:12px;color:#3b82f6;margin-top:6px;">36~47점</div>
+        <div id="stage-2" style="border-radius:10px;padding:12px 6px;text-align:center;border:1px solid #e2e8f0;transition:all .25s;">
+          <div style="font-size:13px;font-weight:800;color:#1d4ed8;">매수우호</div>
+          <div style="font-size:10px;color:var(--sub);margin-top:3px;">36~47</div>
         </div>
-        <div id="stage-3" style="border-radius:10px;padding:14px 10px;text-align:center;border:2px solid #e2e8f0;transition:all .3s;">
-          <div style="font-size:16px;font-weight:800;color:#b45309;">중립관망</div>
-          <div style="font-size:12px;color:#d97706;margin-top:6px;">24~35점</div>
+        <div id="stage-3" style="border-radius:10px;padding:12px 6px;text-align:center;border:1px solid #e2e8f0;transition:all .25s;">
+          <div style="font-size:13px;font-weight:800;color:#b45309;">중립관망</div>
+          <div style="font-size:10px;color:var(--sub);margin-top:3px;">24~35</div>
         </div>
-        <div id="stage-4" style="border-radius:10px;padding:14px 10px;text-align:center;border:2px solid #e2e8f0;transition:all .3s;">
-          <div style="font-size:16px;font-weight:800;color:#c2410c;">매수축소</div>
-          <div style="font-size:12px;color:#ea580c;margin-top:6px;">12~23점</div>
+        <div id="stage-4" style="border-radius:10px;padding:12px 6px;text-align:center;border:1px solid #e2e8f0;transition:all .25s;">
+          <div style="font-size:13px;font-weight:800;color:#c2410c;">매수축소</div>
+          <div style="font-size:10px;color:var(--sub);margin-top:3px;">12~23</div>
         </div>
-        <div id="stage-5" style="border-radius:10px;padding:14px 10px;text-align:center;border:2px solid #e2e8f0;transition:all .3s;">
-          <div style="font-size:16px;font-weight:800;color:#991b1b;">현금보유</div>
-          <div style="font-size:12px;color:#dc2626;margin-top:6px;">12점 미만</div>
+        <div id="stage-5" style="border-radius:10px;padding:12px 6px;text-align:center;border:1px solid #e2e8f0;transition:all .25s;">
+          <div style="font-size:13px;font-weight:800;color:#991b1b;">현금보유</div>
+          <div style="font-size:10px;color:var(--sub);margin-top:3px;">&lt;12</div>
         </div>
       </div>
     </div>
 
-    <!-- 4개 지표 카드 -->
-    <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:14px;" id="liq-indicators">
-      <div class="card" style="opacity:.4;"><div class="section-title">🏛 연준 총자산 (WALCL)</div><div style="font-size:12px;color:var(--sub);">QE/QT 방향 · 4주 변화율 기준</div><div style="font-size:28px;font-weight:800;color:var(--sub);margin-top:12px;">—</div></div>
-      <div class="card" style="opacity:.4;"><div class="section-title">💵 역레포 RRP (RRPONTSYD)</div><div style="font-size:12px;color:var(--sub);">시중 여유자금 · RRP 감소 = 유동성 공급</div><div style="font-size:28px;font-weight:800;color:var(--sub);margin-top:12px;">—</div></div>
-      <div class="card" style="opacity:.4;"><div class="section-title">🏦 TGA 잔액 (WTREGEN)</div><div style="font-size:12px;color:var(--sub);">재무부 계정 · TGA 감소 = 정부 지출</div><div style="font-size:28px;font-weight:800;color:var(--sub);margin-top:12px;">—</div></div>
-      <div class="card" style="opacity:.4;"><div class="section-title">💰 MMF 잔액 (WRMFNS)</div><div style="font-size:12px;color:var(--sub);">대기 자금 · MMF 감소 = 위험자산 이동</div><div style="font-size:28px;font-weight:800;color:var(--sub);margin-top:12px;">—</div></div>
+    <!-- 4개 지표 카드 — 간결 -->
+    <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:12px;" id="liq-indicators">
+      <div class="card" style="opacity:.4;"><div style="font-size:13px;font-weight:700;">연준 총자산</div><div style="font-size:28px;font-weight:800;color:var(--sub);margin-top:12px;">—</div></div>
+      <div class="card" style="opacity:.4;"><div style="font-size:13px;font-weight:700;">역레포</div><div style="font-size:28px;font-weight:800;color:var(--sub);margin-top:12px;">—</div></div>
+      <div class="card" style="opacity:.4;"><div style="font-size:13px;font-weight:700;">TGA</div><div style="font-size:28px;font-weight:800;color:var(--sub);margin-top:12px;">—</div></div>
+      <div class="card" style="opacity:.4;"><div style="font-size:13px;font-weight:700;">MMF</div><div style="font-size:28px;font-weight:800;color:var(--sub);margin-top:12px;">—</div></div>
     </div>
 
-    <div style="font-size:11px;color:var(--sub);text-align:right;" id="liq-updated"></div>
+    <div style="font-size:11px;color:var(--sub);text-align:right;margin-bottom:8px;" id="liq-updated"></div>
 
-    <!-- FRED 데이터 차트 (API 데이터로 직접 렌더링) -->
-    <div id="liq-fred-charts" style="display:none;margin-top:16px;">
+    <!-- FRED 데이터 차트 — 간결 -->
+    <div id="liq-fred-charts" style="display:none;margin-top:8px;">
       <div class="card">
-        <div class="section-title">📈 FRED 데이터 차트
-          <span class="section-right">백엔드 FRED API 데이터 기반 · 분석 버튼 클릭 시 자동 갱신</span>
-        </div>
+        <div class="section-title" style="margin-bottom:14px;">추세 차트</div>
         <div class="fred-chart-grid" style="display:grid;grid-template-columns:repeat(2,1fr);gap:14px;">
 
-          <!-- WALCL -->
           <div>
-            <div style="font-size:12px;font-weight:700;margin-bottom:2px;">🏛 연준 총자산 (WALCL)</div>
-            <div style="font-size:11px;color:var(--sub);margin-bottom:8px;">증가=QE(유동성 공급) · 감소=QT(유동성 회수)</div>
+            <div style="font-size:12px;font-weight:700;margin-bottom:6px;">연준 총자산</div>
             <div class="fred-chart-wrap"><canvas id="chart-walcl"></canvas></div>
           </div>
 
-          <!-- RRP -->
           <div>
-            <div style="font-size:12px;font-weight:700;margin-bottom:2px;">💵 역레포 RRP (RRPONTSYD)</div>
-            <div style="font-size:11px;color:var(--sub);margin-bottom:8px;">감소=유동성 공급 완료 · 완전소진=버퍼 소멸</div>
+            <div style="font-size:12px;font-weight:700;margin-bottom:6px;">역레포</div>
             <div class="fred-chart-wrap"><canvas id="chart-rrp"></canvas></div>
           </div>
 
-          <!-- TGA -->
           <div>
-            <div style="font-size:12px;font-weight:700;margin-bottom:2px;">🏦 TGA 재무부 계정 (WTREGEN)</div>
-            <div style="font-size:11px;color:var(--sub);margin-bottom:8px;">감소=정부지출로 유동성 공급 · $800B 초과 주의</div>
+            <div style="font-size:12px;font-weight:700;margin-bottom:6px;">TGA</div>
             <div class="fred-chart-wrap"><canvas id="chart-tga"></canvas></div>
           </div>
 
-          <!-- MMF -->
           <div>
-            <div style="font-size:12px;font-weight:700;margin-bottom:2px;">💰 MMF 소매 잔액 (WRMFNS)</div>
-            <div style="font-size:11px;color:var(--sub);margin-bottom:8px;">감소=주식으로 이동 신호 · 증가=안전자산 선호</div>
+            <div style="font-size:12px;font-weight:700;margin-bottom:6px;">MMF</div>
             <div class="fred-chart-wrap"><canvas id="chart-mmf"></canvas></div>
           </div>
 
-        </div>
-        <div style="margin-top:12px;padding:8px 14px;background:#eff6ff;border-radius:8px;font-size:11px;color:#1d4ed8;">
-          💡 FRED API로 수집된 실제 데이터를 시각화합니다. 차트를 통해 추세 방향을 직관적으로 확인하세요.
         </div>
       </div>
     </div>
@@ -2846,44 +2830,30 @@ function renderLiquidity(data) {
       : scoreNum >= maxScore*0.45 ? '#1d4ed8'
       : scoreNum >= maxScore*0.25 ? '#b45309' : '#991b1b';
     const changePct = ind.change_pct ?? 0;
-    // RRP 완전소진 시 변화율 표시 안 함
     const isRrpDepleted = ind.fred_id === 'RRPONTSYD' && (ind.value === 0 || ind.value <= 10);
+    // 한국어 간단 레이블만
+    const shortLabel = (ind.label||'').replace(/\([^)]*\)/g,'').replace(/🏛|💵|🏦|💰|💧/g,'').trim();
     const changeTxt = isRrpDepleted
-      ? '<span style="color:#94a3b8;">잔액 $0 — 변화율 미표시</span>'
+      ? '<span style="color:#94a3b8;">—</span>'
       : changePct >= 0
-        ? `<span style="color:#ef4444;font-weight:700;">▲ +${changePct}%</span>`
-        : `<span style="color:#3b82f6;font-weight:700;">▼ ${changePct}%</span>`;
-    const ctx = ind.context ? `<div style="font-size:11px;color:var(--sub);margin-top:4px;">${ind.context}</div>` : '';
+        ? `<span style="color:#ef4444;font-weight:700;">▲ ${changePct}%</span>`
+        : `<span style="color:#3b82f6;font-weight:700;">▼ ${Math.abs(changePct)}%</span>`;
     const scoreDisplay = hasScore
-      ? `<div style="font-size:22px;font-weight:800;color:${scoreColor};">${scoreNum}<span style="font-size:13px;color:var(--sub);">/${maxScore}</span></div>`
-      : `<div style="font-size:12px;font-weight:600;color:#94a3b8;margin-top:4px;">참고지표</div>`;
-    const barWidth = hasScore && maxScore > 0 ? Math.round(scoreNum/maxScore*100) : 0;
-    return `<div class="card">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;">
-        <div>
-          <div class="section-title" style="margin-bottom:4px;">${ind.label}</div>
-          <div style="font-size:11px;color:var(--sub);">${ind.fred_id||''}${ind.fred_id?' · ':''} 4주 변화율 기준</div>
-        </div>
-        <div style="text-align:right;">
-          <div style="font-size:11px;color:var(--sub);margin-bottom:3px;">점수</div>
-          ${scoreDisplay}
-        </div>
+      ? `<span style="font-size:16px;font-weight:800;color:${scoreColor};">${scoreNum}<span style="font-size:11px;color:var(--sub);font-weight:600;">/${maxScore}</span></span>`
+      : `<span style="font-size:11px;color:#94a3b8;font-weight:600;">참고</span>`;
+    return `<div class="card" style="padding:14px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+        <div style="font-size:13px;font-weight:700;">${shortLabel}</div>
+        ${scoreDisplay}
       </div>
-      <div style="margin-bottom:10px;">
-        <div style="font-size:24px;font-weight:800;">${ind.value??'—'}<span style="font-size:13px;color:var(--sub);margin-left:4px;">${ind.value_unit||''}</span></div>
-        <div style="font-size:12px;margin-top:3px;">4주 변화: ${changeTxt}</div>
-        ${ctx}
-      </div>
-      <div style="padding:7px 12px;background:${scoreColor}18;border-left:3px solid ${scoreColor};border-radius:4px;margin-bottom:12px;">
-        <div style="font-size:12px;font-weight:700;color:${scoreColor};">${ind.status||''}</div>
-      </div>
-      ${hasScore ? '<div style="margin-bottom:12px;"><div style="display:flex;justify-content:space-between;font-size:10px;color:var(--sub);margin-bottom:4px;"><span>0</span><span>'+maxScore+'점</span></div><div style="height:7px;background:#e2e8f0;border-radius:4px;overflow:hidden;"><div style="height:100%;background:'+scoreColor+';border-radius:4px;width:'+barWidth+'%;transition:width .8s ease;"></div></div></div>' : ''}
+      <div style="font-size:22px;font-weight:800;line-height:1;">${ind.value??'—'}<span style="font-size:12px;color:var(--sub);font-weight:600;margin-left:3px;">${ind.value_unit||''}</span></div>
+      <div style="font-size:11px;color:var(--sub);margin-top:6px;">4주 ${changeTxt}</div>
     </div>`;
   }).join('');
   document.getElementById('liq-status').textContent=signal.signal;
   document.getElementById('liq-status').style.background=signal.bg_color;
   document.getElementById('liq-status').style.color=signal.color;
-  document.getElementById('liq-updated').textContent=`마지막 업데이트: ${data.updated_at} · FRED (연준) 공식 데이터`;
+  document.getElementById('liq-updated').textContent=`업데이트: ${data.updated_at}`;
 
   // FRED 차트 렌더링
   document.getElementById('liq-fred-charts').style.display = 'block';
