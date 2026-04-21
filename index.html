@@ -48,6 +48,9 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
 .update-row{font-size:12px;color:var(--sub);margin-top:6px;display:flex;align-items:center;gap:7px;}
 .tag-status{font-size:11px;font-weight:700;padding:2px 9px;border-radius:4px;}
 .topbar-right{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+/* 데스크톱: 마켓 버튼 + 실행 버튼이 한 줄에 가로로 나란히 */
+.topbar-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+.topbar-group{display:flex;gap:6px;flex-wrap:nowrap;}
 .seg-btn{padding:7px 16px;border-radius:7px;font-size:13px;font-weight:600;cursor:pointer;border:1px solid var(--border);background:#fff;color:var(--sub);transition:all .15s;}
 .seg-btn.active{background:#1e3a5f;color:#fff;border-color:#1e3a5f;}
 .run-btn{padding:8px 18px;background:var(--blue);color:#fff;border:none;border-radius:7px;font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px;white-space:nowrap;}
@@ -136,6 +139,10 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
   .topbar{flex-direction:column;gap:8px;margin-bottom:12px;}
   .topbar-right{flex-wrap:wrap;gap:6px;width:100%;}
   .update-row{font-size:11px;flex-wrap:wrap;gap:4px;}
+  /* 모바일: topbar 버튼 그룹 세로 2줄 + 각 그룹 내부 균등 분배 */
+  .topbar-actions{flex-direction:column;align-items:stretch;gap:6px;width:100%;}
+  .topbar-group{display:flex;gap:6px;flex-wrap:wrap;width:100%;}
+  .topbar-group .seg-btn{flex:1;min-width:0;}
 
   /* ── 버튼 — 줄바꿈 방지 ── */
   .run-btn{padding:7px 10px;font-size:12px;white-space:nowrap;}
@@ -365,19 +372,19 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
           <span class="tag-status" id="market-status" style="background:#ecfdf5;color:#15803d;">로딩 중</span>
         </div>
       </div>
-      <div class="topbar-right" style="flex-direction:column;align-items:stretch;gap:6px;">
+      <div class="topbar-right topbar-actions">
         <!-- 1줄: 마켓 선택 -->
-        <div style="display:flex;gap:6px;flex-wrap:wrap;">
-          <button class="seg-btn active" id="btn-nasdaq" onclick="switchMarket('nasdaq')" style="flex:1;min-width:0;">🇺🇸 나스닥</button>
-          <button class="seg-btn" id="btn-sp500" onclick="switchMarket('sp500')" style="flex:1;min-width:0;">🇺🇸 S&P500</button>
-          <button class="seg-btn" id="btn-kospi" onclick="switchMarket('kospi')" style="flex:1;min-width:0;">🇰🇷 코스피</button>
-          <button class="seg-btn" id="btn-kosdaq" onclick="switchMarket('kosdaq')" style="flex:1;min-width:0;">🇰🇷 코스닥</button>
+        <div class="topbar-group">
+          <button class="seg-btn active" id="btn-nasdaq" onclick="switchMarket('nasdaq')">🇺🇸 나스닥</button>
+          <button class="seg-btn" id="btn-sp500" onclick="switchMarket('sp500')">🇺🇸 S&P500</button>
+          <button class="seg-btn" id="btn-kospi" onclick="switchMarket('kospi')">🇰🇷 코스피</button>
+          <button class="seg-btn" id="btn-kosdaq" onclick="switchMarket('kosdaq')">🇰🇷 코스닥</button>
         </div>
         <!-- 2줄: 실행 버튼 -->
-        <div style="display:flex;gap:6px;flex-wrap:wrap;">
-          <button class="seg-btn" id="run-btn" onclick="runScreener()" style="flex:1;min-width:0;background:var(--blue);color:#fff;border-color:var(--blue);">🔄 스크리닝</button>
-          <button class="seg-btn" id="merge-us-btn" onclick="mergeResults('us')" disabled style="flex:1;min-width:0;background:#1e3a5f;color:#fff;border-color:#1e3a5f;opacity:0.4;">🇺🇸 미국합산</button>
-          <button class="seg-btn" id="merge-kr-btn" onclick="mergeResults('kr')" disabled style="flex:1;min-width:0;background:#dc2626;color:#fff;border-color:#dc2626;opacity:0.4;">🇰🇷 한국합산</button>
+        <div class="topbar-group">
+          <button class="seg-btn" id="run-btn" onclick="runScreener()" style="background:var(--blue);color:#fff;border-color:var(--blue);">🔄 스크리닝</button>
+          <button class="seg-btn" id="merge-us-btn" onclick="mergeResults('us')" disabled style="background:#1e3a5f;color:#fff;border-color:#1e3a5f;opacity:0.4;">🇺🇸 미국합산</button>
+          <button class="seg-btn" id="merge-kr-btn" onclick="mergeResults('kr')" disabled style="background:#dc2626;color:#fff;border-color:#dc2626;opacity:0.4;">🇰🇷 한국합산</button>
         </div>
       </div>
     </div>
