@@ -365,17 +365,19 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
           <span class="tag-status" id="market-status" style="background:#ecfdf5;color:#15803d;">로딩 중</span>
         </div>
       </div>
-      <div class="topbar-right">
-        <div style="display:flex;gap:4px;align-items:center;overflow-x:auto;-webkit-overflow-scrolling:touch;flex-wrap:nowrap;max-width:100%;padding-bottom:2px;">
-          <button class="seg-btn active" id="btn-nasdaq" onclick="switchMarket('nasdaq')">🇺🇸 나스닥</button>
-          <button class="seg-btn" id="btn-sp500" onclick="switchMarket('sp500')">🇺🇸 S&P500</button>
-          <button class="seg-btn" id="btn-kospi" onclick="switchMarket('kospi')">🇰🇷 코스피</button>
-          <button class="seg-btn" id="btn-kosdaq" onclick="switchMarket('kosdaq')">🇰🇷 코스닥</button>
+      <div class="topbar-right" style="flex-direction:column;align-items:stretch;gap:6px;">
+        <!-- 1줄: 마켓 선택 -->
+        <div style="display:flex;gap:6px;flex-wrap:wrap;">
+          <button class="seg-btn active" id="btn-nasdaq" onclick="switchMarket('nasdaq')" style="flex:1;min-width:0;">🇺🇸 나스닥</button>
+          <button class="seg-btn" id="btn-sp500" onclick="switchMarket('sp500')" style="flex:1;min-width:0;">🇺🇸 S&P500</button>
+          <button class="seg-btn" id="btn-kospi" onclick="switchMarket('kospi')" style="flex:1;min-width:0;">🇰🇷 코스피</button>
+          <button class="seg-btn" id="btn-kosdaq" onclick="switchMarket('kosdaq')" style="flex:1;min-width:0;">🇰🇷 코스닥</button>
         </div>
-        <div style="display:flex;gap:6px;flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;">
-        <button class="run-btn" id="run-btn" onclick="runScreener()">🔄 스크리닝 실행</button>
-        <button class="run-btn" id="merge-us-btn" onclick="mergeResults('us')" disabled style="background:#1e3a5f;opacity:0.4;">🇺🇸 미국 합산</button>
-        <button class="run-btn" id="merge-kr-btn" onclick="mergeResults('kr')" disabled style="background:#dc2626;opacity:0.4;">🇰🇷 한국 합산</button>
+        <!-- 2줄: 실행 버튼 -->
+        <div style="display:flex;gap:6px;flex-wrap:wrap;">
+          <button class="seg-btn" id="run-btn" onclick="runScreener()" style="flex:1;min-width:0;background:var(--blue);color:#fff;border-color:var(--blue);">🔄 스크리닝</button>
+          <button class="seg-btn" id="merge-us-btn" onclick="mergeResults('us')" disabled style="flex:1;min-width:0;background:#1e3a5f;color:#fff;border-color:#1e3a5f;opacity:0.4;">🇺🇸 미국합산</button>
+          <button class="seg-btn" id="merge-kr-btn" onclick="mergeResults('kr')" disabled style="flex:1;min-width:0;background:#dc2626;color:#fff;border-color:#dc2626;opacity:0.4;">🇰🇷 한국합산</button>
         </div>
       </div>
     </div>
@@ -1191,7 +1193,7 @@ async function runScreener() {
     document.getElementById('result-table').innerHTML=`<tr><td colspan="9" class="empty">⚠️ 서버 연결 실패. 잠시 후 다시 시도해주세요.</td></tr>`;
     document.getElementById('best-picks').innerHTML=`<div class="empty" style="grid-column:1/-1;">⚠️ 연결 실패</div>`;
   }
-  btn.disabled=false; btn.innerHTML='🔄 스크리닝 실행';
+  btn.disabled=false; btn.innerHTML='🔄 스크리닝';
 }
 
 function mergeResults(region) {
