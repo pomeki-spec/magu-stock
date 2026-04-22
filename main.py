@@ -266,6 +266,52 @@ def init_db():
         );
         CREATE INDEX IF NOT EXISTS idx_svc_ticker ON short_volume_cache(ticker);
         CREATE INDEX IF NOT EXISTS idx_svc_date   ON short_volume_cache(trade_date DESC);
+
+        -- ──────────────────────────────────────────────
+        -- 자산 관리: 보유 종목
+        -- ──────────────────────────────────────────────
+        CREATE TABLE IF NOT EXISTS holdings (
+            id           SERIAL PRIMARY KEY,
+            account      VARCHAR(20) NOT NULL DEFAULT 'main',  -- 'main' | 'sub'
+            ticker       VARCHAR(20) NOT NULL,
+            name         TEXT,
+            sector       TEXT,
+            quantity     NUMERIC(14,4) NOT NULL,
+            avg_price    NUMERIC(14,4) NOT NULL,
+            currency     VARCHAR(3) DEFAULT 'USD',              -- 'USD' | 'KRW'
+            memo         TEXT,
+            created_at   TIMESTAMP DEFAULT NOW(),
+            updated_at   TIMESTAMP DEFAULT NOW()
+        );
+        CREATE INDEX IF NOT EXISTS idx_holdings_account ON holdings(account);
+        CREATE INDEX IF NOT EXISTS idx_holdings_ticker  ON holdings(ticker);
+
+        -- ──────────────────────────────────────────────
+        -- 자산 관리: 월간 자산 스냅샷
+        -- ──────────────────────────────────────────────
+        CREATE TABLE IF NOT EXISTS portfolio_snapshots (
+            id            SERIAL PRIMARY KEY,
+            snapshot_date DATE NOT NULL UNIQUE,
+            total_stock   BIGINT DEFAULT 0,         -- 총 주식 평가 (KRW 환산)
+            total_cash    BIGINT DEFAULT 0,         -- 총 현금 (KRW)
+            total_assets  BIGINT DEFAULT 0,         -- 합계
+            usd_krw       NUMERIC(10,2),            -- 스냅샷 시점 환율
+            detail_json   JSONB,                    -- 종목별 상세 (옵션)
+            created_at    TIMESTAMP DEFAULT NOW()
+        );
+        CREATE INDEX IF NOT EXISTS idx_snapshot_date ON portfolio_snapshots(snapshot_date DESC);
+
+        -- ──────────────────────────────────────────────
+        -- 자산 관리: 계좌별 현금 잔고
+        -- ──────────────────────────────────────────────
+        CREATE TABLE IF NOT EXISTS account_cash (
+            account     VARCHAR(20) PRIMARY KEY,     -- 'main' | 'sub'
+            cash_krw    BIGINT DEFAULT 0,
+            cash_usd    NUMERIC(14,2) DEFAULT 0,
+            updated_at  TIMESTAMP DEFAULT NOW()
+        );
+        INSERT INTO account_cash (account) VALUES ('main') ON CONFLICT (account) DO NOTHING;
+        INSERT INTO account_cash (account) VALUES ('sub')  ON CONFLICT (account) DO NOTHING;
     """)
     conn.commit()
     cur.close()
@@ -2359,6 +2405,301 @@ def get_bestpick_history(market: str = "nasdaq"):
 
 
 # ══════════════════════════════════════════════════════════════
+# 자산 관리 (Portfolio) API
+# ══════════════════════════════════════════════════════════════
+
+def _get_usd_krw():
+    """현재 USD/KRW 환율 조회 (실패 시 1400)"""
+    try:
+        t = yf.Ticker("KRW=X")
+        h = t.history(period="2d")
+        if not h.empty:
+            return float(h['Close'].iloc[-1])
+    except Exception:
+        pass
+    return 1400.0
+
+def _fetch_live_price(ticker: str):
+    """단일 종목 실시간 가격 + 섹터 조회"""
+    try:
+        t = yf.Ticker(ticker)
+        info = t.info or {}
+        hist = t.history(period="2d")
+        price = None
+        if not hist.empty:
+            price = float(hist['Close'].iloc[-1])
+        elif info.get('regularMarketPrice'):
+            price = float(info['regularMarketPrice'])
+        return {
+            "price": round(price, 4) if price else None,
+            "name":  info.get('longName') or info.get('shortName') or ticker,
+            "sector": info.get('sector') or '—',
+            "currency": info.get('currency') or ('KRW' if ticker.endswith('.KS') or ticker.endswith('.KQ') else 'USD'),
+        }
+    except Exception as e:
+        logger.warning(f"_fetch_live_price({ticker}) 실패: {e}")
+        return {"price": None, "name": ticker, "sector": "—", "currency": "USD"}
+
+
+@app.get("/api/portfolio/holdings")
+@limiter.limit("60/minute")
+def get_holdings(request: Request, account: str = "all"):
+    """보유 종목 조회 + 실시간 평가금액 계산"""
+    if not DATABASE_URL:
+        return {"error": "DATABASE_URL 없음"}
+    try:
+        conn = get_conn(); cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        if account in ("main", "sub"):
+            cur.execute("SELECT * FROM holdings WHERE account=%s ORDER BY id DESC", (account,))
+        else:
+            cur.execute("SELECT * FROM holdings ORDER BY account, id DESC")
+        rows = [dict(r) for r in cur.fetchall()]
+        cur.close(); conn.close()
+
+        usd_krw = _get_usd_krw()
+        tickers = list({r['ticker'] for r in rows})
+        live_map = {}
+        if tickers:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
+                futures = {ex.submit(_fetch_live_price, t): t for t in tickers}
+                for f in concurrent.futures.as_completed(futures, timeout=30):
+                    t = futures[f]
+                    try:
+                        live_map[t] = f.result(timeout=10)
+                    except Exception:
+                        live_map[t] = {"price": None, "name": t, "sector": "—", "currency": "USD"}
+
+        holdings_out = []
+        total_stock_krw = 0
+        for r in rows:
+            live = live_map.get(r['ticker'], {})
+            cur_price = live.get('price')
+            currency  = r.get('currency') or live.get('currency') or 'USD'
+            qty       = float(r.get('quantity') or 0)
+            avg       = float(r.get('avg_price') or 0)
+            cur_val_local = (cur_price * qty) if cur_price else 0
+            cost_local    = avg * qty
+            pnl_local     = cur_val_local - cost_local
+            pnl_pct       = (pnl_local / cost_local * 100) if cost_local > 0 else 0
+            # KRW 환산
+            if currency == 'USD':
+                cur_val_krw = cur_val_local * usd_krw
+                cost_krw    = cost_local * usd_krw
+            else:
+                cur_val_krw = cur_val_local
+                cost_krw    = cost_local
+            total_stock_krw += cur_val_krw
+            holdings_out.append({
+                "id": r['id'], "account": r['account'],
+                "ticker": r['ticker'], "name": r.get('name') or live.get('name') or r['ticker'],
+                "sector": r.get('sector') or live.get('sector') or '—',
+                "quantity": qty, "avg_price": round(avg, 4),
+                "current_price": round(cur_price, 4) if cur_price else None,
+                "currency": currency,
+                "cost_local": round(cost_local, 2),
+                "current_value_local": round(cur_val_local, 2),
+                "current_value_krw": round(cur_val_krw, 0),
+                "pnl_local": round(pnl_local, 2),
+                "pnl_pct": round(pnl_pct, 2),
+                "memo": r.get('memo') or '',
+            })
+
+        # 비중 계산 (KRW 기준)
+        for h in holdings_out:
+            h['weight_pct'] = round(h['current_value_krw'] / total_stock_krw * 100, 2) if total_stock_krw > 0 else 0
+
+        # 현금 합계
+        cur2 = None
+        cash_map = {"main": {"cash_krw": 0, "cash_usd": 0}, "sub": {"cash_krw": 0, "cash_usd": 0}}
+        try:
+            conn = get_conn(); cur2 = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            cur2.execute("SELECT * FROM account_cash")
+            for c in cur2.fetchall():
+                cash_map[c['account']] = {"cash_krw": int(c['cash_krw'] or 0), "cash_usd": float(c['cash_usd'] or 0)}
+            cur2.close(); conn.close()
+        except Exception as e:
+            logger.warning(f"현금 조회 실패: {e}")
+
+        total_cash_krw = sum(c['cash_krw'] + c['cash_usd'] * usd_krw for c in cash_map.values())
+        total_assets_krw = total_stock_krw + total_cash_krw
+
+        return {
+            "holdings": holdings_out,
+            "cash": cash_map,
+            "summary": {
+                "total_stock_krw": round(total_stock_krw, 0),
+                "total_cash_krw":  round(total_cash_krw,  0),
+                "total_assets_krw":round(total_assets_krw,0),
+                "stock_pct": round(total_stock_krw / total_assets_krw * 100, 2) if total_assets_krw > 0 else 0,
+                "cash_pct":  round(total_cash_krw  / total_assets_krw * 100, 2) if total_assets_krw > 0 else 0,
+            },
+            "usd_krw": round(usd_krw, 2),
+            "updated_at": datetime.now(pytz.timezone("Asia/Seoul")).strftime("%Y-%m-%d %H:%M"),
+        }
+    except Exception as e:
+        logger.error(f"holdings GET 오류: {e}")
+        return {"error": str(e)}
+
+
+@app.post("/api/portfolio/holdings")
+@limiter.limit("30/minute")
+async def add_holding(request: Request):
+    """보유 종목 추가"""
+    try:
+        payload = await request.json()
+        ticker = (payload.get('ticker') or '').strip().upper()
+        if not ticker:
+            return {"ok": False, "error": "ticker 필수"}
+        account  = payload.get('account', 'main')
+        quantity = float(payload.get('quantity') or 0)
+        avg      = float(payload.get('avg_price') or 0)
+        if quantity <= 0 or avg <= 0:
+            return {"ok": False, "error": "수량/평균단가는 양수여야 합니다"}
+
+        # 종목 정보 자동 조회
+        live = _fetch_live_price(ticker)
+        name     = payload.get('name') or live.get('name') or ticker
+        sector   = payload.get('sector') or live.get('sector') or '—'
+        currency = payload.get('currency') or live.get('currency') or 'USD'
+        memo     = payload.get('memo') or ''
+
+        conn = get_conn(); cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO holdings (account, ticker, name, sector, quantity, avg_price, currency, memo)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING id
+        """, (account, ticker, name, sector, quantity, avg, currency, memo))
+        new_id = cur.fetchone()[0]
+        conn.commit(); cur.close(); conn.close()
+        return {"ok": True, "id": new_id}
+    except Exception as e:
+        logger.error(f"holdings POST 오류: {e}")
+        return {"ok": False, "error": str(e)}
+
+
+@app.put("/api/portfolio/holdings/{holding_id}")
+@limiter.limit("30/minute")
+async def update_holding(holding_id: int, request: Request):
+    """보유 종목 수정"""
+    try:
+        payload = await request.json()
+        conn = get_conn(); cur = conn.cursor()
+        cur.execute("""
+            UPDATE holdings SET
+                account    = COALESCE(%s, account),
+                quantity   = COALESCE(%s, quantity),
+                avg_price  = COALESCE(%s, avg_price),
+                memo       = COALESCE(%s, memo),
+                updated_at = NOW()
+            WHERE id = %s
+        """, (payload.get('account'),
+              payload.get('quantity'),
+              payload.get('avg_price'),
+              payload.get('memo'),
+              holding_id))
+        conn.commit(); cur.close(); conn.close()
+        return {"ok": True}
+    except Exception as e:
+        logger.error(f"holdings PUT 오류: {e}")
+        return {"ok": False, "error": str(e)}
+
+
+@app.delete("/api/portfolio/holdings/{holding_id}")
+@limiter.limit("30/minute")
+def delete_holding(holding_id: int, request: Request):
+    """보유 종목 삭제"""
+    try:
+        conn = get_conn(); cur = conn.cursor()
+        cur.execute("DELETE FROM holdings WHERE id = %s", (holding_id,))
+        conn.commit(); cur.close(); conn.close()
+        return {"ok": True}
+    except Exception as e:
+        logger.error(f"holdings DELETE 오류: {e}")
+        return {"ok": False, "error": str(e)}
+
+
+@app.post("/api/portfolio/cash")
+@limiter.limit("30/minute")
+async def update_cash(request: Request):
+    """계좌별 현금 잔고 업데이트"""
+    try:
+        payload = await request.json()
+        account  = payload.get('account', 'main')
+        cash_krw = int(payload.get('cash_krw') or 0)
+        cash_usd = float(payload.get('cash_usd') or 0)
+        conn = get_conn(); cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO account_cash (account, cash_krw, cash_usd, updated_at)
+            VALUES (%s, %s, %s, NOW())
+            ON CONFLICT (account) DO UPDATE SET
+                cash_krw = EXCLUDED.cash_krw,
+                cash_usd = EXCLUDED.cash_usd,
+                updated_at = NOW()
+        """, (account, cash_krw, cash_usd))
+        conn.commit(); cur.close(); conn.close()
+        return {"ok": True}
+    except Exception as e:
+        logger.error(f"cash POST 오류: {e}")
+        return {"ok": False, "error": str(e)}
+
+
+@app.get("/api/portfolio/snapshots")
+@limiter.limit("60/minute")
+def get_snapshots(request: Request, months: int = 12):
+    """월간 자산 스냅샷 조회 (최근 N개월)"""
+    if not DATABASE_URL:
+        return {"error": "DATABASE_URL 없음"}
+    try:
+        conn = get_conn(); cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("""
+            SELECT * FROM portfolio_snapshots
+            WHERE snapshot_date > CURRENT_DATE - INTERVAL '%s months'
+            ORDER BY snapshot_date ASC
+        """ % int(months))
+        rows = cur.fetchall(); cur.close(); conn.close()
+        out = []
+        for r in rows:
+            d = dict(r)
+            d['snapshot_date'] = d['snapshot_date'].strftime("%Y-%m-%d")
+            if 'created_at' in d and d['created_at']:
+                d['created_at'] = d['created_at'].strftime("%Y-%m-%d %H:%M")
+            out.append(d)
+        return {"snapshots": out}
+    except Exception as e:
+        logger.error(f"snapshots GET 오류: {e}")
+        return {"error": str(e)}
+
+
+@app.post("/api/portfolio/snapshot")
+@limiter.limit("10/minute")
+def take_snapshot(request: Request):
+    """현재 자산 상태를 오늘 날짜로 스냅샷 저장 (수동 or 월말 자동)"""
+    if not DATABASE_URL:
+        return {"ok": False, "error": "DATABASE_URL 없음"}
+    try:
+        # 현재 holdings 값 집계
+        data = get_holdings(request, account="all")
+        if data.get('error'):
+            return {"ok": False, "error": data['error']}
+        summary = data['summary']
+        conn = get_conn(); cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO portfolio_snapshots (snapshot_date, total_stock, total_cash, total_assets, usd_krw)
+            VALUES (CURRENT_DATE, %s, %s, %s, %s)
+            ON CONFLICT (snapshot_date) DO UPDATE SET
+                total_stock  = EXCLUDED.total_stock,
+                total_cash   = EXCLUDED.total_cash,
+                total_assets = EXCLUDED.total_assets,
+                usd_krw      = EXCLUDED.usd_krw
+        """, (summary['total_stock_krw'], summary['total_cash_krw'], summary['total_assets_krw'], data['usd_krw']))
+        conn.commit(); cur.close(); conn.close()
+        return {"ok": True, "summary": summary}
+    except Exception as e:
+        logger.error(f"snapshot POST 오류: {e}")
+        return {"ok": False, "error": str(e)}
+
+
+# ══════════════════════════════════════════════════════════════
 # APScheduler — 매일 KST 04:00 자동 실행
 # ══════════════════════════════════════════════════════════════
 
@@ -2383,6 +2724,42 @@ scheduler.add_job(
     _run_short_volume_job,
     CronTrigger(hour=0, minute=0, timezone=pytz.utc),
     id="daily_short_volume",
+    replace_existing=True,
+    misfire_grace_time=3600
+)
+
+# 매일 KST 00:05 — 자산 스냅샷 자동 저장 (일 단위 기록)
+def _daily_snapshot_job():
+    try:
+        if not DATABASE_URL:
+            return
+        # take_snapshot 내부 로직 직접 호출 (request 없이)
+        class FakeReq:
+            client = type('C', (), {'host': 'scheduler'})()
+        data = get_holdings(FakeReq(), account="all")
+        if data.get('error'):
+            logger.warning(f"스냅샷 스킵: {data['error']}")
+            return
+        summary = data['summary']
+        conn = get_conn(); cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO portfolio_snapshots (snapshot_date, total_stock, total_cash, total_assets, usd_krw)
+            VALUES (CURRENT_DATE, %s, %s, %s, %s)
+            ON CONFLICT (snapshot_date) DO UPDATE SET
+                total_stock  = EXCLUDED.total_stock,
+                total_cash   = EXCLUDED.total_cash,
+                total_assets = EXCLUDED.total_assets,
+                usd_krw      = EXCLUDED.usd_krw
+        """, (summary['total_stock_krw'], summary['total_cash_krw'], summary['total_assets_krw'], data['usd_krw']))
+        conn.commit(); cur.close(); conn.close()
+        logger.info(f"일일 자산 스냅샷 저장 완료: {summary['total_assets_krw']:,}원")
+    except Exception as e:
+        logger.error(f"일일 스냅샷 오류: {e}")
+
+scheduler.add_job(
+    _daily_snapshot_job,
+    CronTrigger(hour=15, minute=5, timezone=pytz.utc),  # UTC 15:05 = KST 00:05
+    id="daily_portfolio_snapshot",
     replace_existing=True,
     misfire_grace_time=3600
 )
