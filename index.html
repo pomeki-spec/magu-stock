@@ -1235,8 +1235,8 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
 
     <!-- 보유 종목 추가 폼 -->
     <div class="card" style="margin-bottom:14px;">
-      <div class="section-title">➕ 종목 추가</div>
-      <div style="display:grid;grid-template-columns:1.2fr 1fr 0.8fr 0.8fr 0.8fr auto;gap:8px;align-items:end;" id="pf-add-grid">
+      <div class="section-title">➕ 종목 추가 <span class="section-right" style="font-size:11px;font-weight:400;">통화는 티커로 자동 판별 (.KS/.KQ → KRW, 그 외 → USD)</span></div>
+      <div style="display:grid;grid-template-columns:1.2fr 1fr 0.8fr 0.8fr auto auto;gap:8px;align-items:end;" id="pf-add-grid">
         <div>
           <div style="font-size:11px;color:var(--sub);font-weight:600;margin-bottom:4px;">티커</div>
           <input id="pf-new-ticker" type="text" placeholder="VST, 005930.KS"
@@ -1260,14 +1260,10 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
             style="width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;">
         </div>
         <div>
-          <div style="font-size:11px;color:var(--sub);font-weight:600;margin-bottom:4px;">통화</div>
-          <select id="pf-new-currency" style="width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;">
-            <option value="USD">USD</option>
-            <option value="KRW">KRW</option>
-          </select>
+          <button class="seg-btn" onclick="addHolding()" style="background:var(--blue);color:#fff;border-color:var(--blue);padding:7px 16px;">추가</button>
         </div>
         <div>
-          <button class="seg-btn" onclick="addHolding()" style="background:var(--blue);color:#fff;border-color:var(--blue);padding:7px 16px;">추가</button>
+          <button class="seg-btn" onclick="fixCurrencies()" style="padding:7px 12px;font-size:11px;" title="기존 종목들의 통화를 티커에 맞게 재분류">🔧 통화 교정</button>
         </div>
       </div>
     </div>
@@ -3014,6 +3010,13 @@ function renderPortfolio() {
       const pnlCls = h.pnl_local >= 0 ? 'up' : 'dn';
       const pnlSign = h.pnl_local >= 0 ? '+' : '';
       const curSym = h.currency === 'KRW' ? '₩' : '$';
+      // 숫자 포맷 - USD는 소수 2자리, KRW는 정수
+      const fmtPrice = (v) => {
+        if(v == null) return '—';
+        return h.currency === 'KRW'
+          ? Math.round(v).toLocaleString()
+          : v.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2});
+      };
       const accBadge = h.account === 'main'
         ? '<span style="font-size:10px;padding:2px 7px;border-radius:4px;background:#dbeafe;color:#1d4ed8;font-weight:700;">메인</span>'
         : '<span style="font-size:10px;padding:2px 7px;border-radius:4px;background:#fef3c7;color:#854d0e;font-weight:700;">서브</span>';
@@ -3024,14 +3027,17 @@ function renderPortfolio() {
         </td>
         <td>${accBadge}</td>
         <td>${h.quantity}</td>
-        <td>${curSym}${h.avg_price.toLocaleString()}</td>
-        <td><strong>${curSym}${(h.current_price||0).toLocaleString()}</strong></td>
+        <td>${curSym}${fmtPrice(h.avg_price)}</td>
+        <td><strong>${curSym}${fmtPrice(h.current_price)}</strong></td>
         <td><strong>${fmtKRW(h.current_value_krw)}</strong></td>
         <td class="${pnlCls}">
           <strong>${pnlSign}${curSym}${Math.abs(h.pnl_local).toLocaleString(undefined,{maximumFractionDigits:2})}</strong>
           <div style="font-size:11px;">${pnlSign}${h.pnl_pct.toFixed(2)}% · ${h.weight_pct}%비중</div>
         </td>
-        <td><button onclick="deleteHolding(${h.id})" style="padding:3px 8px;border:1px solid var(--border);background:#fff;border-radius:4px;cursor:pointer;font-size:11px;color:#ef4444;">🗑</button></td>
+        <td style="white-space:nowrap;">
+          <button onclick="editHolding(${h.id}, ${h.quantity}, ${h.avg_price})" style="padding:3px 6px;border:1px solid var(--border);background:#fff;border-radius:4px;cursor:pointer;font-size:11px;margin-right:2px;">✏️</button>
+          <button onclick="deleteHolding(${h.id})" style="padding:3px 6px;border:1px solid var(--border);background:#fff;border-radius:4px;cursor:pointer;font-size:11px;color:#ef4444;">🗑</button>
+        </td>
       </tr>`;
     }).join('');
   }
@@ -3104,13 +3110,12 @@ async function addHolding() {
   const account = document.getElementById('pf-new-account').value;
   const qty = parseFloat(document.getElementById('pf-new-qty').value);
   const avg = parseFloat(document.getElementById('pf-new-avg').value);
-  const currency = document.getElementById('pf-new-currency').value;
   if(!ticker || !qty || !avg) { alert('티커 / 수량 / 평균단가는 필수입니다'); return; }
   try {
     const res = await fetch(`${API}/api/portfolio/holdings`, {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ticker, account, quantity: qty, avg_price: avg, currency})
+      body: JSON.stringify({ticker, account, quantity: qty, avg_price: avg})
     });
     const data = await res.json();
     if(!data.ok) { alert('추가 실패: ' + (data.error || '?')); return; }
@@ -3122,12 +3127,46 @@ async function addHolding() {
   } catch(e) { alert('서버 연결 실패'); console.error(e); }
 }
 
+async function fixCurrencies() {
+  if(!confirm('기존 보유 종목들의 통화를 티커 기반으로 재분류합니다.\n\n.KS/.KQ 로 끝나면 KRW, 그 외는 USD 로 자동 변경됩니다.\n\n진행하시겠습니까?')) return;
+  try {
+    const res = await fetch(`${API}/api/portfolio/fix_currencies`, {method:'POST'});
+    const data = await res.json();
+    if(data.ok) {
+      alert(`✅ ${data.fixed}개 종목 통화 교정 완료 (전체 ${data.total}개)`);
+      await loadPortfolio();
+    } else {
+      alert('교정 실패: ' + (data.error || '?'));
+    }
+  } catch(e) { alert('서버 연결 실패'); }
+}
+
 async function deleteHolding(id) {
   if(!confirm('이 종목을 삭제하시겠습니까?')) return;
   try {
     await fetch(`${API}/api/portfolio/holdings/${id}`, {method:'DELETE'});
     await loadPortfolio();
   } catch(e) { alert('삭제 실패'); }
+}
+
+async function editHolding(id, curQty, curAvg) {
+  const newQty = prompt(`수량을 입력하세요 (현재: ${curQty})`, curQty);
+  if(newQty === null) return;
+  const newAvg = prompt(`평균단가를 입력하세요 (현재: ${curAvg})`, curAvg);
+  if(newAvg === null) return;
+  const qty = parseFloat(newQty);
+  const avg = parseFloat(newAvg);
+  if(!qty || !avg || qty <= 0 || avg <= 0) { alert('올바른 값을 입력해주세요'); return; }
+  try {
+    const res = await fetch(`${API}/api/portfolio/holdings/${id}`, {
+      method: 'PUT',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({quantity: qty, avg_price: avg})
+    });
+    const data = await res.json();
+    if(data.ok) await loadPortfolio();
+    else alert('수정 실패: ' + (data.error || '?'));
+  } catch(e) { alert('서버 연결 실패'); }
 }
 
 async function saveCash(account) {
