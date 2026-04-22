@@ -1277,12 +1277,13 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
         <table class="stbl" id="pf-holdings-tbl" style="table-layout:fixed;width:100%;">
           <colgroup>
             <col style="width:22%;">
+            <col style="width:7%;">
             <col style="width:8%;">
-            <col style="width:10%;">
+            <col style="width:11%;">
+            <col style="width:11%;">
+            <col style="width:13%;">
             <col style="width:12%;">
-            <col style="width:12%;">
-            <col style="width:14%;">
-            <col style="width:14%;">
+            <col style="width:8%;">
             <col style="width:8%;">
           </colgroup>
           <thead>
@@ -1294,11 +1295,12 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
               <th>현재가</th>
               <th style="cursor:pointer;user-select:none;" onclick="togglePfSort('value')" id="pf-th-value">평가금액 <span id="pf-sort-value">▼</span></th>
               <th style="cursor:pointer;user-select:none;" onclick="togglePfSort('pnl_pct')" id="pf-th-pnl">손익 <span id="pf-sort-pnl"></span></th>
+              <th>비중</th>
               <th></th>
             </tr>
           </thead>
           <tbody id="pf-holdings-body">
-            <tr><td colspan="8" class="empty">종목을 추가해주세요</td></tr>
+            <tr><td colspan="9" class="empty">종목을 추가해주세요</td></tr>
           </tbody>
         </table>
       </div>
@@ -3024,34 +3026,38 @@ function renderPortfolio() {
     h.weight_pct = totalStock > 0 ? Math.round(h.current_value_krw / totalStock * 1000) / 10 : 0;
   });
 
-  // 종목 테이블
+  // 종목 테이블 - 미장(USD)/국장(KRW) 분리
   if(filtered.length === 0) {
-    document.getElementById('pf-holdings-body').innerHTML = '<tr><td colspan="8" class="empty">종목을 추가해주세요</td></tr>';
+    document.getElementById('pf-holdings-body').innerHTML = '<tr><td colspan="9" class="empty">종목을 추가해주세요</td></tr>';
   } else {
     // 정렬 처리
     const sortMult = _pfSortDir === 'desc' ? -1 : 1;
-    const sorted = [...filtered].sort((a,b) => {
+    const sortFn = (a,b) => {
       let va, vb;
       if(_pfSortKey === 'pnl_pct')    { va = a.pnl_pct || 0;            vb = b.pnl_pct || 0; }
       else                            { va = a.current_value_krw || 0;  vb = b.current_value_krw || 0; }
       return (va - vb) * sortMult;
-    });
+    };
+
+    // 미장 / 국장 분리
+    const usdHoldings = filtered.filter(h => h.currency === 'USD').sort(sortFn);
+    const krwHoldings = filtered.filter(h => h.currency === 'KRW').sort(sortFn);
 
     // 정렬 화살표 업데이트
     const arrow = _pfSortDir === 'desc' ? '▼' : '▲';
     document.getElementById('pf-sort-value').textContent = _pfSortKey === 'value' ? arrow : '';
     document.getElementById('pf-sort-pnl').textContent   = _pfSortKey === 'pnl_pct' ? arrow : '';
 
-    document.getElementById('pf-holdings-body').innerHTML = sorted.map(h => {
+    const renderRow = (h) => {
       const pnlCls = h.pnl_local >= 0 ? 'up' : 'dn';
       const pnlSign = h.pnl_local >= 0 ? '+' : '';
+      const pnlColor = h.pnl_local >= 0 ? '#ef4444' : '#3b82f6';
       const isKRWMode = _pfDisplayCur === 'krw';
       const localSym = h.currency === 'KRW' ? '₩' : '$';
 
       // 표시 값 결정
       let avgPriceDisp, curPriceDisp, pnlDisp;
       if(isKRWMode && h.currency === 'USD') {
-        // USD를 KRW로 환산 표시
         const avgKrw = h.avg_price * usdKrw;
         const curKrw = (h.current_price || 0) * usdKrw;
         const pnlKrw = h.pnl_local * usdKrw;
@@ -3059,7 +3065,6 @@ function renderPortfolio() {
         curPriceDisp = '₩' + Math.round(curKrw).toLocaleString();
         pnlDisp      = pnlSign + '₩' + Math.round(Math.abs(pnlKrw)).toLocaleString();
       } else {
-        // 원래 통화로 표시
         const fmtP = (v) => v == null ? '—' : (h.currency === 'KRW'
           ? Math.round(v).toLocaleString()
           : v.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2}));
@@ -3083,16 +3088,36 @@ function renderPortfolio() {
         <td>${avgPriceDisp}</td>
         <td><strong>${curPriceDisp}</strong></td>
         <td><strong>${fmtKRW(h.current_value_krw)}</strong></td>
-        <td class="${pnlCls}">
-          <strong>${pnlDisp}</strong>
-          <div style="font-size:11px;">${pnlSign}${h.pnl_pct.toFixed(2)}% · ${h.weight_pct}%비중</div>
+        <td style="color:${pnlColor};">
+          <div style="font-size:15px;font-weight:800;line-height:1.2;">${pnlSign}${h.pnl_pct.toFixed(2)}%</div>
+          <div style="font-size:10px;color:var(--sub);margin-top:2px;">${pnlDisp}</div>
         </td>
+        <td><strong style="font-size:13px;">${h.weight_pct}%</strong></td>
         <td style="white-space:nowrap;">
           <button onclick="openEditModal(${h.id}, '${h.ticker.replace(/'/g,'')}', ${h.quantity}, ${h.avg_price}, '${h.currency}')" style="padding:3px 6px;border:1px solid var(--border);background:#fff;border-radius:4px;cursor:pointer;font-size:11px;margin-right:2px;">✏️</button>
           <button onclick="deleteHolding(${h.id})" style="padding:3px 6px;border:1px solid var(--border);background:#fff;border-radius:4px;cursor:pointer;font-size:11px;color:#ef4444;">🗑</button>
         </td>
       </tr>`;
-    }).join('');
+    };
+
+    // 구분선 행 (섹션 헤더)
+    const sectionHeader = (label, count, emoji) => `
+      <tr style="background:#f8fafc;">
+        <td colspan="9" style="padding:8px 12px;font-size:12px;font-weight:800;color:#1e3a5f;border-top:2px solid #e4e8f0;border-bottom:1px solid #e4e8f0;">
+          ${emoji} ${label} <span style="color:var(--sub);font-weight:600;margin-left:6px;">${count}개 종목</span>
+        </td>
+      </tr>`;
+
+    let html = '';
+    if(usdHoldings.length > 0) {
+      html += sectionHeader('미장 (USD)', usdHoldings.length, '🇺🇸');
+      html += usdHoldings.map(renderRow).join('');
+    }
+    if(krwHoldings.length > 0) {
+      html += sectionHeader('국장 (KRW)', krwHoldings.length, '🇰🇷');
+      html += krwHoldings.map(renderRow).join('');
+    }
+    document.getElementById('pf-holdings-body').innerHTML = html;
   }
   document.getElementById('pf-count').textContent = `${filtered.length}개 종목`;
 
