@@ -1140,7 +1140,9 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
           <button class="seg-btn" id="pf-tab-sub" onclick="switchPfAccount('sub')">서브</button>
         </div>
         <div class="topbar-group">
-          <button class="seg-btn" onclick="loadPortfolio()" style="background:var(--blue);color:#fff;border-color:var(--blue);">🔄 새로고침</button>
+          <button class="seg-btn active" id="pf-dcur-local" onclick="setPfDisplayCur('local')">USD·KRW</button>
+          <button class="seg-btn" id="pf-dcur-krw" onclick="setPfDisplayCur('krw')">전체 원화</button>
+          <button class="seg-btn" onclick="loadPortfolio()" style="background:var(--blue);color:#fff;border-color:var(--blue);">🔄</button>
         </div>
       </div>
     </div>
@@ -1290,8 +1292,8 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
               <th>수량</th>
               <th>평균단가</th>
               <th>현재가</th>
-              <th>평가금액</th>
-              <th>손익</th>
+              <th style="cursor:pointer;user-select:none;" onclick="togglePfSort('value')" id="pf-th-value">평가금액 <span id="pf-sort-value">▼</span></th>
+              <th style="cursor:pointer;user-select:none;" onclick="togglePfSort('pnl_pct')" id="pf-th-pnl">손익 <span id="pf-sort-pnl"></span></th>
               <th></th>
             </tr>
           </thead>
@@ -2905,6 +2907,27 @@ let _pfAccount = 'all';
 let _pfData = null;
 let _pfSnapChart = null;
 let _pfPieCharts = { ticker: null, sector: null };
+let _pfSortKey = 'value';   // 'value' | 'pnl_pct' | 'weight'
+let _pfSortDir = 'desc';    // 'asc' | 'desc'
+let _pfDisplayCur = 'local'; // 'local' | 'krw'  — 가격/단가/손익 표시 통화
+
+function togglePfSort(key) {
+  if(_pfSortKey === key) {
+    _pfSortDir = _pfSortDir === 'desc' ? 'asc' : 'desc';
+  } else {
+    _pfSortKey = key; _pfSortDir = 'desc';
+  }
+  renderPortfolio();
+}
+
+function setPfDisplayCur(cur) {
+  _pfDisplayCur = cur;
+  ['local','krw'].forEach(c => {
+    const btn = document.getElementById('pf-dcur-'+c);
+    if(btn) btn.classList.toggle('active', c===cur);
+  });
+  renderPortfolio();
+}
 
 function switchPfAccount(acc) {
   _pfAccount = acc;
@@ -3005,18 +3028,48 @@ function renderPortfolio() {
   if(filtered.length === 0) {
     document.getElementById('pf-holdings-body').innerHTML = '<tr><td colspan="8" class="empty">종목을 추가해주세요</td></tr>';
   } else {
-    const sorted = [...filtered].sort((a,b) => b.current_value_krw - a.current_value_krw);
+    // 정렬 처리
+    const sortMult = _pfSortDir === 'desc' ? -1 : 1;
+    const sorted = [...filtered].sort((a,b) => {
+      let va, vb;
+      if(_pfSortKey === 'pnl_pct')    { va = a.pnl_pct || 0;            vb = b.pnl_pct || 0; }
+      else                            { va = a.current_value_krw || 0;  vb = b.current_value_krw || 0; }
+      return (va - vb) * sortMult;
+    });
+
+    // 정렬 화살표 업데이트
+    const arrow = _pfSortDir === 'desc' ? '▼' : '▲';
+    document.getElementById('pf-sort-value').textContent = _pfSortKey === 'value' ? arrow : '';
+    document.getElementById('pf-sort-pnl').textContent   = _pfSortKey === 'pnl_pct' ? arrow : '';
+
     document.getElementById('pf-holdings-body').innerHTML = sorted.map(h => {
       const pnlCls = h.pnl_local >= 0 ? 'up' : 'dn';
       const pnlSign = h.pnl_local >= 0 ? '+' : '';
-      const curSym = h.currency === 'KRW' ? '₩' : '$';
-      // 숫자 포맷 - USD는 소수 2자리, KRW는 정수
-      const fmtPrice = (v) => {
-        if(v == null) return '—';
-        return h.currency === 'KRW'
+      const isKRWMode = _pfDisplayCur === 'krw';
+      const localSym = h.currency === 'KRW' ? '₩' : '$';
+
+      // 표시 값 결정
+      let avgPriceDisp, curPriceDisp, pnlDisp;
+      if(isKRWMode && h.currency === 'USD') {
+        // USD를 KRW로 환산 표시
+        const avgKrw = h.avg_price * usdKrw;
+        const curKrw = (h.current_price || 0) * usdKrw;
+        const pnlKrw = h.pnl_local * usdKrw;
+        avgPriceDisp = '₩' + Math.round(avgKrw).toLocaleString();
+        curPriceDisp = '₩' + Math.round(curKrw).toLocaleString();
+        pnlDisp      = pnlSign + '₩' + Math.round(Math.abs(pnlKrw)).toLocaleString();
+      } else {
+        // 원래 통화로 표시
+        const fmtP = (v) => v == null ? '—' : (h.currency === 'KRW'
           ? Math.round(v).toLocaleString()
-          : v.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2});
-      };
+          : v.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2}));
+        avgPriceDisp = localSym + fmtP(h.avg_price);
+        curPriceDisp = localSym + fmtP(h.current_price);
+        pnlDisp      = pnlSign + localSym + (h.currency === 'KRW'
+          ? Math.round(Math.abs(h.pnl_local)).toLocaleString()
+          : Math.abs(h.pnl_local).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2}));
+      }
+
       const accBadge = h.account === 'main'
         ? '<span style="font-size:10px;padding:2px 7px;border-radius:4px;background:#dbeafe;color:#1d4ed8;font-weight:700;">메인</span>'
         : '<span style="font-size:10px;padding:2px 7px;border-radius:4px;background:#fef3c7;color:#854d0e;font-weight:700;">서브</span>';
@@ -3027,15 +3080,15 @@ function renderPortfolio() {
         </td>
         <td>${accBadge}</td>
         <td>${h.quantity}</td>
-        <td>${curSym}${fmtPrice(h.avg_price)}</td>
-        <td><strong>${curSym}${fmtPrice(h.current_price)}</strong></td>
+        <td>${avgPriceDisp}</td>
+        <td><strong>${curPriceDisp}</strong></td>
         <td><strong>${fmtKRW(h.current_value_krw)}</strong></td>
         <td class="${pnlCls}">
-          <strong>${pnlSign}${curSym}${Math.abs(h.pnl_local).toLocaleString(undefined,{maximumFractionDigits:2})}</strong>
+          <strong>${pnlDisp}</strong>
           <div style="font-size:11px;">${pnlSign}${h.pnl_pct.toFixed(2)}% · ${h.weight_pct}%비중</div>
         </td>
         <td style="white-space:nowrap;">
-          <button onclick="editHolding(${h.id}, ${h.quantity}, ${h.avg_price})" style="padding:3px 6px;border:1px solid var(--border);background:#fff;border-radius:4px;cursor:pointer;font-size:11px;margin-right:2px;">✏️</button>
+          <button onclick="openEditModal(${h.id}, '${h.ticker.replace(/'/g,'')}', ${h.quantity}, ${h.avg_price}, '${h.currency}')" style="padding:3px 6px;border:1px solid var(--border);background:#fff;border-radius:4px;cursor:pointer;font-size:11px;margin-right:2px;">✏️</button>
           <button onclick="deleteHolding(${h.id})" style="padding:3px 6px;border:1px solid var(--border);background:#fff;border-radius:4px;cursor:pointer;font-size:11px;color:#ef4444;">🗑</button>
         </td>
       </tr>`;
@@ -3149,13 +3202,63 @@ async function deleteHolding(id) {
   } catch(e) { alert('삭제 실패'); }
 }
 
-async function editHolding(id, curQty, curAvg) {
-  const newQty = prompt(`수량을 입력하세요 (현재: ${curQty})`, curQty);
-  if(newQty === null) return;
-  const newAvg = prompt(`평균단가를 입력하세요 (현재: ${curAvg})`, curAvg);
-  if(newAvg === null) return;
-  const qty = parseFloat(newQty);
-  const avg = parseFloat(newAvg);
+function openEditModal(id, ticker, curQty, curAvg, currency) {
+  // 기존 모달 있으면 제거
+  const old = document.getElementById('pf-edit-modal');
+  if(old) old.remove();
+
+  const curSym = currency === 'KRW' ? '₩' : '$';
+  const modal = document.createElement('div');
+  modal.id = 'pf-edit-modal';
+  modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;';
+  modal.innerHTML = `
+    <div style="background:#fff;border-radius:14px;padding:24px;max-width:400px;width:100%;box-shadow:0 10px 40px rgba(0,0,0,.2);">
+      <div style="font-size:18px;font-weight:800;margin-bottom:4px;">✏️ 종목 수정</div>
+      <div style="font-size:13px;color:var(--sub);margin-bottom:18px;">${ticker} (${currency})</div>
+
+      <div style="margin-bottom:14px;">
+        <div style="font-size:12px;color:var(--sub);font-weight:600;margin-bottom:6px;">수량</div>
+        <input id="edit-qty" type="number" step="0.0001" value="${curQty}"
+          style="width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;font-weight:700;">
+      </div>
+
+      <div style="margin-bottom:18px;">
+        <div style="font-size:12px;color:var(--sub);font-weight:600;margin-bottom:6px;">평균단가 (${curSym})</div>
+        <input id="edit-avg" type="number" step="0.01" value="${curAvg}"
+          style="width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;font-weight:700;">
+        <div style="font-size:11px;color:var(--sub);margin-top:4px;">💡 추가 매수했다면 평균단가를 새로 계산하여 입력하세요</div>
+      </div>
+
+      <div style="display:flex;gap:8px;">
+        <button onclick="document.getElementById('pf-edit-modal').remove()"
+          style="flex:1;padding:10px;border:1px solid var(--border);background:#fff;color:var(--text);border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;">취소</button>
+        <button onclick="saveEditHolding(${id})"
+          style="flex:1;padding:10px;border:none;background:var(--blue);color:#fff;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;">저장</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+
+  // 배경 클릭으로 닫기
+  modal.addEventListener('click', (e) => {
+    if(e.target === modal) modal.remove();
+  });
+  // ESC 키로 닫기
+  document.addEventListener('keydown', function esc(e) {
+    if(e.key === 'Escape') {
+      const m = document.getElementById('pf-edit-modal');
+      if(m) m.remove();
+      document.removeEventListener('keydown', esc);
+    }
+  });
+
+  // 포커스
+  setTimeout(() => document.getElementById('edit-qty').focus(), 50);
+}
+
+async function saveEditHolding(id) {
+  const qty = parseFloat(document.getElementById('edit-qty').value);
+  const avg = parseFloat(document.getElementById('edit-avg').value);
   if(!qty || !avg || qty <= 0 || avg <= 0) { alert('올바른 값을 입력해주세요'); return; }
   try {
     const res = await fetch(`${API}/api/portfolio/holdings/${id}`, {
@@ -3164,8 +3267,12 @@ async function editHolding(id, curQty, curAvg) {
       body: JSON.stringify({quantity: qty, avg_price: avg})
     });
     const data = await res.json();
-    if(data.ok) await loadPortfolio();
-    else alert('수정 실패: ' + (data.error || '?'));
+    if(data.ok) {
+      document.getElementById('pf-edit-modal').remove();
+      await loadPortfolio();
+    } else {
+      alert('수정 실패: ' + (data.error || '?'));
+    }
   } catch(e) { alert('서버 연결 실패'); }
 }
 
