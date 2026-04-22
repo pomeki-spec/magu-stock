@@ -865,7 +865,18 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
 
       <!-- 입력 카드 -->
       <div class="card" style="margin-bottom:14px;">
-        <div class="section-title">💼 포트폴리오 입력</div>
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:10px;">
+          <span class="section-title" style="margin-bottom:0;">💼 포트폴리오 입력</span>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <label style="font-size:11px;color:var(--sub);display:flex;align-items:center;gap:4px;cursor:pointer;">
+              <input type="checkbox" id="rb-auto-sync" onchange="toggleRbAutoSync(this.checked)" style="cursor:pointer;">
+              자동 동기화
+            </label>
+            <button onclick="loadFromPortfolio()" class="seg-btn" style="background:#22c55e;color:#fff;border-color:#22c55e;font-size:12px;padding:6px 12px;">
+              📥 내 자산에서 불러오기
+            </button>
+          </div>
+        </div>
         <div class="rb-input-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px;">
           <div>
             <div style="font-size:11px;color:var(--sub);margin-bottom:6px;font-weight:600;">총 자산 (원)</div>
@@ -1335,7 +1346,16 @@ function showPage(page) {
     if(nav) nav.classList.toggle('active', p===page);
   });
   if(page === 'rebalance') {
-    setTimeout(calcRebalance, 100);
+    // 자동 동기화 체크 상태 복원
+    const autoSync = localStorage.getItem('rb-auto-sync') === '1';
+    const chk = document.getElementById('rb-auto-sync');
+    if(chk) chk.checked = autoSync;
+    // 자동 동기화 ON이면 자산 데이터 불러와서 반영
+    if(autoSync) {
+      loadFromPortfolio(true).then(() => setTimeout(calcRebalance, 100));
+    } else {
+      setTimeout(calcRebalance, 100);
+    }
   }
   if(page === 'smartmoney') {
     loadShortVolume();
@@ -1350,6 +1370,13 @@ function showPage(page) {
   window.scrollTo(0,0);
   // 모바일에서 페이지 전환 시 사이드바 닫기
   if(window.innerWidth <= 768) closeSidebar();
+}
+
+function toggleRbAutoSync(on) {
+  localStorage.setItem('rb-auto-sync', on ? '1' : '0');
+  if(on) {
+    loadFromPortfolio(false);
+  }
 }
 
 function switchMarket(m) {
@@ -3217,6 +3244,39 @@ async function fixCurrencies() {
       alert('교정 실패: ' + (data.error || '?'));
     }
   } catch(e) { alert('서버 연결 실패'); }
+}
+
+// 리밸런싱 탭으로 자산 데이터 가져오기
+async function loadFromPortfolio(silent) {
+  try {
+    const res = await fetch(`${API}/api/portfolio/holdings?account=all`);
+    const data = await res.json();
+    if(data.error || !data.summary) {
+      if(!silent) alert('자산 데이터를 불러올 수 없습니다.\n💼 내 자산 탭에서 종목을 먼저 입력해주세요.');
+      return false;
+    }
+    const s = data.summary;
+    const total = Math.round(s.total_assets_krw);
+    const stock = Math.round(s.total_stock_krw);
+    if(total <= 0) {
+      if(!silent) alert('자산 정보가 비어있습니다.\n💼 내 자산 탭에서 종목/현금을 먼저 입력해주세요.');
+      return false;
+    }
+    // 리밸런싱 입력 필드에 값 반영
+    document.getElementById('rb-total').value = total.toLocaleString('ko-KR');
+    document.getElementById('rb-stock').value = stock.toLocaleString('ko-KR');
+    // 저장 + 재계산
+    saveRbInputs();
+    calcRebalance();
+    if(!silent) {
+      alert(`✅ 자산 정보를 불러왔습니다!\n\n총자산: ${fmtKRW(total)}\n주식: ${fmtKRW(stock)} (${s.stock_pct}%)\n현금: ${fmtKRW(s.total_cash_krw)} (${s.cash_pct}%)`);
+    }
+    return true;
+  } catch(e) {
+    if(!silent) alert('서버 연결 실패');
+    console.error(e);
+    return false;
+  }
 }
 
 async function deleteHolding(id) {
