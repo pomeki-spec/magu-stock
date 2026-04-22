@@ -2556,11 +2556,17 @@ async def add_holding(request: Request):
         if quantity <= 0 or avg <= 0:
             return {"ok": False, "error": "수량/평균단가는 양수여야 합니다"}
 
-        # 종목 정보 자동 조회
+        # 종목 정보 자동 조회 — 통화는 실제 종목 기반으로 결정 (프론트 입력 무시)
         live = _fetch_live_price(ticker)
         name     = payload.get('name') or live.get('name') or ticker
         sector   = payload.get('sector') or live.get('sector') or '—'
-        currency = payload.get('currency') or live.get('currency') or 'USD'
+        # 티커 규칙: .KS/.KQ = KRW, 그 외 = USD (yfinance info 우선)
+        if ticker.endswith('.KS') or ticker.endswith('.KQ'):
+            currency = 'KRW'
+        elif live.get('currency'):
+            currency = live['currency']
+        else:
+            currency = 'USD'
         memo     = payload.get('memo') or ''
 
         conn = get_conn(); cur = conn.cursor()
@@ -2571,7 +2577,7 @@ async def add_holding(request: Request):
         """, (account, ticker, name, sector, quantity, avg, currency, memo))
         new_id = cur.fetchone()[0]
         conn.commit(); cur.close(); conn.close()
-        return {"ok": True, "id": new_id}
+        return {"ok": True, "id": new_id, "currency": currency, "name": name}
     except Exception as e:
         logger.error(f"holdings POST 오류: {e}")
         return {"ok": False, "error": str(e)}
@@ -2615,6 +2621,35 @@ def delete_holding(holding_id: int, request: Request):
         return {"ok": True}
     except Exception as e:
         logger.error(f"holdings DELETE 오류: {e}")
+        return {"ok": False, "error": str(e)}
+
+
+@app.post("/api/portfolio/fix_currencies")
+@limiter.limit("5/minute")
+def fix_holding_currencies(request: Request):
+    """기존 잘못 저장된 통화 일괄 수정 — 티커 기반으로 USD/KRW 재분류"""
+    if not DATABASE_URL:
+        return {"ok": False, "error": "DATABASE_URL 없음"}
+    try:
+        conn = get_conn(); cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("SELECT id, ticker, currency FROM holdings")
+        rows = [dict(r) for r in cur.fetchall()]
+
+        fixed = 0
+        for r in rows:
+            ticker = r['ticker']
+            # 티커 기반 실제 통화 판별
+            if ticker.endswith('.KS') or ticker.endswith('.KQ'):
+                correct = 'KRW'
+            else:
+                correct = 'USD'
+            if r['currency'] != correct:
+                cur.execute("UPDATE holdings SET currency=%s WHERE id=%s", (correct, r['id']))
+                fixed += 1
+        conn.commit(); cur.close(); conn.close()
+        return {"ok": True, "fixed": fixed, "total": len(rows)}
+    except Exception as e:
+        logger.error(f"fix_currencies 오류: {e}")
         return {"ok": False, "error": str(e)}
 
 
