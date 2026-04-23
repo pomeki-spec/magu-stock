@@ -187,9 +187,10 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
   }
 
   /* 원형 차트 */
-  #pf-pie-ticker{flex-direction:column !important;gap:12px !important;align-items:center !important;}
-  #pf-pie-ticker svg{width:160px !important;height:160px !important;}
-  .pf-legend-grid{grid-template-columns:1fr !important;width:100%;}
+  #pf-pie-ticker{flex-direction:column !important;gap:12px !important;align-items:stretch !important;}
+  #pf-pie-ticker svg{width:160px !important;height:160px !important;align-self:center;}
+  .pf-legend-grid{grid-template-columns:1fr !important;width:100% !important;flex:none !important;}
+  .pf-legend-grid > div{width:100% !important;box-sizing:border-box;}
 
   /* 종목 추가 폼 - 모바일에서 더 세밀하게 */
   #pf-add-grid{grid-template-columns:1fr 1fr !important;gap:8px !important;}
