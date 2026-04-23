@@ -1304,8 +1304,8 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
               <th>수량</th>
               <th>평균단가</th>
               <th>현재가</th>
-              <th style="cursor:pointer;user-select:none;" onclick="togglePfSort('value')" id="pf-th-value">평가금액 <span id="pf-sort-value">▼</span></th>
-              <th style="cursor:pointer;user-select:none;" onclick="togglePfSort('pnl_pct')" id="pf-th-pnl">손익 <span id="pf-sort-pnl"></span></th>
+              <th style="cursor:pointer;user-select:none;" onclick="togglePfSort('value')" id="pf-th-value">평가금액 <span id="pf-sort-value"></span></th>
+              <th style="cursor:pointer;user-select:none;" onclick="togglePfSort('pnl_pct')" id="pf-th-pnl">손익 <span id="pf-sort-pnl">▼</span></th>
               <th>비중</th>
               <th></th>
             </tr>
@@ -1346,8 +1346,9 @@ function showPage(page) {
     if(nav) nav.classList.toggle('active', p===page);
   });
   if(page === 'rebalance') {
-    // 자동 동기화 체크 상태 복원
-    const autoSync = localStorage.getItem('rb-auto-sync') === '1';
+    // 자동 동기화 체크 상태 복원 — 기본값: ON (명시적으로 꺼두지 않은 한)
+    const stored = localStorage.getItem('rb-auto-sync');
+    const autoSync = stored === null ? true : (stored === '1');
     const chk = document.getElementById('rb-auto-sync');
     if(chk) chk.checked = autoSync;
     // 자동 동기화 ON이면 자산 데이터 불러와서 반영
@@ -2936,8 +2937,8 @@ let _pfAccount = 'all';
 let _pfData = null;
 let _pfSnapChart = null;
 let _pfPieCharts = { ticker: null, sector: null };
-let _pfSortKey = 'value';   // 'value' | 'pnl_pct' | 'weight'
-let _pfSortDir = 'desc';    // 'asc' | 'desc'
+let _pfSortKey = 'pnl_pct';  // 기본: 손익률 기준 정렬
+let _pfSortDir = 'desc';     // 'asc' | 'desc'
 let _pfDisplayCur = 'local'; // 'local' | 'krw'  — 가격/단가/손익 표시 통화
 
 function togglePfSort(key) {
