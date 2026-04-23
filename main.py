@@ -312,6 +312,28 @@ def init_db():
         );
         INSERT INTO account_cash (account) VALUES ('main') ON CONFLICT (account) DO NOTHING;
         INSERT INTO account_cash (account) VALUES ('sub')  ON CONFLICT (account) DO NOTHING;
+
+        -- ──────────────────────────────────────────────
+        -- 가격 캐시 (실시간 가격 저장)
+        -- ──────────────────────────────────────────────
+        CREATE TABLE IF NOT EXISTS price_cache (
+            ticker     VARCHAR(20) PRIMARY KEY,
+            price      NUMERIC(14,4),
+            name       TEXT,
+            sector     TEXT,
+            currency   VARCHAR(3) DEFAULT 'USD',
+            cached_at  TIMESTAMP DEFAULT NOW()
+        );
+        CREATE INDEX IF NOT EXISTS idx_price_cached_at ON price_cache(cached_at DESC);
+
+        -- ──────────────────────────────────────────────
+        -- 환율 캐시
+        -- ──────────────────────────────────────────────
+        CREATE TABLE IF NOT EXISTS fx_cache (
+            pair       VARCHAR(10) PRIMARY KEY,
+            rate       NUMERIC(10,4),
+            cached_at  TIMESTAMP DEFAULT NOW()
+        );
     """)
     conn.commit()
     cur.close()
@@ -2408,8 +2430,37 @@ def get_bestpick_history(market: str = "nasdaq"):
 # 자산 관리 (Portfolio) API
 # ══════════════════════════════════════════════════════════════
 
-def _get_usd_krw():
-    """현재 USD/KRW 환율 조회 (실패 시 1400)"""
+def _get_usd_krw(max_age_minutes=10):
+    """USD/KRW 환율 조회 — DB 캐시 우선, 만료 시 yfinance 호출"""
+    if not DATABASE_URL:
+        return _fetch_usd_krw_live()
+    try:
+        conn = get_conn(); cur = conn.cursor()
+        cur.execute(f"""
+            SELECT rate FROM fx_cache
+            WHERE pair = 'USD_KRW' AND cached_at > NOW() - INTERVAL '{int(max_age_minutes)} minutes'
+        """)
+        row = cur.fetchone()
+        cur.close(); conn.close()
+        if row and row[0]:
+            return float(row[0])
+    except Exception as e:
+        logger.warning(f"fx_cache 조회 실패: {e}")
+    # 캐시 없거나 만료 → 실시간 조회 후 저장
+    rate = _fetch_usd_krw_live()
+    try:
+        conn = get_conn(); cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO fx_cache (pair, rate, cached_at) VALUES ('USD_KRW', %s, NOW())
+            ON CONFLICT (pair) DO UPDATE SET rate=EXCLUDED.rate, cached_at=NOW()
+        """, (rate,))
+        conn.commit(); cur.close(); conn.close()
+    except Exception as e:
+        logger.warning(f"fx_cache 저장 실패: {e}")
+    return rate
+
+def _fetch_usd_krw_live():
+    """yfinance에서 USD/KRW 조회 (실패 시 1400)"""
     try:
         t = yf.Ticker("KRW=X")
         h = t.history(period="2d")
@@ -2419,8 +2470,46 @@ def _get_usd_krw():
         pass
     return 1400.0
 
-def _fetch_live_price(ticker: str):
-    """단일 종목 실시간 가격 + 섹터 조회"""
+def _fetch_live_price(ticker: str, max_age_minutes=10):
+    """종목 가격 조회 — DB 캐시 우선, 만료 시 yfinance 호출 + 캐시 저장"""
+    if not DATABASE_URL:
+        return _fetch_live_price_uncached(ticker)
+    try:
+        conn = get_conn(); cur = conn.cursor()
+        cur.execute(f"""
+            SELECT price, name, sector, currency FROM price_cache
+            WHERE ticker = %s AND cached_at > NOW() - INTERVAL '{int(max_age_minutes)} minutes'
+        """, (ticker,))
+        row = cur.fetchone()
+        cur.close(); conn.close()
+        if row and row[0]:
+            return {
+                "price": float(row[0]),
+                "name": row[1] or ticker,
+                "sector": row[2] or '—',
+                "currency": row[3] or 'USD'
+            }
+    except Exception as e:
+        logger.warning(f"price_cache 조회 실패({ticker}): {e}")
+    # 캐시 없거나 만료 → 실시간 조회 + 저장
+    data = _fetch_live_price_uncached(ticker)
+    if data.get('price'):
+        try:
+            conn = get_conn(); cur = conn.cursor()
+            cur.execute("""
+                INSERT INTO price_cache (ticker, price, name, sector, currency, cached_at)
+                VALUES (%s, %s, %s, %s, %s, NOW())
+                ON CONFLICT (ticker) DO UPDATE SET
+                    price=EXCLUDED.price, name=EXCLUDED.name,
+                    sector=EXCLUDED.sector, currency=EXCLUDED.currency, cached_at=NOW()
+            """, (ticker, data['price'], data['name'], data['sector'], data['currency']))
+            conn.commit(); cur.close(); conn.close()
+        except Exception as e:
+            logger.warning(f"price_cache 저장 실패({ticker}): {e}")
+    return data
+
+def _fetch_live_price_uncached(ticker: str):
+    """단일 종목 실시간 가격 + 섹터 (캐시 우회)"""
     try:
         t = yf.Ticker(ticker)
         info = t.info or {}
@@ -2437,7 +2526,7 @@ def _fetch_live_price(ticker: str):
             "currency": info.get('currency') or ('KRW' if ticker.endswith('.KS') or ticker.endswith('.KQ') else 'USD'),
         }
     except Exception as e:
-        logger.warning(f"_fetch_live_price({ticker}) 실패: {e}")
+        logger.warning(f"_fetch_live_price_uncached({ticker}) 실패: {e}")
         return {"price": None, "name": ticker, "sector": "—", "currency": "USD"}
 
 
@@ -2797,6 +2886,76 @@ scheduler.add_job(
     id="daily_portfolio_snapshot",
     replace_existing=True,
     misfire_grace_time=3600
+)
+
+# ── 가격 사전 갱신 (평일 KST 07:00~24:00, 10분마다) ────────────────
+def _prefetch_prices_job():
+    """보유 종목들의 가격을 백그라운드에서 사전 갱신 → 사용자 접속 시 즉시 응답"""
+    try:
+        if not DATABASE_URL:
+            return
+        # 주말에는 실행 안 함 (금요일 종가 고정이므로 불필요)
+        kst_now = datetime.now(pytz.timezone("Asia/Seoul"))
+        if kst_now.weekday() >= 5:  # 토(5) / 일(6)
+            return
+
+        # 보유 종목 티커 목록 조회
+        conn = get_conn(); cur = conn.cursor()
+        cur.execute("SELECT DISTINCT ticker FROM holdings")
+        tickers = [r[0] for r in cur.fetchall()]
+        cur.close(); conn.close()
+        if not tickers:
+            return
+
+        # 병렬로 가격 갱신 (캐시 우회하여 실시간 값 가져옴 → DB 저장)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
+            futures = {ex.submit(_fetch_live_price_uncached, t): t for t in tickers}
+            results = {}
+            for f in concurrent.futures.as_completed(futures, timeout=60):
+                tk = futures[f]
+                try:
+                    results[tk] = f.result(timeout=10)
+                except Exception:
+                    pass
+
+        # DB 일괄 저장
+        conn = get_conn(); cur = conn.cursor()
+        saved = 0
+        for tk, data in results.items():
+            if data.get('price'):
+                cur.execute("""
+                    INSERT INTO price_cache (ticker, price, name, sector, currency, cached_at)
+                    VALUES (%s, %s, %s, %s, %s, NOW())
+                    ON CONFLICT (ticker) DO UPDATE SET
+                        price=EXCLUDED.price, name=EXCLUDED.name,
+                        sector=EXCLUDED.sector, currency=EXCLUDED.currency, cached_at=NOW()
+                """, (tk, data['price'], data['name'], data['sector'], data['currency']))
+                saved += 1
+
+        # 환율도 함께 갱신
+        rate = _fetch_usd_krw_live()
+        cur.execute("""
+            INSERT INTO fx_cache (pair, rate, cached_at) VALUES ('USD_KRW', %s, NOW())
+            ON CONFLICT (pair) DO UPDATE SET rate=EXCLUDED.rate, cached_at=NOW()
+        """, (rate,))
+
+        conn.commit(); cur.close(); conn.close()
+        logger.info(f"가격 사전 갱신 완료: {saved}개 종목, 환율 ₩{rate:.0f}")
+    except Exception as e:
+        logger.error(f"가격 사전 갱신 오류: {e}")
+
+# 평일 KST 07:00 ~ 23:59, 10분마다 실행 (주말 제외)
+scheduler.add_job(
+    _prefetch_prices_job,
+    CronTrigger(
+        day_of_week='mon-fri',
+        hour='7-23',
+        minute='*/10',
+        timezone=pytz.timezone("Asia/Seoul")
+    ),
+    id="prefetch_prices",
+    replace_existing=True,
+    misfire_grace_time=300
 )
 
 
