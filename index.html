@@ -187,8 +187,9 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
   }
 
   /* 원형 차트 */
-  #pf-pie-ticker{flex-direction:column !important;gap:10px !important;align-items:center !important;}
-  #pf-pie-ticker svg{width:140px !important;height:140px !important;}
+  #pf-pie-ticker{flex-direction:column !important;gap:12px !important;align-items:center !important;}
+  #pf-pie-ticker svg{width:160px !important;height:160px !important;}
+  .pf-legend-grid{grid-template-columns:1fr !important;width:100%;}
 
   /* 종목 추가 폼 - 모바일에서 더 세밀하게 */
   #pf-add-grid{grid-template-columns:1fr 1fr !important;gap:8px !important;}
@@ -3237,19 +3238,19 @@ function drawPie(containerId, data) {
     return c;
   }).join('');
   const legend = data.map((d,i) => `
-    <div style="display:flex;align-items:center;justify-content:space-between;padding:5px 0;border-bottom:1px dashed var(--border);font-size:12px;">
-      <span style="display:flex;align-items:center;gap:6px;">
-        <span style="width:10px;height:10px;border-radius:50%;background:${colors[i % colors.length]};"></span>
-        <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:120px;">${d.name}</span>
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:5px 8px;border-bottom:1px dashed var(--border);font-size:12px;">
+      <span style="display:flex;align-items:center;gap:6px;min-width:0;flex:1;">
+        <span style="width:10px;height:10px;border-radius:50%;background:${colors[i % colors.length]};flex-shrink:0;"></span>
+        <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${d.name}</span>
       </span>
-      <span style="font-weight:700;">${d.pct}%</span>
+      <span style="font-weight:700;flex-shrink:0;margin-left:8px;">${d.pct}%</span>
     </div>`).join('');
   document.getElementById(containerId).innerHTML = `
-    <svg viewBox="0 0 42 42" style="width:140px;height:140px;flex-shrink:0;">
+    <svg viewBox="0 0 42 42" style="width:160px;height:160px;flex-shrink:0;">
       <circle cx="21" cy="21" r="15.915" fill="#fff" stroke="#f1f5f9" stroke-width="10"/>
       ${circles}
     </svg>
-    <div style="flex:1;min-width:0;">${legend}</div>
+    <div class="pf-legend-grid" style="flex:1;min-width:0;display:grid;grid-template-columns:1fr 1fr;gap:2px 16px;">${legend}</div>
   `;
 }
 
