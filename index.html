@@ -94,6 +94,7 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
 .picks-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-bottom:14px;}
 .table-wrap{overflow-x:auto;}
 .stbl{width:100%;border-collapse:collapse;font-size:13px;}
+#pf-holdings-tbl{table-layout:fixed;}
 .stbl th{padding:10px 14px;text-align:left;font-size:12px;color:var(--sub);font-weight:700;border-bottom:1px solid var(--border);white-space:nowrap;}
 .stbl td{padding:12px 14px;border-bottom:1px solid var(--border);vertical-align:middle;}
 .stbl tr:hover td{background:#f8fafc;}
@@ -175,15 +176,44 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
   #sv-cards{grid-template-columns:repeat(3,minmax(0,1fr)) !important;gap:6px !important;}
   /* 장세 판단 카드 하단 3개 박스도 3열 유지 */
   #sm-judge-stats{grid-template-columns:repeat(3,minmax(0,1fr)) !important;gap:6px !important;}
-  /* 내 자산 탭 모바일 반응형 */
-  #pf-summary-grid{grid-template-columns:1fr 1fr !important;}
+  /* ── 내 자산 탭 모바일 반응형 ── */
+  #pf-summary-grid{grid-template-columns:1fr 1fr !important;gap:8px !important;}
+  #pf-summary-grid .card{padding:12px !important;}
+  #pf-summary-grid .card div:nth-child(2){font-size:16px !important;}
+
+  /* 현금 잔고 입력 - 모바일에서 세로 */
+  #page-portfolio [style*="grid-template-columns:1fr 1fr"][style*="gap:12px"]{
+    grid-template-columns:1fr !important;
+  }
+
+  /* 원형 차트 */
   #pf-pie-grid{grid-template-columns:1fr !important;}
+  #pf-pie-ticker,#pf-pie-sector{flex-direction:column !important;gap:10px !important;}
+  #pf-pie-ticker svg,#pf-pie-sector svg{width:120px !important;height:120px !important;}
+
+  /* 종목 추가 폼 - 모바일에서 더 세밀하게 */
   #pf-add-grid{grid-template-columns:1fr 1fr !important;gap:8px !important;}
-  #pf-add-grid > div:last-child{grid-column:1 / -1;}
+  #pf-add-grid > div:nth-child(1){grid-column:1 / -1;}  /* 티커 full-width */
+  #pf-add-grid > div:nth-last-child(2){grid-column:1 / -1;}  /* 추가 버튼 full-width */
+  #pf-add-grid > div:last-child{grid-column:1 / -1;}  /* 통화교정 버튼 full-width */
   #pf-add-grid button{width:100%;}
-  #pf-holdings-tbl{font-size:10px !important;}
-  #pf-holdings-tbl th,#pf-holdings-tbl td{padding:6px 4px !important;}
-  #pf-holdings-tbl [style*="width:140px"]{width:100px !important;height:100px !important;}
+
+  /* 보유 종목 테이블 - 가로 스크롤 + 최소 너비 */
+  .table-wrap{overflow-x:auto !important;-webkit-overflow-scrolling:touch;}
+  #pf-holdings-tbl{
+    table-layout:auto !important;
+    min-width:720px !important;
+    font-size:11px !important;
+  }
+  #pf-holdings-tbl th,#pf-holdings-tbl td{
+    padding:8px 6px !important;
+    white-space:nowrap;
+  }
+  #pf-holdings-tbl td:first-child{min-width:110px;}
+
+  /* 탭 버튼 그룹 - 모바일에서 여유있게 */
+  #page-portfolio .topbar-actions .topbar-group{gap:4px !important;}
+  #page-portfolio .topbar-actions .topbar-group .seg-btn{padding:6px 8px !important;font-size:11px !important;}
 
   /* ── 시장 선택 버튼 행 — 가로 스크롤 허용 ── */
   .topbar-right>div{overflow-x:auto;-webkit-overflow-scrolling:touch;white-space:nowrap;display:flex;gap:6px;flex-wrap:nowrap;max-width:100%;}
@@ -1285,7 +1315,7 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
     <div class="card" style="margin-bottom:14px;">
       <div class="section-title">📋 보유 종목 <span class="section-right" id="pf-count">—</span></div>
       <div class="table-wrap">
-        <table class="stbl" id="pf-holdings-tbl" style="table-layout:fixed;width:100%;">
+        <table class="stbl" id="pf-holdings-tbl">
           <colgroup>
             <col style="width:22%;">
             <col style="width:7%;">
