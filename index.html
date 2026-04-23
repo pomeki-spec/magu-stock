@@ -2042,12 +2042,12 @@ const SV_ETF_INFO = {
 };
 
 function getSvRatioColor(ratio) {
-  if (ratio == null) return {bg:'#f8fafc', color:'#64748b', label:'데이터 없음'};
+  if (ratio == null) return {bg:'#f1f5f9', color:'#64748b', label:'데이터 없음'};
   const pct = ratio * 100;
   if (pct >= 75) return {bg:'#7f1d1d', color:'#fca5a5', label:'극단적 공매도'};
   if (pct >= 70) return {bg:'#fee2e2', color:'#991b1b', label:'높은 공매도'};
   if (pct >= 65) return {bg:'#fff1f2', color:'#be123c', label:'다소 높음'};
-  if (pct >= 55) return {bg:'#f8fafc', color:'#64748b', label:'보통'};
+  if (pct >= 55) return {bg:'#eff6ff', color:'#1d4ed8', label:'보통'};
   if (pct >= 45) return {bg:'#f0fdf4', color:'#15803d', label:'낮은 공매도'};
   return          {bg:'#dcfce7', color:'#14532d', label:'매우 낮음'};
 }
@@ -2151,29 +2151,13 @@ async function loadShortVolume() {
         diffStr    = `${sign}${diff.toFixed(1)}%p`;
       }
 
-      const floatPct = si.short_pct_float != null ? si.short_pct_float.toFixed(1)+'%' : '—';
-      const sratio   = si.short_ratio     != null ? si.short_ratio.toFixed(1)+'일'    : '—';
-      const sharesM  = si.shares_short    != null ? (si.shares_short/1e6).toFixed(1)+'M' : '—';
-      const svVol    = sv.short_volume    != null ? (sv.short_volume/1e6).toFixed(1)+'M주' : '—';
-      const pvVol    = svP.short_vol_ratio != null ? (svP.short_vol_ratio*100).toFixed(1)+'%' : '—';
-
-      return `<div style="background:var(--card);border:1px solid ${c.bg==='#f8fafc'?'var(--border)':c.bg};border-radius:12px;padding:12px 10px;min-width:0;overflow:hidden;">
-        <div style="text-align:center;margin-bottom:10px;">
-          <div style="font-size:15px;font-weight:800;line-height:1.1;">${ticker}</div>
-          <div style="display:inline-block;margin-top:4px;padding:2px 7px;border-radius:5px;background:${c.bg};color:${c.color};font-size:10px;font-weight:700;white-space:nowrap;">${c.label}</div>
-        </div>
-        <div style="background:${c.bg};border-radius:8px;padding:8px 4px;text-align:center;margin-bottom:8px;">
-          <div style="font-size:9px;color:${c.color};font-weight:600;margin-bottom:2px;">공매도 비중</div>
-          <div style="font-size:20px;font-weight:900;color:${c.color};line-height:1;">${pct}</div>
-          ${diffStr ? `<div style="font-size:10px;font-weight:700;color:${diffColor};margin-top:3px;">전일 ${diffStr}</div>` : ''}
-        </div>
-        <div style="display:flex;justify-content:space-between;font-size:10px;padding:0 2px;">
-          <span style="color:var(--sub);">Float</span>
-          <span style="font-weight:700;">${floatPct}</span>
-        </div>
-        <div style="display:flex;justify-content:space-between;font-size:10px;padding:0 2px;margin-top:3px;">
-          <span style="color:var(--sub);">잔고</span>
-          <span style="font-weight:700;">${sharesM}</span>
+      return `<div style="background:${c.bg};border:1.5px solid ${c.color}33;border-radius:14px;padding:16px 12px;min-width:0;overflow:hidden;text-align:center;">
+        <div style="font-size:16px;font-weight:800;color:${c.color};line-height:1;">${ticker}</div>
+        <div style="display:inline-block;margin-top:6px;padding:3px 9px;border-radius:12px;background:${c.color};color:#fff;font-size:10px;font-weight:700;white-space:nowrap;">${c.label}</div>
+        <div style="margin-top:14px;padding-top:10px;border-top:1px dashed ${c.color}33;">
+          <div style="font-size:10px;color:${c.color};font-weight:600;opacity:0.8;margin-bottom:4px;">공매도 비중</div>
+          <div style="font-size:30px;font-weight:900;color:${c.color};line-height:1;letter-spacing:-0.5px;">${pct}</div>
+          ${diffStr ? `<div style="font-size:11px;font-weight:700;color:${diffColor};margin-top:8px;padding:3px 8px;background:#fff;border-radius:10px;display:inline-block;">전일 ${diffStr}</div>` : ''}
         </div>
       </div>`;
     }).join('');
