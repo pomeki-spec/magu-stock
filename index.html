@@ -187,9 +187,8 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
   }
 
   /* 원형 차트 */
-  #pf-pie-grid{grid-template-columns:1fr !important;}
-  #pf-pie-ticker,#pf-pie-sector{flex-direction:column !important;gap:10px !important;}
-  #pf-pie-ticker svg,#pf-pie-sector svg{width:120px !important;height:120px !important;}
+  #pf-pie-ticker{flex-direction:column !important;gap:10px !important;align-items:center !important;}
+  #pf-pie-ticker svg{width:140px !important;height:140px !important;}
 
   /* 종목 추가 폼 - 모바일에서 더 세밀하게 */
   #pf-add-grid{grid-template-columns:1fr 1fr !important;gap:8px !important;}
@@ -1249,19 +1248,11 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
       </div>
     </div>
 
-    <!-- 비중 원형 차트 2개 -->
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px;" id="pf-pie-grid">
-      <div class="card">
-        <div class="section-title">📊 종목별 비중</div>
-        <div id="pf-pie-ticker" style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
-          <div class="empty" style="width:100%;text-align:center;padding:20px;">종목 추가 후 표시됩니다</div>
-        </div>
-      </div>
-      <div class="card">
-        <div class="section-title">🎯 섹터별 분산</div>
-        <div id="pf-pie-sector" style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
-          <div class="empty" style="width:100%;text-align:center;padding:20px;">종목 추가 후 표시됩니다</div>
-        </div>
+    <!-- 종목별 비중 원형 차트 -->
+    <div class="card" style="margin-bottom:14px;">
+      <div class="section-title">📊 종목별 비중 <span class="section-right" style="font-size:11px;font-weight:400;">상위 10개 + 기타</span></div>
+      <div id="pf-pie-ticker" style="display:flex;align-items:center;gap:20px;flex-wrap:wrap;">
+        <div class="empty" style="width:100%;text-align:center;padding:20px;">종목 추가 후 표시됩니다</div>
       </div>
     </div>
 
@@ -1278,8 +1269,8 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
 
     <!-- 보유 종목 추가 폼 -->
     <div class="card" style="margin-bottom:14px;">
-      <div class="section-title">➕ 종목 추가 <span class="section-right" style="font-size:11px;font-weight:400;">통화는 티커로 자동 판별 (.KS/.KQ → KRW, 그 외 → USD)</span></div>
-      <div style="display:grid;grid-template-columns:1.2fr 1fr 0.8fr 0.8fr auto auto;gap:8px;align-items:end;" id="pf-add-grid">
+      <div class="section-title">➕ 종목 추가 <span class="section-right" style="font-size:11px;font-weight:400;">통화는 티커로 자동 판별</span></div>
+      <div style="display:grid;grid-template-columns:1.2fr 1fr 0.8fr 0.8fr auto;gap:8px;align-items:end;" id="pf-add-grid">
         <div>
           <div style="font-size:11px;color:var(--sub);font-weight:600;margin-bottom:4px;">티커</div>
           <input id="pf-new-ticker" type="text" placeholder="VST, 005930.KS"
@@ -1304,9 +1295,6 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
         </div>
         <div>
           <button class="seg-btn" onclick="addHolding()" style="background:var(--blue);color:#fff;border-color:var(--blue);padding:7px 16px;">추가</button>
-        </div>
-        <div>
-          <button class="seg-btn" onclick="fixCurrencies()" style="padding:7px 12px;font-size:11px;" title="기존 종목들의 통화를 티커에 맞게 재분류">🔧 통화 교정</button>
         </div>
       </div>
     </div>
@@ -3136,10 +3124,13 @@ function renderPortfolio() {
       const accBadge = h.account === 'main'
         ? '<span style="font-size:10px;padding:2px 7px;border-radius:4px;background:#dbeafe;color:#1d4ed8;font-weight:700;">메인</span>'
         : '<span style="font-size:10px;padding:2px 7px;border-radius:4px;background:#fef3c7;color:#854d0e;font-weight:700;">서브</span>';
+      // 미국(USD) → 티커가 주 / 한국(KRW) → 종목명이 주
+      const mainLabel = h.currency === 'KRW' ? (h.name || h.ticker) : h.ticker;
+      const subLabel  = h.currency === 'KRW' ? h.ticker : (h.name || '');
       return `<tr>
         <td style="overflow:hidden;">
-          <div style="font-weight:700;color:#1d4ed8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${h.name || h.ticker}</div>
-          <div style="font-size:11px;color:var(--sub);">${h.ticker} · ${h.sector}</div>
+          <div style="font-weight:700;color:#1d4ed8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${mainLabel}</div>
+          ${subLabel ? `<div style="font-size:11px;color:var(--sub);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${subLabel}</div>` : ''}
         </td>
         <td>${accBadge}</td>
         <td>${h.quantity}</td>
@@ -3187,34 +3178,26 @@ function renderPortfolioPies(holdings) {
   const totalValue = holdings.reduce((s,h) => s + h.current_value_krw, 0);
   if(totalValue === 0 || holdings.length === 0) {
     document.getElementById('pf-pie-ticker').innerHTML = '<div class="empty" style="width:100%;text-align:center;padding:20px;">종목 추가 후 표시됩니다</div>';
-    document.getElementById('pf-pie-sector').innerHTML = '<div class="empty" style="width:100%;text-align:center;padding:20px;">종목 추가 후 표시됩니다</div>';
     return;
   }
 
-  // 종목별 (상위 5 + 기타)
+  // 종목별 (상위 10 + 기타)
   const sorted = [...holdings].sort((a,b) => b.current_value_krw - a.current_value_krw);
-  const top5 = sorted.slice(0, 5);
-  const rest = sorted.slice(5);
+  const top10 = sorted.slice(0, 10);
+  const rest = sorted.slice(10);
   const restSum = rest.reduce((s,h) => s + h.current_value_krw, 0);
-  const tickerData = top5.map(h => ({name: h.ticker, value: h.current_value_krw, pct: h.weight_pct}));
-  if(restSum > 0) tickerData.push({name: '기타', value: restSum, pct: Math.round(restSum/totalValue*1000)/10});
-
-  // 섹터별
-  const bySector = {};
-  holdings.forEach(h => {
-    const s = h.sector || '—';
-    bySector[s] = (bySector[s] || 0) + h.current_value_krw;
+  const tickerData = top10.map(h => {
+    // 미국(USD) → 티커 / 한국(KRW) → 종목명 (종목명 없으면 티커)
+    const displayName = h.currency === 'KRW' ? (h.name || h.ticker) : h.ticker;
+    return {name: displayName, value: h.current_value_krw, pct: h.weight_pct};
   });
-  const sectorData = Object.entries(bySector).map(([k,v]) => ({
-    name: k, value: v, pct: Math.round(v/totalValue*1000)/10
-  })).sort((a,b) => b.value - a.value);
+  if(restSum > 0) tickerData.push({name: `기타 (${rest.length}개)`, value: restSum, pct: Math.round(restSum/totalValue*1000)/10});
 
   drawPie('pf-pie-ticker', tickerData);
-  drawPie('pf-pie-sector', sectorData);
 }
 
 function drawPie(containerId, data) {
-  const colors = ['#3b82f6','#22c55e','#f59e0b','#8b5cf6','#ec4899','#14b8a6','#ef4444','#94a3b8'];
+  const colors = ['#3b82f6','#22c55e','#f59e0b','#8b5cf6','#ec4899','#14b8a6','#ef4444','#f97316','#06b6d4','#84cc16','#94a3b8'];
   const total = data.reduce((s,d) => s+d.value, 0);
   let offset = 0;
   const circles = data.map((d,i) => {
@@ -3261,20 +3244,6 @@ async function addHolding() {
     document.getElementById('pf-new-avg').value = '';
     await loadPortfolio();
   } catch(e) { alert('서버 연결 실패'); console.error(e); }
-}
-
-async function fixCurrencies() {
-  if(!confirm('기존 보유 종목들의 통화를 티커 기반으로 재분류합니다.\n\n.KS/.KQ 로 끝나면 KRW, 그 외는 USD 로 자동 변경됩니다.\n\n진행하시겠습니까?')) return;
-  try {
-    const res = await fetch(`${API}/api/portfolio/fix_currencies`, {method:'POST'});
-    const data = await res.json();
-    if(data.ok) {
-      alert(`✅ ${data.fixed}개 종목 통화 교정 완료 (전체 ${data.total}개)`);
-      await loadPortfolio();
-    } else {
-      alert('교정 실패: ' + (data.error || '?'));
-    }
-  } catch(e) { alert('서버 연결 실패'); }
 }
 
 // 리밸런싱 탭으로 자산 데이터 가져오기
