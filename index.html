@@ -1256,9 +1256,38 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
       </div>
     </div>
 
-    <!-- 월간 자산 추이 -->
+    <!-- 자산 추이 -->
     <div class="card" style="margin-bottom:14px;">
-      <div class="section-title">📈 자산 추이 (최근 6개월)</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:10px;">
+        <span class="section-title" style="margin-bottom:0;">📈 자산 추이</span>
+        <span id="pf-snap-range-label" style="font-size:11px;color:var(--sub);">—</span>
+      </div>
+
+      <!-- 프리셋 버튼 -->
+      <div id="pf-snap-presets" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;">
+        <button class="seg-btn pf-preset-btn" onclick="setSnapRange('7d')" data-range="7d">1주</button>
+        <button class="seg-btn pf-preset-btn active" onclick="setSnapRange('1m')" data-range="1m">1개월</button>
+        <button class="seg-btn pf-preset-btn" onclick="setSnapRange('3m')" data-range="3m">3개월</button>
+        <button class="seg-btn pf-preset-btn" onclick="setSnapRange('6m')" data-range="6m">6개월</button>
+        <button class="seg-btn pf-preset-btn" onclick="setSnapRange('1y')" data-range="1y">1년</button>
+        <button class="seg-btn pf-preset-btn" onclick="setSnapRange('all')" data-range="all">전체</button>
+      </div>
+
+      <!-- 커스텀 날짜 -->
+      <div id="pf-snap-custom" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;padding:10px 12px;background:#f8fafc;border-radius:8px;">
+        <span style="font-size:11px;color:var(--sub);font-weight:600;">커스텀:</span>
+        <input type="date" id="pf-snap-start" style="padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;">
+        <span style="color:var(--sub);">~</span>
+        <input type="date" id="pf-snap-end" style="padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;">
+        <button class="seg-btn" onclick="applyCustomSnapRange()" style="padding:5px 12px;font-size:12px;background:var(--blue);color:#fff;border-color:var(--blue);">조회</button>
+      </div>
+
+      <!-- 기간 증감 요약 -->
+      <div id="pf-snap-summary" style="display:none;padding:10px 14px;background:#eff6ff;border-radius:8px;margin-bottom:10px;font-size:13px;">
+        <span id="pf-snap-period-text" style="color:var(--sub);font-weight:600;"></span>
+        <span id="pf-snap-change-text" style="font-weight:800;margin-left:8px;"></span>
+      </div>
+
       <div id="pf-snapshot-chart" style="height:260px;">
         <canvas id="pf-snap-canvas"></canvas>
       </div>
@@ -3385,30 +3414,144 @@ async function takeSnapshot() {
   } catch(e) { alert('서버 연결 실패'); }
 }
 
+// ── 자산 추이 기간 관리 ──────────────────────────────
+let _pfSnapRange = '1m';  // 기본: 1개월
+
+function setSnapRange(range) {
+  _pfSnapRange = range;
+  // 프리셋 버튼 활성화 상태 토글
+  document.querySelectorAll('.pf-preset-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.range === range);
+  });
+  loadSnapshots();
+}
+
+function applyCustomSnapRange() {
+  const start = document.getElementById('pf-snap-start').value;
+  const end   = document.getElementById('pf-snap-end').value;
+  if(!start || !end) { alert('시작일과 종료일을 모두 선택해주세요'); return; }
+  if(start > end) { alert('시작일이 종료일보다 늦을 수 없습니다'); return; }
+  _pfSnapRange = 'custom';
+  // 프리셋 비활성화
+  document.querySelectorAll('.pf-preset-btn').forEach(btn => btn.classList.remove('active'));
+  loadSnapshots();
+}
+
 async function loadSnapshots() {
   try {
-    const res = await fetch(`${API}/api/portfolio/snapshots?months=6`);
+    let url = `${API}/api/portfolio/snapshots`;
+    if(_pfSnapRange === 'custom') {
+      const start = document.getElementById('pf-snap-start').value;
+      const end   = document.getElementById('pf-snap-end').value;
+      url += `?start_date=${start}&end_date=${end}`;
+    } else if(_pfSnapRange === 'all') {
+      url += `?months=60`;  // 5년치 넉넉히
+    } else {
+      const daysMap = {'7d':7, '1m':31, '3m':93, '6m':186, '1y':366};
+      const days = daysMap[_pfSnapRange] || 31;
+      const end = new Date();
+      const start = new Date(); start.setDate(end.getDate() - days);
+      const fmt = (d) => d.toISOString().slice(0,10);
+      url += `?start_date=${fmt(start)}&end_date=${fmt(end)}`;
+    }
+    const res = await fetch(url);
     const data = await res.json();
-    if(data.error || !data.snapshots) return;
+    if(data.error || !data.snapshots) {
+      renderSnapshotChart([]);
+      return;
+    }
     renderSnapshotChart(data.snapshots);
   } catch(e) { console.error(e); }
 }
 
+function aggregateSnapshots(snapshots, mode) {
+  // mode: 'daily' | 'weekly' | 'monthly'
+  if(mode === 'daily' || snapshots.length === 0) return snapshots;
+  const groups = {};
+  snapshots.forEach(s => {
+    const d = new Date(s.snapshot_date);
+    let key;
+    if(mode === 'weekly') {
+      // 해당 주의 월요일을 기준
+      const day = d.getDay() || 7;
+      const monday = new Date(d); monday.setDate(d.getDate() - (day - 1));
+      key = monday.toISOString().slice(0,10);
+    } else {
+      // 월별: 해당 월 마지막 날
+      key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+    }
+    if(!groups[key]) groups[key] = [];
+    groups[key].push(s);
+  });
+  // 각 그룹에서 마지막 값(최신) 사용
+  return Object.entries(groups).map(([key, arr]) => {
+    arr.sort((a,b) => a.snapshot_date.localeCompare(b.snapshot_date));
+    const last = arr[arr.length - 1];
+    return {...last, snapshot_date: mode === 'monthly' ? key + '-01' : last.snapshot_date};
+  }).sort((a,b) => a.snapshot_date.localeCompare(b.snapshot_date));
+}
+
 function renderSnapshotChart(snapshots) {
+  // 요약/라벨 초기화
+  document.getElementById('pf-snap-summary').style.display = 'none';
+
   if(!snapshots || snapshots.length === 0) {
+    document.getElementById('pf-snap-range-label').textContent = '';
     document.getElementById('pf-snapshot-chart').innerHTML = '<div class="empty" style="padding:40px;text-align:center;">📸 오늘 자산 기록 버튼을 눌러 스냅샷을 시작하세요</div>';
     return;
   }
+
+  // 자동 집계 — 데이터 개수 기준
+  let aggregated = snapshots;
+  let aggLabel = '일별';
+  if(snapshots.length > 90) {
+    aggregated = aggregateSnapshots(snapshots, 'monthly');
+    aggLabel = '월별';
+  } else if(snapshots.length > 30) {
+    aggregated = aggregateSnapshots(snapshots, 'weekly');
+    aggLabel = '주별';
+  }
+
+  // 기간 라벨
+  const first = snapshots[0];
+  const last = snapshots[snapshots.length - 1];
+  document.getElementById('pf-snap-range-label').textContent =
+    `${first.snapshot_date} ~ ${last.snapshot_date} · ${aggLabel} (${aggregated.length}개)`;
+
+  // 기간 내 증감 요약
+  const firstTotal = Number(first.total_assets || 0);
+  const lastTotal  = Number(last.total_assets || 0);
+  const change     = lastTotal - firstTotal;
+  const changePct  = firstTotal > 0 ? (change / firstTotal * 100) : 0;
+  const summaryEl  = document.getElementById('pf-snap-summary');
+  const periodEl   = document.getElementById('pf-snap-period-text');
+  const changeEl   = document.getElementById('pf-snap-change-text');
+  if(firstTotal > 0) {
+    summaryEl.style.display = 'block';
+    periodEl.textContent = `기간 내 증감:`;
+    const sign = change >= 0 ? '+' : '-';
+    const color = change >= 0 ? '#ef4444' : '#3b82f6';
+    changeEl.innerHTML = `<span style="color:${color};">${sign}${fmtKRW(Math.abs(change))} (${sign}${Math.abs(changePct).toFixed(2)}%)</span>`;
+  }
+
   const canvas = document.getElementById('pf-snap-canvas');
-  if(!canvas) return;
+  // 차트 컨테이너가 재렌더링으로 사라졌을 수 있음 — 복원
+  if(!document.getElementById('pf-snap-canvas')) {
+    document.getElementById('pf-snapshot-chart').innerHTML = '<canvas id="pf-snap-canvas"></canvas>';
+  }
+  const cv = document.getElementById('pf-snap-canvas');
   if(_pfSnapChart) _pfSnapChart.destroy();
-  _pfSnapChart = new Chart(canvas, {
+  _pfSnapChart = new Chart(cv, {
     type: 'bar',
     data: {
-      labels: snapshots.map(s => s.snapshot_date.slice(5)),
+      labels: aggregated.map(s => {
+        const d = s.snapshot_date;
+        // 월별이면 YYYY-MM, 그 외 MM-DD
+        return aggLabel === '월별' ? d.slice(2,7) : d.slice(5);
+      }),
       datasets: [
-        {label: '주식', data: snapshots.map(s => s.total_stock), backgroundColor: '#3b82f6', stack: 'a'},
-        {label: '현금', data: snapshots.map(s => s.total_cash),  backgroundColor: '#94a3b8', stack: 'a'}
+        {label: '주식', data: aggregated.map(s => Number(s.total_stock)||0), backgroundColor: '#3b82f6', stack: 'a'},
+        {label: '현금', data: aggregated.map(s => Number(s.total_cash)||0),  backgroundColor: '#94a3b8', stack: 'a'}
       ]
     },
     options: {
@@ -3418,7 +3561,7 @@ function renderSnapshotChart(snapshots) {
         tooltip: {callbacks:{label: c => c.dataset.label + ': ' + fmtKRW(c.parsed.y)}}
       },
       scales: {
-        x: {stacked:true, grid:{display:false}, ticks:{font:{size:10}}},
+        x: {stacked:true, grid:{display:false}, ticks:{font:{size:10}, maxRotation:45, minRotation:0}},
         y: {stacked:true, ticks:{font:{size:10}, callback: v => fmtKRW(v)}}
       }
     }
