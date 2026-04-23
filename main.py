@@ -2769,17 +2769,33 @@ async def update_cash(request: Request):
 
 @app.get("/api/portfolio/snapshots")
 @limiter.limit("60/minute")
-def get_snapshots(request: Request, months: int = 12):
-    """월간 자산 스냅샷 조회 (최근 N개월)"""
+def get_snapshots(request: Request, months: int = 12, start_date: str = None, end_date: str = None):
+    """자산 스냅샷 조회
+    - start_date / end_date 지정 시 해당 기간만 조회 (YYYY-MM-DD)
+    - 둘 다 없으면 months 기반 최근 N개월
+    """
     if not DATABASE_URL:
         return {"error": "DATABASE_URL 없음"}
     try:
         conn = get_conn(); cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        cur.execute("""
-            SELECT * FROM portfolio_snapshots
-            WHERE snapshot_date > CURRENT_DATE - INTERVAL '%s months'
-            ORDER BY snapshot_date ASC
-        """ % int(months))
+        if start_date and end_date:
+            cur.execute("""
+                SELECT * FROM portfolio_snapshots
+                WHERE snapshot_date BETWEEN %s AND %s
+                ORDER BY snapshot_date ASC
+            """, (start_date, end_date))
+        elif start_date:
+            cur.execute("""
+                SELECT * FROM portfolio_snapshots
+                WHERE snapshot_date >= %s
+                ORDER BY snapshot_date ASC
+            """, (start_date,))
+        else:
+            cur.execute("""
+                SELECT * FROM portfolio_snapshots
+                WHERE snapshot_date > CURRENT_DATE - INTERVAL '%s months'
+                ORDER BY snapshot_date ASC
+            """ % int(months))
         rows = cur.fetchall(); cur.close(); conn.close()
         out = []
         for r in rows:
