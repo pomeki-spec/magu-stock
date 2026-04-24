@@ -1193,7 +1193,14 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
     <div class="card" id="pf-alignment-card" style="margin-bottom:14px;background:linear-gradient(135deg,#f0f9ff 0%,#eff6ff 100%);border:1px solid #93c5fd;">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px;">
         <span class="section-title" style="margin-bottom:0;">🚦 매크로 정합 시그널</span>
-        <span id="pf-alignment-status" style="font-size:11px;color:var(--sub);">분석 중...</span>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <span id="pf-alignment-status" style="font-size:11px;color:var(--sub);">분석 중...</span>
+          <button onclick="reclassifySectors()" id="pf-reclassify-btn"
+            title="저장된 종목 중 섹터 미분류(Unknown/—)인 항목을 자동 재분류 — 수동 설정한 섹터는 보존"
+            style="padding:4px 10px;border:1px solid #93c5fd;background:#fff;color:#1d4ed8;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap;">
+            🏷 섹터 재분류
+          </button>
+        </div>
       </div>
       <div id="pf-alignment-body" style="font-size:13px;color:var(--sub);">
         <div class="spinner" style="margin:20px auto;"></div>
@@ -3074,6 +3081,13 @@ const LEVERAGED_TICKERS = new Set([
   'NVDL','TECL','LABU','DPST','FAS','YINN','CURE','DFEN'
 ]);
 
+// 수동 섹터 선택 드롭다운용 GICS 11 섹터
+const GICS_SECTORS = [
+  'Technology','Healthcare','Financial Services','Consumer Cyclical',
+  'Consumer Defensive','Communication Services','Industrials','Energy',
+  'Utilities','Real Estate','Basic Materials',
+];
+
 async function loadAlignment() {
   // 1) 매크로 + 섹터 데이터 확보 (없으면 백그라운드 로드)
   const statusEl = document.getElementById('pf-alignment-status');
@@ -3417,7 +3431,7 @@ function renderPortfolio() {
         </td>
         <td><strong style="font-size:13px;">${h.weight_pct}%</strong></td>
         <td style="white-space:nowrap;">
-          <button onclick="openEditModal(${h.id}, '${h.ticker.replace(/'/g,'')}', ${h.quantity}, ${h.avg_price}, '${h.currency}')" style="padding:3px 6px;border:1px solid var(--border);background:#fff;border-radius:4px;cursor:pointer;font-size:11px;margin-right:2px;">✏️</button>
+          <button onclick="openEditModal(${h.id}, '${h.ticker.replace(/'/g,'')}', ${h.quantity}, ${h.avg_price}, '${h.currency}', '${(h.sector||'Unknown').replace(/'/g,'')}')" style="padding:3px 6px;border:1px solid var(--border);background:#fff;border-radius:4px;cursor:pointer;font-size:11px;margin-right:2px;">✏️</button>
           <button onclick="deleteHolding(${h.id})" style="padding:3px 6px;border:1px solid var(--border);background:#fff;border-radius:4px;cursor:pointer;font-size:11px;color:#ef4444;">🗑</button>
         </td>
       </tr>`;
@@ -3504,20 +3518,148 @@ async function addHolding() {
   const qty = parseFloat(document.getElementById('pf-new-qty').value);
   const avg = parseFloat(document.getElementById('pf-new-avg').value);
   if(!ticker || !qty || !avg) { alert('티커 / 수량 / 평균단가는 필수입니다'); return; }
+  await _submitHolding({ticker, account, quantity: qty, avg_price: avg});
+}
+
+// 실제 추가 요청 (수동 섹터 모달에서 재호출 가능하도록 분리)
+async function _submitHolding(payload) {
   try {
     const res = await fetch(`${API}/api/portfolio/holdings`, {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ticker, account, quantity: qty, avg_price: avg})
+      body: JSON.stringify(payload)
     });
     const data = await res.json();
+    // 섹터 추론 실패 → 수동 선택 모달 표시
+    if(!data.ok && data.needs_manual_sector) {
+      openManualSectorModal(payload, data);
+      return;
+    }
     if(!data.ok) { alert('추가 실패: ' + (data.error || '?')); return; }
-    // 초기화
-    document.getElementById('pf-new-ticker').value = '';
-    document.getElementById('pf-new-qty').value = '';
-    document.getElementById('pf-new-avg').value = '';
+    // 초기화 (최초 호출 시에만 input 존재)
+    const tkEl = document.getElementById('pf-new-ticker');
+    const qtyEl = document.getElementById('pf-new-qty');
+    const avgEl = document.getElementById('pf-new-avg');
+    if(tkEl) tkEl.value = '';
+    if(qtyEl) qtyEl.value = '';
+    if(avgEl) avgEl.value = '';
     await loadPortfolio();
   } catch(e) { alert('서버 연결 실패'); console.error(e); }
+}
+
+// 섹터 추론 실패 시 수동 선택 모달
+function openManualSectorModal(originalPayload, infoData) {
+  const old = document.getElementById('pf-sector-modal');
+  if(old) old.remove();
+
+  const modal = document.createElement('div');
+  modal.id = 'pf-sector-modal';
+  modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;';
+  const tickerSafe = (infoData.ticker || originalPayload.ticker || '').replace(/'/g,'');
+  const nameSafe = (infoData.long_name || infoData.name || tickerSafe).replace(/[<>]/g,'');
+  modal.innerHTML = `
+    <div style="background:#fff;border-radius:14px;padding:24px;max-width:440px;width:100%;box-shadow:0 10px 40px rgba(0,0,0,.2);">
+      <div style="font-size:18px;font-weight:800;margin-bottom:4px;">🏷 섹터 선택 필요</div>
+      <div style="font-size:13px;color:var(--sub);margin-bottom:8px;">
+        <strong>${tickerSafe}</strong> — ${nameSafe}
+      </div>
+      <div style="font-size:12px;color:#b45309;background:#fef3c7;padding:8px 10px;border-radius:6px;margin-bottom:16px;line-height:1.5;">
+        ⚠️ 자동 섹터 추론에 실패했습니다.<br>
+        매크로 정합 시그널(🚦)이 올바르게 작동하려면 섹터를 선택해주세요.
+      </div>
+      <div style="margin-bottom:18px;">
+        <div style="font-size:12px;color:var(--sub);font-weight:600;margin-bottom:6px;">섹터</div>
+        <select id="manual-sector-select"
+          style="width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;font-weight:600;background:#fff;">
+          ${GICS_SECTORS.map(s => `<option value="${s}">${s}</option>`).join('')}
+          <option value="Unknown" style="color:#94a3b8;">건너뛰기 (Unknown)</option>
+        </select>
+      </div>
+      <div style="display:flex;gap:8px;">
+        <button onclick="document.getElementById('pf-sector-modal').remove()"
+          style="flex:1;padding:10px;border:1px solid var(--border);background:#fff;color:var(--text);border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;">취소</button>
+        <button onclick="confirmManualSector()"
+          style="flex:1;padding:10px;border:none;background:var(--blue);color:#fff;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;">이 섹터로 추가</button>
+      </div>
+    </div>
+  `;
+  // 원본 payload를 modal에 보존 (confirm에서 꺼내서 사용)
+  modal.dataset.payload = JSON.stringify(originalPayload);
+  document.body.appendChild(modal);
+  modal.addEventListener('click', (e) => { if(e.target === modal) modal.remove(); });
+  document.addEventListener('keydown', function esc(e) {
+    if(e.key === 'Escape') {
+      const m = document.getElementById('pf-sector-modal');
+      if(m) m.remove();
+      document.removeEventListener('keydown', esc);
+    }
+  });
+  setTimeout(() => document.getElementById('manual-sector-select').focus(), 50);
+}
+
+async function confirmManualSector() {
+  const modal = document.getElementById('pf-sector-modal');
+  if(!modal) return;
+  const sel = document.getElementById('manual-sector-select');
+  const sector = sel.value;
+  const payload = JSON.parse(modal.dataset.payload);
+  modal.remove();
+  // sector 포함해서 재제출
+  await _submitHolding({...payload, sector});
+}
+
+// 저장된 종목 섹터 일괄 재분류
+async function reclassifySectors() {
+  const btn = document.getElementById('pf-reclassify-btn');
+  if(!btn) return;
+  if(!confirm('미분류(Unknown/—) 종목을 일괄 재분류합니다.\n\n' +
+              '• 이미 섹터가 설정된 종목은 보존됩니다\n' +
+              '• 추론 실패 종목은 편집 모달에서 수동 설정 가능\n\n계속하시겠습니까?')) return;
+  const origText = btn.innerHTML;
+  btn.innerHTML = '🔄 재분류 중...';
+  btn.disabled = true;
+  btn.style.opacity = '0.6';
+  try {
+    const res = await fetch(`${API}/api/portfolio/reclassify_sectors`, {method: 'POST'});
+    const data = await res.json();
+    if(!data.ok) {
+      alert('재분류 실패: ' + (data.error || '?'));
+      return;
+    }
+    const parts = [
+      `✅ 섹터 재분류 완료`,
+      ``,
+      `전체 ${data.total}개 종목 중`,
+      `• 재분류 성공: ${data.reclassified}개`,
+      `• 기존 섹터 보존: ${data.total - data.reclassified - data.still_unknown.length}개`,
+      `• 추론 실패: ${data.still_unknown.length}개`
+    ];
+    if(data.still_unknown.length > 0) {
+      parts.push('');
+      parts.push('⚠️ 다음 종목은 수동 설정이 필요합니다:');
+      data.still_unknown.slice(0, 10).forEach(u => {
+        parts.push(`  - ${u.ticker} (${u.name})`);
+      });
+      if(data.still_unknown.length > 10) {
+        parts.push(`  ... 외 ${data.still_unknown.length - 10}개`);
+      }
+      parts.push('');
+      parts.push('→ 보유 종목 테이블에서 ✏️ 버튼으로 섹터 설정 가능');
+    }
+    alert(parts.join('\n'));
+    await loadPortfolio();
+    // 정합 시그널도 재계산
+    window._liqData = null;
+    window._smSectorData = null;
+    if(typeof loadAlignment === 'function') loadAlignment();
+  } catch(e) {
+    alert('서버 연결 실패');
+    console.error(e);
+  } finally {
+    btn.innerHTML = origText;
+    btn.disabled = false;
+    btn.style.opacity = '1';
+  }
 }
 
 // 리밸런싱 탭으로 자산 데이터 가져오기
@@ -3561,12 +3703,21 @@ async function deleteHolding(id) {
   } catch(e) { alert('삭제 실패'); }
 }
 
-function openEditModal(id, ticker, curQty, curAvg, currency) {
+function openEditModal(id, ticker, curQty, curAvg, currency, curSector) {
   // 기존 모달 있으면 제거
   const old = document.getElementById('pf-edit-modal');
   if(old) old.remove();
 
   const curSym = currency === 'KRW' ? '₩' : '$';
+  // 섹터 드롭다운 옵션 생성 — 현재 섹터가 GICS 리스트에 없으면 그대로 유지 옵션 추가
+  const sectorList = [...GICS_SECTORS];
+  if(curSector && curSector !== 'Unknown' && !sectorList.includes(curSector)) {
+    sectorList.unshift(curSector);
+  }
+  const sectorOptions = sectorList.map(s =>
+    `<option value="${s}" ${s === curSector ? 'selected' : ''}>${s}</option>`
+  ).join('') + `<option value="Unknown" ${curSector === 'Unknown' || !curSector ? 'selected' : ''}>Unknown (미분류)</option>`;
+
   const modal = document.createElement('div');
   modal.id = 'pf-edit-modal';
   modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;';
@@ -3581,11 +3732,19 @@ function openEditModal(id, ticker, curQty, curAvg, currency) {
           style="width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;font-weight:700;">
       </div>
 
-      <div style="margin-bottom:18px;">
+      <div style="margin-bottom:14px;">
         <div style="font-size:12px;color:var(--sub);font-weight:600;margin-bottom:6px;">평균단가 (${curSym})</div>
         <input id="edit-avg" type="number" step="0.01" value="${curAvg}"
           style="width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;font-weight:700;">
         <div style="font-size:11px;color:var(--sub);margin-top:4px;">💡 추가 매수했다면 평균단가를 새로 계산하여 입력하세요</div>
+      </div>
+
+      <div style="margin-bottom:18px;">
+        <div style="font-size:12px;color:var(--sub);font-weight:600;margin-bottom:6px;">섹터 <span style="font-weight:500;color:#94a3b8;">· 매크로 정합 시그널에 영향</span></div>
+        <select id="edit-sector"
+          style="width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;font-weight:600;background:#fff;">
+          ${sectorOptions}
+        </select>
       </div>
 
       <div style="display:flex;gap:8px;">
@@ -3618,12 +3777,13 @@ function openEditModal(id, ticker, curQty, curAvg, currency) {
 async function saveEditHolding(id) {
   const qty = parseFloat(document.getElementById('edit-qty').value);
   const avg = parseFloat(document.getElementById('edit-avg').value);
+  const sector = document.getElementById('edit-sector').value;
   if(!qty || !avg || qty <= 0 || avg <= 0) { alert('올바른 값을 입력해주세요'); return; }
   try {
     const res = await fetch(`${API}/api/portfolio/holdings/${id}`, {
       method: 'PUT',
       headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({quantity: qty, avg_price: avg})
+      body: JSON.stringify({quantity: qty, avg_price: avg, sector: sector})
     });
     const data = await res.json();
     if(data.ok) {
