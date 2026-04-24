@@ -1189,6 +1189,17 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
       </div>
     </div>
 
+    <!-- 🚦 정합 시그널 카드 -->
+    <div class="card" id="pf-alignment-card" style="margin-bottom:14px;background:linear-gradient(135deg,#f0f9ff 0%,#eff6ff 100%);border:1px solid #93c5fd;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px;">
+        <span class="section-title" style="margin-bottom:0;">🚦 매크로 정합 시그널</span>
+        <span id="pf-alignment-status" style="font-size:11px;color:var(--sub);">분석 중...</span>
+      </div>
+      <div id="pf-alignment-body" style="font-size:13px;color:var(--sub);">
+        <div class="spinner" style="margin:20px auto;"></div>
+      </div>
+    </div>
+
     <!-- 상단 요약 4카드 -->
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px;" id="pf-summary-grid">
       <div class="card" style="text-align:left;">
@@ -3035,10 +3046,249 @@ async function loadPortfolio() {
     document.getElementById('pf-updated').textContent = `업데이트: ${data.updated_at} · 환율 ₩${data.usd_krw}`;
     renderPortfolio();
     loadSnapshots();
+    loadAlignment();
   } catch(e) {
     document.getElementById('pf-updated').textContent = '❌ 연결 실패';
     console.error(e);
   }
+}
+
+// ═══════════════════════════════════════════════════
+// 🚦 매크로 정합 시그널 (신호등)
+// ═══════════════════════════════════════════════════
+
+// yfinance 섹터명 → SPDR 섹터 ETF 매핑
+const SECTOR_TO_ETF_FE = {
+  'Technology':'XLK','Healthcare':'XLV','Health Care':'XLV',
+  'Financial Services':'XLF','Financials':'XLF','Energy':'XLE',
+  'Consumer Cyclical':'XLY','Consumer Discretionary':'XLY',
+  'Consumer Defensive':'XLP','Consumer Staples':'XLP',
+  'Basic Materials':'XLB','Materials':'XLB',
+  'Communication Services':'XLC','Industrials':'XLI',
+  'Utilities':'XLU','Real Estate':'XLRE',
+};
+
+// 레버리지 ETF 감지용
+const LEVERAGED_TICKERS = new Set([
+  'TQQQ','SOXL','TSLL','AMZU','GGLL','MSFU','BULZ','ETHU','FNGU','UPRO','SPXL',
+  'NVDL','TECL','LABU','DPST','FAS','YINN','CURE','DFEN'
+]);
+
+async function loadAlignment() {
+  // 1) 매크로 + 섹터 데이터 확보 (없으면 백그라운드 로드)
+  const statusEl = document.getElementById('pf-alignment-status');
+  const bodyEl   = document.getElementById('pf-alignment-body');
+
+  try {
+    // 매크로 데이터 (유동성)
+    if(!window._liqData) {
+      statusEl.textContent = '매크로 분석 중...';
+      try {
+        const r = await fetch(`${API}/api/liquidity`);
+        const d = await r.json();
+        if(!d.error) window._liqData = d;
+      } catch(e) { console.warn('liquidity 로드 실패', e); }
+    }
+
+    // 섹터 모멘텀 데이터
+    if(!window._smSectorData || window._smSectorData.length === 0) {
+      statusEl.textContent = '섹터 분석 중...';
+      try {
+        const r = await fetch(`${API}/api/smartmoney`);
+        const d = await r.json();
+        if(!d.error) window._smSectorData = d.sectors || [];
+      } catch(e) { console.warn('smartmoney 로드 실패', e); }
+    }
+
+    // 2) 정합성 판정 + 렌더링
+    renderAlignment();
+  } catch(e) {
+    console.error('alignment 실패', e);
+    statusEl.textContent = '분석 실패';
+    bodyEl.innerHTML = '<div style="color:var(--sub);">매크로 데이터를 불러올 수 없습니다</div>';
+  }
+}
+
+function calcAlignmentForHolding(h, ctx) {
+  // h: holding 객체 (sector, currency, ticker)
+  // ctx: {macroBull, leadingSet, weakSet, screeningSet}
+  let score = 0;
+  const reasons = [];
+
+  // 한국 종목은 SPDR 매크로 분석 범위 외 → 중립
+  if(h.currency === 'KRW') {
+    return {signal:'yellow', score:0, reasons:['한국 종목 (미장 매크로 분석 범위 외)']};
+  }
+
+  const etf = SECTOR_TO_ETF_FE[h.sector] || null;
+  const ticker = h.ticker || '';
+  const isLev = LEVERAGED_TICKERS.has(ticker);
+
+  // 섹터 매칭
+  if(etf) {
+    if(ctx.leadingSet.has(etf)) {
+      score += 2;
+      reasons.push(`주도 섹터 (${h.sector})`);
+    }
+    if(ctx.weakSet.has(etf)) {
+      score -= 2;
+      reasons.push(`이탈 섹터 (${h.sector})`);
+    }
+    if(ctx.screeningSet.has(etf)) {
+      score += 1;
+      reasons.push('스크리닝 상위 섹터');
+    }
+  }
+
+  // 레버리지 × 매크로 방향
+  if(isLev) {
+    if(ctx.macroBull === true) {
+      score += 1;
+      reasons.push('매크로 매수우호 (레버리지 유리)');
+    } else if(ctx.macroBull === false) {
+      score -= 2;
+      reasons.push('⚠️ 매크로 방어 (레버리지 불리)');
+    }
+  }
+
+  // 섹터 매칭도 안 되고 레버리지도 아닌 경우 → 중립
+  if(reasons.length === 0) {
+    reasons.push('섹터 매핑 정보 부족');
+  }
+
+  let signal;
+  if(score >= 2) signal = 'green';
+  else if(score <= -1) signal = 'red';
+  else signal = 'yellow';
+
+  return {signal, score, reasons};
+}
+
+function renderAlignment() {
+  const statusEl = document.getElementById('pf-alignment-status');
+  const bodyEl   = document.getElementById('pf-alignment-body');
+
+  if(!_pfData || !_pfData.holdings) {
+    statusEl.textContent = '—';
+    bodyEl.innerHTML = '<div>종목 추가 후 분석 가능합니다</div>';
+    return;
+  }
+
+  // 컨텍스트 구성
+  const liq = window._liqData;
+  const sectors = window._smSectorData || [];
+
+  // 매크로 방향 결정
+  let macroBull = null, macroSignal = '데이터 없음', macroScore = '—';
+  if(liq && typeof liq.total_score === 'number') {
+    macroScore = liq.total_score;
+    if(liq.total_score >= 48)      { macroBull = true;  macroSignal = '적극매수'; }
+    else if(liq.total_score >= 36) { macroBull = true;  macroSignal = '매수우호'; }
+    else if(liq.total_score >= 24) { macroBull = null;  macroSignal = '중립관망'; }
+    else if(liq.total_score >= 12) { macroBull = false; macroSignal = '매수축소'; }
+    else                            { macroBull = false; macroSignal = '현금보유'; }
+  }
+
+  // 주도/이탈 섹터 (1개월 수익률 기준 상위 3, 하위 3)
+  const sortedSectors = [...sectors].sort((a,b) => (b.ret_1m||0) - (a.ret_1m||0));
+  const leadingSet = new Set(sortedSectors.slice(0, 3).map(s => s.ticker));
+  const weakSet    = new Set(sortedSectors.slice(-3).map(s => s.ticker));
+
+  // 스크리닝 상위 섹터 (현재 로드된 스크리닝 결과 기반)
+  // _lastResults는 종합현황 탭에서 스크리닝 실행 시 저장됨
+  const screeningSet = new Set();
+  if(window._lastResults && Array.isArray(window._lastResults)) {
+    const topSectors = {};
+    window._lastResults.slice(0, 30).forEach(r => {
+      const etf = SECTOR_TO_ETF_FE[r.sector];
+      if(etf) topSectors[etf] = (topSectors[etf] || 0) + 1;
+    });
+    Object.entries(topSectors)
+      .sort((a,b) => b[1] - a[1])
+      .slice(0, 4)
+      .forEach(([etf]) => screeningSet.add(etf));
+  }
+
+  const ctx = {macroBull, leadingSet, weakSet, screeningSet};
+
+  // 각 종목 신호 계산 + _pfData에 저장 (테이블 렌더링 시 재활용)
+  const green = [], yellow = [], red = [];
+  _pfData.holdings.forEach(h => {
+    const align = calcAlignmentForHolding(h, ctx);
+    h._alignment = align;
+    if(align.signal === 'green')      green.push(h);
+    else if(align.signal === 'red')   red.push(h);
+    else                              yellow.push(h);
+  });
+
+  // 상태 업데이트
+  statusEl.textContent = `매크로: ${macroSignal} (${macroScore}점)`;
+
+  // 리스트 렌더링
+  const sectorNames = (etfSet) => {
+    const map = {XLK:'기술',XLV:'헬스케어',XLF:'금융',XLE:'에너지',XLY:'경기소비재',
+                 XLP:'필수소비재',XLB:'소재',XLC:'통신',XLI:'산업재',XLU:'유틸리티',XLRE:'부동산'};
+    return [...etfSet].map(e => map[e]||e).join(', ');
+  };
+
+  const leadingStr = leadingSet.size > 0 ? sectorNames(leadingSet) : '—';
+  const weakStr    = weakSet.size > 0 ? sectorNames(weakSet) : '—';
+  const screenStr  = screeningSet.size > 0 ? sectorNames(screeningSet) : '(스크리닝 실행 전)';
+
+  // 종목 리스트 (티커 위주, 최대 5개)
+  const tkList = (arr) => {
+    if(arr.length === 0) return '<span style="color:var(--sub);">—</span>';
+    const shown = arr.slice(0, 8).map(h => {
+      const label = h.currency === 'KRW' ? (h.name || h.ticker).slice(0, 8) : h.ticker;
+      return `<span style="display:inline-block;padding:2px 7px;border-radius:10px;background:#fff;border:1px solid var(--border);font-size:11px;font-weight:700;margin:2px;" title="${h._alignment.reasons.join(' / ')}">${label}</span>`;
+    }).join('');
+    const more = arr.length > 8 ? ` <span style="color:var(--sub);font-size:11px;">+${arr.length-8}</span>` : '';
+    return shown + more;
+  };
+
+  bodyEl.innerHTML = `
+    <div style="font-size:11px;color:var(--sub);margin-bottom:10px;line-height:1.7;">
+      📊 주도 섹터: <b style="color:#15803d;">${leadingStr}</b> &nbsp;|&nbsp;
+      ⚠️ 이탈 섹터: <b style="color:#991b1b;">${weakStr}</b> &nbsp;|&nbsp;
+      🎯 스크리닝 상위: <b style="color:#1d4ed8;">${screenStr}</b>
+    </div>
+
+    <div style="display:flex;gap:12px;flex-wrap:wrap;">
+      <div style="flex:1;min-width:220px;padding:12px;background:#f0fdf4;border-radius:10px;border:1px solid #86efac;">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+          <span style="display:inline-block;width:14px;height:14px;border-radius:50%;background:#22c55e;"></span>
+          <span style="font-weight:800;color:#15803d;">흐름과 부합</span>
+          <span style="color:var(--sub);font-size:11px;">${green.length}개</span>
+        </div>
+        <div>${tkList(green)}</div>
+      </div>
+
+      <div style="flex:1;min-width:220px;padding:12px;background:#fefce8;border-radius:10px;border:1px solid #fde047;">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+          <span style="display:inline-block;width:14px;height:14px;border-radius:50%;background:#eab308;"></span>
+          <span style="font-weight:800;color:#854d0e;">중립/관찰</span>
+          <span style="color:var(--sub);font-size:11px;">${yellow.length}개</span>
+        </div>
+        <div>${tkList(yellow)}</div>
+      </div>
+
+      <div style="flex:1;min-width:220px;padding:12px;background:#fef2f2;border-radius:10px;border:1px solid #fca5a5;">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+          <span style="display:inline-block;width:14px;height:14px;border-radius:50%;background:#ef4444;"></span>
+          <span style="font-weight:800;color:#991b1b;">흐름과 반대</span>
+          <span style="color:var(--sub);font-size:11px;">${red.length}개</span>
+        </div>
+        <div>${tkList(red)}</div>
+      </div>
+    </div>
+
+    <div style="margin-top:10px;padding:8px 12px;background:#fff;border-radius:8px;font-size:11px;color:var(--sub);line-height:1.5;">
+      💡 이 시그널은 참고용입니다. 각 종목의 신호 근거는 해당 뱃지에 마우스를 올려 확인하세요.
+    </div>
+  `;
+
+  // 보유 종목 테이블 재렌더링 (신호등 반영)
+  renderPortfolio();
 }
 
 function renderPortfolio() {
@@ -3143,10 +3393,18 @@ function renderPortfolio() {
       const mainLabel = h.currency === 'KRW' ? (h.name || h.ticker) : h.ticker;
       const subLabel  = h.currency === 'KRW' ? h.ticker : (h.name || '');
       const fullName  = (h.name && h.name !== h.ticker) ? `${h.ticker} · ${h.name}` : h.ticker;
+      // 신호등 원 (정합성 분석 결과)
+      const sig = h._alignment;
+      let sigDot = '';
+      if(sig) {
+        const c = sig.signal === 'green' ? '#22c55e' : (sig.signal === 'red' ? '#ef4444' : '#eab308');
+        const tip = sig.reasons.join(' / ');
+        sigDot = `<span title="${tip}" style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${c};margin-right:6px;flex-shrink:0;vertical-align:middle;"></span>`;
+      }
       return `<tr>
         <td style="overflow:hidden;" title="${fullName}">
-          <div style="font-weight:700;color:#1d4ed8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${mainLabel}</div>
-          ${subLabel ? `<div style="font-size:11px;color:var(--sub);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${subLabel}</div>` : ''}
+          <div style="font-weight:700;color:#1d4ed8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${sigDot}${mainLabel}</div>
+          ${subLabel ? `<div style="font-size:11px;color:var(--sub);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-left:15px;">${subLabel}</div>` : ''}
         </td>
         <td>${accBadge}</td>
         <td>${h.quantity}</td>
