@@ -18,6 +18,7 @@ import psycopg2
 import psycopg2.extras
 import json
 import math
+import re
 import pytz
 import logging
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -638,6 +639,177 @@ SECTOR_TO_ETF = {
     "Communication Services":"XLC","Industrials":"XLI",
     "Utilities":"XLU","Real Estate":"XLRE",
 }
+
+# ══════════════════════════════════════════════════════════════
+# ETF 섹터 자동 추론 (yfinance가 ETF에 sector 미제공 문제 해결)
+# ══════════════════════════════════════════════════════════════
+
+# 유명 ETF 하드코딩 매핑 (최우선) — SPDR 섹터 ETF + 레버리지/테마 ETF
+ETF_SECTOR_MAP = {
+    # SPDR 섹터 ETF
+    "XLK":"Technology","XLV":"Healthcare","XLF":"Financial Services",
+    "XLE":"Energy","XLY":"Consumer Cyclical","XLP":"Consumer Defensive",
+    "XLB":"Basic Materials","XLC":"Communication Services",
+    "XLI":"Industrials","XLU":"Utilities","XLRE":"Real Estate",
+    # Technology 레버리지/테마
+    "TQQQ":"Technology","QQQ":"Technology","QQQM":"Technology","QLD":"Technology",
+    "SQQQ":"Technology","PSQ":"Technology",
+    "SOXL":"Technology","SOXS":"Technology","SOXX":"Technology","SMH":"Technology","USD":"Technology",
+    "TECL":"Technology","TECS":"Technology","FNGU":"Technology","FNGD":"Technology",
+    "BULZ":"Technology","WEBL":"Technology","WEBS":"Technology",
+    "NVDL":"Technology","NVDX":"Technology","NVDS":"Technology","NVDU":"Technology",
+    "MSFU":"Technology","GGLL":"Technology","AMZU":"Technology","AMZD":"Technology",
+    "AAPU":"Technology","AAPD":"Technology",
+    # Consumer Cyclical 레버리지
+    "TSLL":"Consumer Cyclical","TSLS":"Consumer Cyclical","TSLQ":"Consumer Cyclical",
+    # Financial Services 레버리지
+    "FAS":"Financial Services","FAZ":"Financial Services",
+    "DPST":"Financial Services","WDRW":"Financial Services",
+    # Energy 레버리지
+    "ERX":"Energy","ERY":"Energy","GUSH":"Energy","DRIP":"Energy",
+    "NRGU":"Energy","NRGD":"Energy",
+    # Healthcare 레버리지
+    "CURE":"Healthcare","LABU":"Healthcare","LABD":"Healthcare",
+    # Industrials/Defense
+    "DFEN":"Industrials","ITA":"Industrials",
+    # 광대역 지수 레버리지 → 혼합 성격이나 대표 섹터 없음 → Unknown 유지 (추론 스킵)
+    # UPRO, SPXL, SPXU, SPXS 등은 Unknown으로 두고 레버리지 플래그로 처리
+    # Real Estate
+    "DRN":"Real Estate","DRV":"Real Estate",
+    # Communication
+    "YCOM":"Communication Services",
+    # Utilities
+    "UTSL":"Utilities",
+    # 중국 테크 레버리지 → Technology
+    "YINN":"Technology","YANG":"Technology",
+    # Crypto/Digital asset 계열 → Financial Services 성격이지만 별도 처리 필요 시 Unknown
+    "ETHU":"Financial Services","BITU":"Financial Services","BITX":"Financial Services",
+}
+
+# 이름 패턴 → 섹터 키워드 매핑 (우선순위 순, 먼저 매치된 게 승리)
+# 주의: 순서 중요. 더 구체적인 키워드가 먼저 와야 함
+ETF_NAME_PATTERNS = [
+    # Technology (Semi가 Tech보다 먼저)
+    (r"\b(semi|semiconductor|chip)\b",                     "Technology"),
+    (r"\b(nasdaq|qqq|nasdaq[\s\-]?100)\b",                 "Technology"),
+    (r"\b(software|internet|cloud|fintech|cyber|ai)\b",    "Technology"),
+    (r"\btech(nology)?\b",                                 "Technology"),
+    # Financial
+    (r"\b(bank|regional\s*bank|financial)\b",              "Financial Services"),
+    (r"\b(insurance|broker|exchange)\b",                   "Financial Services"),
+    # Energy
+    (r"\b(oil|gas|energy|petroleum|natural\s*gas)\b",      "Energy"),
+    (r"\b(uranium|nuclear)\b",                             "Energy"),
+    # Healthcare
+    (r"\b(biotech|pharma|pharmaceutical|healthcare|health\s*care|medical)\b", "Healthcare"),
+    # Industrials
+    (r"\b(aerospace|defense|airline|industrial|transportation)\b", "Industrials"),
+    # Real Estate
+    (r"\b(real\s*estate|reit|mortgage)\b",                 "Real Estate"),
+    # Utilities
+    (r"\b(utilit|electric\s*power)\b",                     "Utilities"),
+    # Materials
+    (r"\b(gold|silver|copper|mining|metal|material)\b",    "Basic Materials"),
+    # Consumer
+    (r"\b(retail|consumer\s*discretionary|e[\s\-]?commerce|restaurant|leisure)\b", "Consumer Cyclical"),
+    (r"\b(consumer\s*staples|food|beverage|household)\b",  "Consumer Defensive"),
+    # Communication
+    (r"\b(media|telecom|communication|entertainment)\b",   "Communication Services"),
+]
+
+# 레버리지 ETF 이름에서 기초자산 티커 추출용 패턴
+# 예: "Direxion Daily TSLA Bull 2X Shares" → TSLA
+# 예: "GraniteShares 2x Long NVDA Daily ETF" → NVDA
+_UNDERLYING_TICKER_RE = re.compile(
+    r"\b([A-Z]{2,5})\s+(?:Bull|Bear|Long|Short|Daily|2x|3x|2X|3X)\b"
+    r"|\b(?:Daily|Long|Short|2x|3x|2X|3X)\s+([A-Z]{2,5})\b",
+    re.IGNORECASE
+)
+
+# yfinance 섹터명 정규화 (표기 차이 흡수)
+def _normalize_sector(s: str) -> str:
+    if not s: return "Unknown"
+    s = s.strip()
+    alias = {
+        "Health Care":"Healthcare",
+        "Financials":"Financial Services",
+        "Consumer Discretionary":"Consumer Cyclical",
+        "Consumer Staples":"Consumer Defensive",
+        "Materials":"Basic Materials",
+    }
+    return alias.get(s, s)
+
+# GICS 11 섹터 (프론트 드롭다운과 동일)
+VALID_SECTORS = [
+    "Technology","Healthcare","Financial Services","Consumer Cyclical",
+    "Consumer Defensive","Communication Services","Industrials","Energy",
+    "Utilities","Real Estate","Basic Materials",
+]
+
+def infer_etf_sector(ticker: str, long_name: str = "", short_name: str = ""):
+    """
+    ETF 섹터 자동 추론 — 3단계 폴백
+    반환: (sector_or_None, method) — method는 'map'/'pattern'/'underlying'/None
+    None 반환 시 수동 입력 필요
+    """
+    if not ticker:
+        return None, None
+    tk = ticker.strip().upper()
+
+    # 1단계: 하드코딩 매핑
+    if tk in ETF_SECTOR_MAP:
+        return ETF_SECTOR_MAP[tk], "map"
+
+    # 2단계: 이름 패턴 매칭
+    name_blob = f"{long_name or ''} {short_name or ''}".lower()
+    if name_blob.strip():
+        for pat, sec in ETF_NAME_PATTERNS:
+            if re.search(pat, name_blob, re.IGNORECASE):
+                return sec, "pattern"
+
+    # 3단계: 기초자산 티커 추출 → yfinance 섹터 조회
+    # longName에서 대문자 티커 후보 추출
+    if long_name:
+        m = _UNDERLYING_TICKER_RE.search(long_name)
+        if m:
+            underlying = (m.group(1) or m.group(2) or "").upper()
+            # 흔한 오탐 단어 제외
+            if underlying and underlying not in {"ETF","USD","FUND","BULL","BEAR","DAILY","LONG","SHORT"}:
+                try:
+                    info = yf.Ticker(underlying).info or {}
+                    sec = _normalize_sector(info.get("sector") or "")
+                    if sec and sec != "Unknown":
+                        return sec, "underlying"
+                except Exception as e:
+                    logger.debug(f"infer_etf_sector underlying 조회 실패 {underlying}: {e}")
+
+    return None, None
+
+
+def resolve_sector(ticker: str, live_info: dict = None) -> dict:
+    """
+    종목 섹터 해석 — yfinance 우선, 실패 시 ETF 추론
+    반환: {sector, method, needs_manual}
+      method: 'yfinance'/'map'/'pattern'/'underlying'/'unknown'
+      needs_manual: True면 프론트에서 수동 선택 필요
+    """
+    info = live_info or {}
+    raw_sector = info.get("sector") or ""
+    long_name  = info.get("longName") or ""
+    short_name = info.get("shortName") or ""
+    quote_type = (info.get("quoteType") or "").upper()
+
+    # yfinance가 sector를 정상 제공한 경우 (주식 대부분)
+    if raw_sector and raw_sector.strip() and raw_sector.strip() != "—":
+        return {"sector": _normalize_sector(raw_sector), "method": "yfinance", "needs_manual": False}
+
+    # ETF거나 sector 없는 경우 → 추론 시도
+    sec, method = infer_etf_sector(ticker, long_name, short_name)
+    if sec:
+        return {"sector": sec, "method": method, "needs_manual": False}
+
+    return {"sector": "Unknown", "method": "unknown", "needs_manual": True}
+
 
 # ══════════════════════════════════════════════════════════════
 # 점수 계산 함수 (기존 그대로)
@@ -2648,7 +2820,30 @@ async def add_holding(request: Request):
         # 종목 정보 자동 조회 — 통화는 실제 종목 기반으로 결정 (프론트 입력 무시)
         live = _fetch_live_price(ticker)
         name     = payload.get('name') or live.get('name') or ticker
-        sector   = payload.get('sector') or live.get('sector') or '—'
+        # 섹터: 프론트에서 명시적으로 넘어온 값 > 자동 추론
+        manual_sector = payload.get('sector')
+        if manual_sector and manual_sector not in ("—", "Unknown", ""):
+            sector = manual_sector
+            sector_method = "manual"
+        else:
+            # live에는 캐시된 값이 있을 수 있으므로 원본 info로 재추론
+            try:
+                raw_info = yf.Ticker(ticker).info or {}
+            except Exception:
+                raw_info = {}
+            resolved = resolve_sector(ticker, raw_info)
+            if resolved["needs_manual"]:
+                # 추론 실패 — 프론트에 수동 입력 요청 신호 반환 (저장 안 함)
+                return {
+                    "ok": False,
+                    "needs_manual_sector": True,
+                    "ticker": ticker,
+                    "name": name,
+                    "long_name": raw_info.get("longName") or name,
+                    "message": "ETF 섹터 자동 추론 실패 — 수동 선택이 필요합니다"
+                }
+            sector = resolved["sector"]
+            sector_method = resolved["method"]
         # 티커 규칙: .KS/.KQ = KRW, 그 외 = USD (yfinance info 우선)
         if ticker.endswith('.KS') or ticker.endswith('.KQ'):
             currency = 'KRW'
@@ -2666,7 +2861,8 @@ async def add_holding(request: Request):
         """, (account, ticker, name, sector, quantity, avg, currency, memo))
         new_id = cur.fetchone()[0]
         conn.commit(); cur.close(); conn.close()
-        return {"ok": True, "id": new_id, "currency": currency, "name": name}
+        return {"ok": True, "id": new_id, "currency": currency, "name": name,
+                "sector": sector, "sector_method": sector_method}
     except Exception as e:
         logger.error(f"holdings POST 오류: {e}")
         return {"ok": False, "error": str(e)}
@@ -2675,7 +2871,7 @@ async def add_holding(request: Request):
 @app.put("/api/portfolio/holdings/{holding_id}")
 @limiter.limit("30/minute")
 async def update_holding(holding_id: int, request: Request):
-    """보유 종목 수정"""
+    """보유 종목 수정 — sector 필드도 수정 가능"""
     try:
         payload = await request.json()
         conn = get_conn(); cur = conn.cursor()
@@ -2684,12 +2880,14 @@ async def update_holding(holding_id: int, request: Request):
                 account    = COALESCE(%s, account),
                 quantity   = COALESCE(%s, quantity),
                 avg_price  = COALESCE(%s, avg_price),
+                sector     = COALESCE(%s, sector),
                 memo       = COALESCE(%s, memo),
                 updated_at = NOW()
             WHERE id = %s
         """, (payload.get('account'),
               payload.get('quantity'),
               payload.get('avg_price'),
+              payload.get('sector'),
               payload.get('memo'),
               holding_id))
         conn.commit(); cur.close(); conn.close()
@@ -2739,6 +2937,90 @@ def fix_holding_currencies(request: Request):
         return {"ok": True, "fixed": fixed, "total": len(rows)}
     except Exception as e:
         logger.error(f"fix_currencies 오류: {e}")
+        return {"ok": False, "error": str(e)}
+
+
+@app.post("/api/portfolio/infer_sector")
+@limiter.limit("30/minute")
+async def api_infer_sector(request: Request):
+    """
+    종목 추가 전 섹터 사전 추론 — 프론트에서 추가 모달/흐름 분기용
+    입력: {"ticker": "TQQQ"}
+    반환: {ok, ticker, name, sector, method, needs_manual}
+    """
+    try:
+        payload = await request.json()
+        ticker = (payload.get('ticker') or '').strip().upper()
+        if not ticker:
+            return {"ok": False, "error": "ticker 필수"}
+        try:
+            info = yf.Ticker(ticker).info or {}
+        except Exception as e:
+            logger.warning(f"infer_sector info 실패 {ticker}: {e}")
+            info = {}
+        resolved = resolve_sector(ticker, info)
+        name = info.get('longName') or info.get('shortName') or ticker
+        return {
+            "ok": True,
+            "ticker": ticker,
+            "name": name,
+            "sector": resolved["sector"],
+            "method": resolved["method"],
+            "needs_manual": resolved["needs_manual"],
+        }
+    except Exception as e:
+        logger.error(f"infer_sector 오류: {e}")
+        return {"ok": False, "error": str(e)}
+
+
+@app.post("/api/portfolio/reclassify_sectors")
+@limiter.limit("3/minute")
+def reclassify_all_sectors(request: Request):
+    """
+    저장된 모든 보유 종목 섹터 일괄 재분류
+    기존 섹터가 '—' / 'Unknown' / NULL인 종목만 재분류 (수동 설정한 건 보존)
+    반환: {ok, total, reclassified, still_unknown, details}
+    """
+    if not DATABASE_URL:
+        return {"ok": False, "error": "DATABASE_URL 없음"}
+    try:
+        conn = get_conn(); cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("SELECT id, ticker, name, sector FROM holdings")
+        rows = [dict(r) for r in cur.fetchall()]
+
+        reclassified = 0
+        still_unknown = []
+        details = []
+        for r in rows:
+            ticker = r['ticker']
+            cur_sector = (r.get('sector') or '').strip()
+            # 이미 유효한 섹터가 있으면 스킵 (수동 설정 보존)
+            if cur_sector and cur_sector not in ('—', 'Unknown', ''):
+                continue
+            # yfinance info 조회 + 추론
+            try:
+                info = yf.Ticker(ticker).info or {}
+            except Exception:
+                info = {}
+            resolved = resolve_sector(ticker, info)
+            if resolved["needs_manual"]:
+                still_unknown.append({"id": r['id'], "ticker": ticker, "name": r.get('name') or ticker})
+                continue
+            new_sector = resolved["sector"]
+            cur.execute("UPDATE holdings SET sector=%s, updated_at=NOW() WHERE id=%s",
+                        (new_sector, r['id']))
+            reclassified += 1
+            details.append({"ticker": ticker, "sector": new_sector, "method": resolved["method"]})
+        conn.commit(); cur.close(); conn.close()
+        return {
+            "ok": True,
+            "total": len(rows),
+            "reclassified": reclassified,
+            "still_unknown": still_unknown,
+            "details": details,
+        }
+    except Exception as e:
+        logger.error(f"reclassify_sectors 오류: {e}")
         return {"ok": False, "error": str(e)}
 
 
