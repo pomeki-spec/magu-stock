@@ -330,6 +330,40 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
   text-align:center;
   font-family:'SF Mono',Menlo,Consolas,monospace;
 }
+/* ── 일정 필터/중요도 칩 (너비 고정으로 들쭉날쭉 방지) ── */
+.cal-chip-row{
+  display:flex;
+  align-items:center;
+  gap:6px;
+  flex-wrap:wrap;
+}
+.cal-chip-label{
+  font-size:11px;
+  color:var(--sub);
+  font-weight:600;
+  width:42px;       /* '필터'와 '중요도' 라벨 너비 통일 */
+  flex-shrink:0;
+}
+.cal-chip{
+  width:68px;       /* 모든 칩 동일 너비 */
+  padding:4px 0;
+  border:1px solid var(--border);
+  background:#fff;
+  color:var(--text);
+  border-radius:14px;
+  font-size:11px;
+  font-weight:600;
+  cursor:pointer;
+  text-align:center;
+  white-space:nowrap;
+  transition:all .15s;
+}
+.cal-chip:hover{border-color:#94a3b8;}
+.cal-chip.active{
+  background:#2563eb;
+  color:#fff;
+  border-color:#2563eb;
+}
 .fred-chart-grid>div{min-width:0;overflow:hidden;}
 .fred-chart-wrap{position:relative;width:100%;height:200px;min-width:0;}
 .sector-heatmap{display:grid;grid-template-columns:repeat(11,1fr);gap:6px;margin-bottom:14px;}
@@ -1430,7 +1464,7 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
     <div class="page-header">
       <div>
         <div class="page-title">📅 주요 일정</div>
-        <div class="page-sub" id="cal-page-sub">매크로 이벤트 + Mag 7 / 보유 종목 실적</div>
+        <div class="page-sub" id="cal-page-sub">매크로 이벤트 + Mag 7 / 보유 종목 실적 · 🇰🇷 한국시간 기준</div>
       </div>
     </div>
 
@@ -1464,30 +1498,22 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
       </div>
 
       <!-- 필터 -->
-      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px solid var(--border);">
-        <span style="font-size:11px;color:var(--sub);font-weight:600;margin-right:4px;">필터:</span>
-        <button class="cal-filter-btn active" data-filter="all" onclick="toggleCalFilter('all')"
-          style="padding:4px 10px;border:1px solid #2563eb;background:#2563eb;color:#fff;border-radius:14px;font-size:11px;font-weight:600;cursor:pointer;">전체</button>
-        <button class="cal-filter-btn" data-filter="macro" onclick="toggleCalFilter('macro')"
-          style="padding:4px 10px;border:1px solid var(--border);background:#fff;color:var(--text);border-radius:14px;font-size:11px;font-weight:600;cursor:pointer;">🏛 매크로</button>
-        <button class="cal-filter-btn" data-filter="earnings" onclick="toggleCalFilter('earnings')"
-          style="padding:4px 10px;border:1px solid var(--border);background:#fff;color:var(--text);border-radius:14px;font-size:11px;font-weight:600;cursor:pointer;">💎 실적</button>
-        <button class="cal-filter-btn" data-filter="mag7" onclick="toggleCalFilter('mag7')"
-          style="padding:4px 10px;border:1px solid var(--border);background:#fff;color:var(--text);border-radius:14px;font-size:11px;font-weight:600;cursor:pointer;">⭐ Mag 7만</button>
-        <button class="cal-filter-btn" data-filter="myholdings" onclick="toggleCalFilter('myholdings')"
-          style="padding:4px 10px;border:1px solid var(--border);background:#fff;color:var(--text);border-radius:14px;font-size:11px;font-weight:600;cursor:pointer;">💼 내 보유만</button>
+      <div class="cal-chip-row" style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);">
+        <span class="cal-chip-label">필터</span>
+        <button class="cal-chip cal-filter-btn active" data-filter="all" onclick="toggleCalFilter('all')">전체</button>
+        <button class="cal-chip cal-filter-btn" data-filter="macro" onclick="toggleCalFilter('macro')">🏛 매크</button>
+        <button class="cal-chip cal-filter-btn" data-filter="earnings" onclick="toggleCalFilter('earnings')">💎 실적</button>
+        <button class="cal-chip cal-filter-btn" data-filter="mag7" onclick="toggleCalFilter('mag7')">⭐ M7만</button>
+        <button class="cal-chip cal-filter-btn" data-filter="myholdings" onclick="toggleCalFilter('myholdings')">💼 보유</button>
         <span style="margin-left:auto;font-size:11px;color:var(--sub);" id="cal-result-count">—</span>
       </div>
 
       <!-- 중요도 필터 -->
-      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:8px;">
-        <span style="font-size:11px;color:var(--sub);font-weight:600;margin-right:4px;">중요도:</span>
-        <button class="cal-imp-btn active" data-imp="0" onclick="setCalImportance(0)"
-          style="padding:4px 10px;border:1px solid #2563eb;background:#2563eb;color:#fff;border-radius:14px;font-size:11px;font-weight:600;cursor:pointer;">전부</button>
-        <button class="cal-imp-btn" data-imp="4" onclick="setCalImportance(4)"
-          style="padding:4px 10px;border:1px solid var(--border);background:#fff;color:var(--text);border-radius:14px;font-size:11px;font-weight:600;cursor:pointer;">● 이상</button>
-        <button class="cal-imp-btn" data-imp="5" onclick="setCalImportance(5)"
-          style="padding:4px 10px;border:1px solid var(--border);background:#fff;color:var(--text);border-radius:14px;font-size:11px;font-weight:600;cursor:pointer;">●● 핵심만</button>
+      <div class="cal-chip-row" style="margin-top:8px;">
+        <span class="cal-chip-label">중요도</span>
+        <button class="cal-chip cal-imp-btn active" data-imp="0" onclick="setCalImportance(0)">전체</button>
+        <button class="cal-chip cal-imp-btn" data-imp="4" onclick="setCalImportance(4)">● 이상</button>
+        <button class="cal-chip cal-imp-btn" data-imp="5" onclick="setCalImportance(5)">●● 핵심</button>
       </div>
     </div>
 
@@ -1500,7 +1526,7 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
     <div class="card" style="margin-top:14px;padding:10px 14px;background:#f8fafc;font-size:11px;color:var(--sub);line-height:1.7;">
       💡 <b>매크로 일정</b>: BLS·Fed 공식 일정 기반 (연 1회 수동 갱신)<br>
       💡 <b>실적 일정</b>: yfinance 자동 수집, 12시간 캐시 (Mag 7 + 보유 종목 자동, ETF 제외)<br>
-      💡 <b>시간 표기</b>: ET → KST 환산. <code>⁺</code> 표시는 다음날<br>
+      💡 <b>시간 표기</b>: 한국 시간(KST) 기준 — 미국 동부시간(ET)을 자동 변환<br>
       💡 <b>중요도</b>: ●● = FOMC/CPI/NFP 같은 핵심 이벤트, ● = PPI/PCE/GDP 등
     </div>
 
@@ -3265,11 +3291,7 @@ function switchCalView(v) {
 function toggleCalFilter(filter) {
   _calFilter = filter;
   document.querySelectorAll('.cal-filter-btn').forEach(b => {
-    const isActive = b.dataset.filter === filter;
-    b.classList.toggle('active', isActive);
-    b.style.background = isActive ? '#2563eb' : '#fff';
-    b.style.color      = isActive ? '#fff'    : 'var(--text)';
-    b.style.borderColor = isActive ? '#2563eb' : 'var(--border)';
+    b.classList.toggle('active', b.dataset.filter === filter);
   });
   renderCalendar();
 }
@@ -3277,11 +3299,7 @@ function toggleCalFilter(filter) {
 function setCalImportance(min) {
   _calMinImp = min;
   document.querySelectorAll('.cal-imp-btn').forEach(b => {
-    const isActive = parseInt(b.dataset.imp) === min;
-    b.classList.toggle('active', isActive);
-    b.style.background = isActive ? '#2563eb' : '#fff';
-    b.style.color      = isActive ? '#fff'    : 'var(--text)';
-    b.style.borderColor = isActive ? '#2563eb' : 'var(--border)';
+    b.classList.toggle('active', parseInt(b.dataset.imp) === min);
   });
   renderCalendar();
 }
@@ -3300,22 +3318,18 @@ function _applyCalFilters(events) {
   });
 }
 
-// ET → KST 시간 표기
+// KST 시간 표기 (백엔드에서 이미 KST로 변환된 시각을 그대로 표시)
 function _fmtKstTime(ev) {
   if(!ev.time) return '';
   if(ev.category === 'Earnings') {
     const lab = ev.time_label || ev.time;
     return `<span style="color:#0891b2;font-weight:600;font-size:11px;">${lab}</span>`;
   }
-  const [hh, mm] = ev.time.split(':').map(x => parseInt(x));
-  if(isNaN(hh)) return `<span style="color:#64748b;font-size:11px;">${ev.time} ET</span>`;
-  const month = parseInt(ev.date.split('-')[1]);
-  const isDst = month >= 3 && month <= 10;
-  let kstH = hh + (isDst ? 13 : 14);
-  let kstNextDay = false;
-  if(kstH >= 24) { kstH -= 24; kstNextDay = true; }
-  const kstStr = `${String(kstH).padStart(2,'0')}:${String(mm).padStart(2,'0')}${kstNextDay ? '⁺' : ''}`;
-  return `<span style="color:#64748b;font-size:11px;font-weight:600;">${kstStr} KST</span>`;
+  // 매크로: HH:MM (이미 KST)
+  if(/^\d{1,2}:\d{2}$/.test(ev.time)) {
+    return `<span style="color:#64748b;font-size:11px;font-weight:600;">${ev.time} KST</span>`;
+  }
+  return `<span style="color:#64748b;font-size:11px;">${ev.time}</span>`;
 }
 
 function _fmtImportance(imp) {
