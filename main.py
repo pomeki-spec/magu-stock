@@ -746,6 +746,141 @@ VALID_SECTORS = [
     "Utilities","Real Estate","Basic Materials",
 ]
 
+# ══════════════════════════════════════════════════════════════
+# 주요 일정 (매크로 + 실적)
+# ══════════════════════════════════════════════════════════════
+
+# 매크로 이벤트 하드코딩 (BLS/Fed/BEA 공식 일정)
+# 형식: (날짜 YYYY-MM-DD, 시간 HH:MM ET, 카테고리, 제목, 중요도 1~5)
+# 시간이 빈 문자열이면 시간 미정/종일 이벤트
+# 일년에 한 번 갱신 필요. 갱신은 BLS/Fed 공식 홈페이지 참조.
+MACRO_EVENTS = [
+    # ── 2026년 4월 잔여 ──
+    ("2026-04-29","14:00","FOMC","FOMC 금리결정 + 성명",5),
+    ("2026-04-29","14:30","FOMC","파월 기자회견",5),
+    ("2026-04-30","08:30","GDP","Q1 GDP 속보치",4),
+    ("2026-04-30","08:30","PCE","3월 PCE / Core PCE",4),
+    ("2026-05-01","10:00","ISM","4월 ISM 제조업 PMI",3),
+    # ── 2026년 5월 ──
+    ("2026-05-08","08:30","NFP","4월 고용보고서 (NFP/실업률)",5),
+    ("2026-05-12","08:30","CPI","4월 CPI",5),
+    ("2026-05-13","08:30","PPI","4월 PPI",4),
+    ("2026-05-15","08:30","RetailSales","4월 소매판매",3),
+    ("2026-05-21","14:00","Minutes","4월 FOMC 의사록",3),
+    ("2026-05-30","08:30","PCE","4월 PCE / Core PCE",4),
+    # ── 2026년 6월 ──
+    ("2026-06-06","08:30","NFP","5월 고용보고서",5),
+    ("2026-06-11","08:30","CPI","5월 CPI",5),
+    ("2026-06-12","08:30","PPI","5월 PPI",4),
+    ("2026-06-17","14:00","FOMC","FOMC 금리결정 + SEP + 닷플롯",5),
+    ("2026-06-17","14:30","FOMC","파월 기자회견",5),
+    ("2026-06-26","08:30","GDP","Q1 GDP 확정치",3),
+    ("2026-06-27","08:30","PCE","5월 PCE / Core PCE",4),
+    # ── 2026년 7월 ──
+    ("2026-07-03","08:30","NFP","6월 고용보고서",5),
+    ("2026-07-15","08:30","CPI","6월 CPI",5),
+    ("2026-07-16","08:30","PPI","6월 PPI",4),
+    ("2026-07-29","14:00","FOMC","FOMC 금리결정 + 성명",5),
+    ("2026-07-29","14:30","FOMC","파월 기자회견",5),
+    ("2026-07-31","08:30","PCE","6월 PCE / Core PCE",4),
+    # ── 2026년 8월 ──
+    ("2026-08-01","08:30","NFP","7월 고용보고서",5),
+    ("2026-08-12","08:30","CPI","7월 CPI",5),
+    ("2026-08-14","08:30","PPI","7월 PPI",4),
+    ("2026-08-29","08:30","PCE","7월 PCE / Core PCE",4),
+    # 잭슨홀(예년 8월 셋째주, 정확 일정은 매년 6월경 공시)
+    ("2026-08-21","09:00","JacksonHole","잭슨홀 심포지엄 (예정)",4),
+    # ── 2026년 9월 ──
+    ("2026-09-04","08:30","NFP","8월 고용보고서",5),
+    ("2026-09-10","08:30","PPI","8월 PPI",4),
+    ("2026-09-11","08:30","CPI","8월 CPI",5),
+    ("2026-09-16","14:00","FOMC","FOMC 금리결정 + SEP + 닷플롯",5),
+    ("2026-09-16","14:30","FOMC","파월 기자회견",5),
+    # ── 2026년 10월 ~ 12월 (간소화, 핵심만) ──
+    ("2026-10-02","08:30","NFP","9월 고용보고서",5),
+    ("2026-10-15","08:30","CPI","9월 CPI",5),
+    ("2026-10-28","14:00","FOMC","FOMC 금리결정",5),
+    ("2026-11-06","08:30","NFP","10월 고용보고서",5),
+    ("2026-11-13","08:30","CPI","10월 CPI",5),
+    ("2026-12-04","08:30","NFP","11월 고용보고서",5),
+    ("2026-12-10","08:30","CPI","11월 CPI",5),
+    ("2026-12-16","14:00","FOMC","FOMC 금리결정 + SEP + 닷플롯",5),
+]
+
+# Mag 7 + 추적 대상 (보유 종목과 합쳐서 실적 일정 조회)
+MAG7_TICKERS = ["AAPL","MSFT","GOOGL","AMZN","META","NVDA","TSLA"]
+
+# 카테고리별 색상/이모지 (프론트 응답 가공용)
+EVENT_STYLE = {
+    "FOMC":         {"emoji":"🏛","color":"#dc2626"},  # 적색 (최우선)
+    "CPI":          {"emoji":"📊","color":"#dc2626"},
+    "PPI":          {"emoji":"📈","color":"#ea580c"},
+    "NFP":          {"emoji":"💼","color":"#dc2626"},
+    "PCE":          {"emoji":"💵","color":"#ea580c"},
+    "GDP":          {"emoji":"📐","color":"#ea580c"},
+    "ISM":          {"emoji":"🏭","color":"#d97706"},
+    "RetailSales":  {"emoji":"🛒","color":"#d97706"},
+    "Minutes":      {"emoji":"📝","color":"#7c3aed"},
+    "JacksonHole":  {"emoji":"⛰","color":"#7c3aed"},
+    "Earnings":     {"emoji":"💎","color":"#0891b2"},  # 실적은 청록
+}
+
+# 실적 일정 캐시 (티커→{date_iso, when, fetched_at})
+_earnings_cache = {}
+_EARNINGS_CACHE_TTL = 12 * 3600  # 12시간
+
+def _fetch_earnings_date(ticker: str) -> dict:
+    """
+    yfinance에서 다음 실적 발표일 1건 조회
+    반환: {date: 'YYYY-MM-DD', when: 'BMO'/'AMC'/'TBD', source: 'yf'} 또는 None
+    """
+    import time as _time
+    now = _time.time()
+    cached = _earnings_cache.get(ticker)
+    if cached and (now - cached.get("fetched_at", 0)) < _EARNINGS_CACHE_TTL:
+        return cached.get("data")
+    try:
+        t = yf.Ticker(ticker)
+        # 1차: earnings_dates (가장 정확, EPS 추정치 포함)
+        try:
+            ed = t.earnings_dates
+            if ed is not None and not ed.empty:
+                # tz-aware 인덱스
+                tz = ed.index.tz
+                now_dt = datetime.now(tz) if tz else datetime.now()
+                future = ed[ed.index >= now_dt].sort_index()
+                if not future.empty:
+                    next_dt = future.index[0]
+                    data = {
+                        "date": next_dt.strftime("%Y-%m-%d"),
+                        "when": "AMC" if next_dt.hour >= 16 else ("BMO" if next_dt.hour < 9 else "TBD"),
+                        "source": "yf"
+                    }
+                    _earnings_cache[ticker] = {"data": data, "fetched_at": now}
+                    return data
+        except Exception:
+            pass
+        # 2차: calendar 폴백
+        try:
+            cal = t.calendar
+            if cal:
+                ed_val = cal.get("Earnings Date") if isinstance(cal, dict) else None
+                if ed_val:
+                    # list/단일 처리
+                    dt0 = ed_val[0] if isinstance(ed_val, (list, tuple)) and ed_val else ed_val
+                    if hasattr(dt0, "strftime"):
+                        data = {"date": dt0.strftime("%Y-%m-%d"), "when": "TBD", "source": "yf-cal"}
+                        _earnings_cache[ticker] = {"data": data, "fetched_at": now}
+                        return data
+        except Exception:
+            pass
+    except Exception as e:
+        logger.debug(f"_fetch_earnings_date {ticker}: {e}")
+    # 캐시에 None도 저장 (재시도 폭주 방지, TTL은 동일)
+    _earnings_cache[ticker] = {"data": None, "fetched_at": now}
+    return None
+
+
 def infer_etf_sector(ticker: str, long_name: str = "", short_name: str = ""):
     """
     ETF 섹터 자동 추론 — 3단계 폴백
@@ -3021,6 +3156,131 @@ def reclassify_all_sectors(request: Request):
         }
     except Exception as e:
         logger.error(f"reclassify_sectors 오류: {e}")
+        return {"ok": False, "error": str(e)}
+
+
+@app.get("/api/calendar/upcoming")
+@limiter.limit("30/minute")
+def calendar_upcoming(request: Request, days: int = 30):
+    """
+    향후 N일 주요 일정 — 매크로 + 실적 (Mag7 + 보유 종목)
+    days: 조회 기간 (기본 30일, 최대 90일)
+    반환: {ok, today, events: [{date, time, category, title, ticker?, importance, emoji, color, days_until}]}
+    """
+    try:
+        days = max(1, min(int(days or 30), 90))
+        # ET 기준 today (이벤트가 ET 시간으로 정의돼 있으므로 ET 기준이 정합)
+        et_tz = pytz.timezone("America/New_York")
+        today_et = datetime.now(et_tz).date()
+        cutoff = today_et + timedelta(days=days)
+
+        events = []
+
+        # 1) 매크로 이벤트
+        for date_str, time_str, category, title, importance in MACRO_EVENTS:
+            try:
+                d = datetime.strptime(date_str, "%Y-%m-%d").date()
+            except Exception:
+                continue
+            if d < today_et or d > cutoff:
+                continue
+            style = EVENT_STYLE.get(category, {"emoji":"📌","color":"#64748b"})
+            events.append({
+                "date":       date_str,
+                "time":       time_str,
+                "category":   category,
+                "title":      title,
+                "ticker":     None,
+                "importance": importance,
+                "emoji":      style["emoji"],
+                "color":      style["color"],
+                "days_until": (d - today_et).days,
+            })
+
+        # 2) 실적 일정 — Mag 7 + 보유 종목 (USD 종목만, 한국주는 별도 로직 필요)
+        tickers_to_check = set(MAG7_TICKERS)
+        try:
+            if DATABASE_URL:
+                conn = get_conn(); cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+                cur.execute("SELECT DISTINCT ticker FROM holdings WHERE currency='USD'")
+                for r in cur.fetchall():
+                    tk = (r['ticker'] or '').strip().upper()
+                    # ETF는 실적 일정 의미 없음 — 추론 결과 활용해서 ETF 제외 가능하지만,
+                    # 단순화: 자주 쓰는 레버리지 ETF는 스킵, 나머지는 시도
+                    if tk in ETF_SECTOR_MAP:
+                        continue
+                    tickers_to_check.add(tk)
+                cur.close(); conn.close()
+        except Exception as e:
+            logger.warning(f"calendar_upcoming holdings 조회 실패: {e}")
+
+        # 병렬로 실적 일정 조회 (캐시 활용)
+        import concurrent.futures as _cf
+        ticker_list = list(tickers_to_check)
+        earnings_results = {}
+        if ticker_list:
+            with _cf.ThreadPoolExecutor(max_workers=8) as ex:
+                fut_map = {ex.submit(_fetch_earnings_date, tk): tk for tk in ticker_list}
+                for fut in _cf.as_completed(fut_map, timeout=20):
+                    tk = fut_map[fut]
+                    try:
+                        earnings_results[tk] = fut.result()
+                    except Exception:
+                        earnings_results[tk] = None
+
+        # 실적 이벤트 추가
+        style_e = EVENT_STYLE["Earnings"]
+        for tk, data in earnings_results.items():
+            if not data:
+                continue
+            try:
+                d = datetime.strptime(data["date"], "%Y-%m-%d").date()
+            except Exception:
+                continue
+            if d < today_et or d > cutoff:
+                continue
+            when = data.get("when") or "TBD"
+            when_label = {"BMO":"장전","AMC":"장후","TBD":"미정"}.get(when, when)
+            is_mag7 = tk in MAG7_TICKERS
+            events.append({
+                "date":       data["date"],
+                "time":       when,  # BMO/AMC/TBD
+                "time_label": when_label,
+                "category":   "Earnings",
+                "title":      f"{tk} 실적 ({when_label})",
+                "ticker":     tk,
+                "importance": 5 if is_mag7 else 3,
+                "emoji":      "💎" if is_mag7 else "📊",
+                "color":      style_e["color"],
+                "days_until": (d - today_et).days,
+                "is_mag7":    is_mag7,
+            })
+
+        # 정렬: 날짜 → 시간 (ET 기준 시각이 빈 문자열이면 마지막)
+        def _sort_key(ev):
+            return (ev["date"], ev.get("time") or "99:99")
+        events.sort(key=_sort_key)
+
+        return {
+            "ok": True,
+            "today": today_et.strftime("%Y-%m-%d"),
+            "days": days,
+            "count": len(events),
+            "events": events,
+        }
+    except Exception as e:
+        logger.error(f"calendar_upcoming 오류: {e}")
+        return {"ok": False, "error": str(e), "events": []}
+
+
+@app.post("/api/calendar/refresh_earnings")
+@limiter.limit("3/minute")
+def calendar_refresh_earnings(request: Request):
+    """실적 일정 캐시 강제 갱신 (수동 새로고침용)"""
+    try:
+        _earnings_cache.clear()
+        return {"ok": True, "message": "실적 일정 캐시 초기화 완료"}
+    except Exception as e:
         return {"ok": False, "error": str(e)}
 
 
