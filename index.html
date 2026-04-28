@@ -355,6 +355,10 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
       <span class="nav-icon">💼</span>
       <div><div class="nav-label">내 자산</div></div>
     </div>
+    <div class="nav-item" id="nav-calendar" onclick="showPage('calendar')">
+      <span class="nav-icon">📅</span>
+      <div><div class="nav-label">주요 일정</div></div>
+    </div>
     <div class="nav-item" id="nav-classic" onclick="showPage('classic')">
       <span class="nav-icon">🔎</span>
       <div><div class="nav-label">클래식 모델</div></div>
@@ -1189,30 +1193,6 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
       </div>
     </div>
 
-    <!-- 📅 주요 일정 카드 -->
-    <div class="card" id="pf-calendar-card" style="margin-bottom:14px;background:linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%);border:1px solid #fcd34d;">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px;">
-        <span class="section-title" style="margin-bottom:0;">📅 주요 일정 <span id="pf-calendar-count" style="font-size:11px;font-weight:600;color:var(--sub);"></span></span>
-        <div style="display:flex;align-items:center;gap:6px;">
-          <select id="pf-calendar-range" onchange="loadCalendar()"
-            style="padding:3px 6px;border:1px solid #fcd34d;background:#fff;color:#92400e;border-radius:5px;font-size:11px;font-weight:600;cursor:pointer;">
-            <option value="7">7일</option>
-            <option value="14">14일</option>
-            <option value="30" selected>30일</option>
-            <option value="60">60일</option>
-          </select>
-          <button onclick="refreshCalendarEarnings()" id="pf-calendar-refresh-btn"
-            title="실적 일정 캐시 갱신 (12시간마다 자동)"
-            style="padding:3px 8px;border:1px solid #fcd34d;background:#fff;color:#92400e;border-radius:5px;font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap;">
-            🔄
-          </button>
-        </div>
-      </div>
-      <div id="pf-calendar-body" style="font-size:13px;color:var(--sub);">
-        <div class="spinner" style="margin:20px auto;"></div>
-      </div>
-    </div>
-
     <!-- 🚦 정합 시그널 카드 -->
     <div class="card" id="pf-alignment-card" style="margin-bottom:14px;background:linear-gradient(135deg,#f0f9ff 0%,#eff6ff 100%);border:1px solid #93c5fd;">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px;">
@@ -1410,6 +1390,88 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
 
   </div>
 
+  <!-- ───────── 📅 주요 일정 ───────── -->
+  <div id="page-calendar" style="display:none;">
+
+    <div class="page-header">
+      <div>
+        <div class="page-title">📅 주요 일정</div>
+        <div class="page-sub" id="cal-page-sub">매크로 이벤트 + Mag 7 / 보유 종목 실적</div>
+      </div>
+    </div>
+
+    <!-- 컨트롤 바 -->
+    <div class="card" style="margin-bottom:14px;padding:12px 14px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
+        <!-- 뷰 토글 -->
+        <div class="seg-group" style="display:inline-flex;background:#f1f5f9;border-radius:8px;padding:3px;">
+          <button class="seg-btn active" id="cal-view-list-btn" onclick="switchCalView('list')"
+            style="padding:6px 14px;border:none;background:#fff;color:var(--text);border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;box-shadow:0 1px 3px rgba(0,0,0,.08);">📋 리스트</button>
+          <button class="seg-btn" id="cal-view-month-btn" onclick="switchCalView('month')"
+            style="padding:6px 14px;border:none;background:transparent;color:var(--sub);border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;">🗓 달력</button>
+        </div>
+
+        <!-- 우측: 기간 + 새로고침 -->
+        <div style="display:flex;align-items:center;gap:8px;">
+          <select id="cal-range" onchange="loadCalendar()"
+            style="padding:6px 10px;border:1px solid var(--border);background:#fff;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;">
+            <option value="7">향후 7일</option>
+            <option value="14">향후 14일</option>
+            <option value="30" selected>향후 30일</option>
+            <option value="60">향후 60일</option>
+            <option value="90">향후 90일</option>
+          </select>
+          <button onclick="refreshCalendarEarnings()" id="cal-refresh-btn"
+            title="실적 일정 캐시 강제 갱신"
+            style="padding:6px 10px;border:1px solid var(--border);background:#fff;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;">
+            🔄 새로고침
+          </button>
+        </div>
+      </div>
+
+      <!-- 필터 -->
+      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px solid var(--border);">
+        <span style="font-size:11px;color:var(--sub);font-weight:600;margin-right:4px;">필터:</span>
+        <button class="cal-filter-btn active" data-filter="all" onclick="toggleCalFilter('all')"
+          style="padding:4px 10px;border:1px solid #2563eb;background:#2563eb;color:#fff;border-radius:14px;font-size:11px;font-weight:600;cursor:pointer;">전체</button>
+        <button class="cal-filter-btn" data-filter="macro" onclick="toggleCalFilter('macro')"
+          style="padding:4px 10px;border:1px solid var(--border);background:#fff;color:var(--text);border-radius:14px;font-size:11px;font-weight:600;cursor:pointer;">🏛 매크로</button>
+        <button class="cal-filter-btn" data-filter="earnings" onclick="toggleCalFilter('earnings')"
+          style="padding:4px 10px;border:1px solid var(--border);background:#fff;color:var(--text);border-radius:14px;font-size:11px;font-weight:600;cursor:pointer;">💎 실적</button>
+        <button class="cal-filter-btn" data-filter="mag7" onclick="toggleCalFilter('mag7')"
+          style="padding:4px 10px;border:1px solid var(--border);background:#fff;color:var(--text);border-radius:14px;font-size:11px;font-weight:600;cursor:pointer;">⭐ Mag 7만</button>
+        <button class="cal-filter-btn" data-filter="myholdings" onclick="toggleCalFilter('myholdings')"
+          style="padding:4px 10px;border:1px solid var(--border);background:#fff;color:var(--text);border-radius:14px;font-size:11px;font-weight:600;cursor:pointer;">💼 내 보유만</button>
+        <span style="margin-left:auto;font-size:11px;color:var(--sub);" id="cal-result-count">—</span>
+      </div>
+
+      <!-- 중요도 필터 -->
+      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:8px;">
+        <span style="font-size:11px;color:var(--sub);font-weight:600;margin-right:4px;">중요도:</span>
+        <button class="cal-imp-btn active" data-imp="0" onclick="setCalImportance(0)"
+          style="padding:4px 10px;border:1px solid #2563eb;background:#2563eb;color:#fff;border-radius:14px;font-size:11px;font-weight:600;cursor:pointer;">전부</button>
+        <button class="cal-imp-btn" data-imp="4" onclick="setCalImportance(4)"
+          style="padding:4px 10px;border:1px solid var(--border);background:#fff;color:var(--text);border-radius:14px;font-size:11px;font-weight:600;cursor:pointer;">● 이상</button>
+        <button class="cal-imp-btn" data-imp="5" onclick="setCalImportance(5)"
+          style="padding:4px 10px;border:1px solid var(--border);background:#fff;color:var(--text);border-radius:14px;font-size:11px;font-weight:600;cursor:pointer;">●● 핵심만</button>
+      </div>
+    </div>
+
+    <!-- 본문 -->
+    <div id="cal-body">
+      <div class="spinner" style="margin:40px auto;"></div>
+    </div>
+
+    <!-- 안내 -->
+    <div class="card" style="margin-top:14px;padding:10px 14px;background:#f8fafc;font-size:11px;color:var(--sub);line-height:1.7;">
+      💡 <b>매크로 일정</b>: BLS·Fed 공식 일정 기반 (연 1회 수동 갱신)<br>
+      💡 <b>실적 일정</b>: yfinance 자동 수집, 12시간 캐시 (Mag 7 + 보유 종목 자동, ETF 제외)<br>
+      💡 <b>시간 표기</b>: ET → KST 환산. <code>⁺</code> 표시는 다음날<br>
+      💡 <b>중요도</b>: ●● = FOMC/CPI/NFP 같은 핵심 이벤트, ● = PPI/PCE/GDP 등
+    </div>
+
+  </div>
+
 </div><!-- /main -->
 
 <script>
@@ -1431,7 +1493,7 @@ function closeSidebar() {
 }
 
 function showPage(page) {
-  ['dashboard','classic','growth','modern','tenbagger','backtest','smartmoney','liquidity','rebalance','portfolio'].forEach(p => {
+  ['dashboard','classic','growth','modern','tenbagger','backtest','smartmoney','liquidity','rebalance','portfolio','calendar'].forEach(p => {
     document.getElementById('page-'+p).style.display = p===page?'block':'none';
     const nav = document.getElementById('nav-'+p);
     if(nav) nav.classList.toggle('active', p===page);
@@ -1454,6 +1516,9 @@ function showPage(page) {
   }
   if(page === 'portfolio') {
     loadPortfolio();
+  }
+  if(page === 'calendar') {
+    loadCalendar();
   }
   if(['classic','growth','modern'].includes(page)) {
     if(_lastResults && _lastResults.length>0) renderModelPage(page);
@@ -3077,7 +3142,6 @@ async function loadPortfolio() {
     document.getElementById('pf-updated').textContent = `업데이트: ${data.updated_at} · 환율 ₩${data.usd_krw}`;
     renderPortfolio();
     loadSnapshots();
-    loadCalendar();
     loadAlignment();
   } catch(e) {
     document.getElementById('pf-updated').textContent = '❌ 연결 실패';
@@ -3120,124 +3184,275 @@ const GICS_SECTORS = [
 let _calendarData = null;
 
 async function loadCalendar() {
-  const body = document.getElementById('pf-calendar-body');
+  const body = document.getElementById('cal-body');
   if(!body) return;
-  const rangeEl = document.getElementById('pf-calendar-range');
+  const rangeEl = document.getElementById('cal-range');
   const days = rangeEl ? parseInt(rangeEl.value) || 30 : 30;
+  // 로딩 표시
+  body.innerHTML = '<div class="spinner" style="margin:40px auto;"></div>';
   try {
     const res = await fetch(`${API}/api/calendar/upcoming?days=${days}`);
     const data = await res.json();
     if(!data.ok) {
-      body.innerHTML = `<div style="text-align:center;padding:12px;color:#dc2626;font-size:12px;">❌ ${data.error || '로드 실패'}</div>`;
+      body.innerHTML = `<div class="card" style="text-align:center;padding:24px;color:#dc2626;font-size:13px;">❌ ${data.error || '로드 실패'}</div>`;
       return;
     }
     _calendarData = data;
     renderCalendar();
   } catch(e) {
-    body.innerHTML = `<div style="text-align:center;padding:12px;color:#dc2626;font-size:12px;">❌ 서버 연결 실패</div>`;
+    body.innerHTML = `<div class="card" style="text-align:center;padding:24px;color:#dc2626;font-size:13px;">❌ 서버 연결 실패</div>`;
     console.error(e);
   }
+}
+
+// 현재 뷰 / 필터 상태
+let _calView = 'list';        // 'list' | 'month'
+let _calFilter = 'all';       // 'all' | 'macro' | 'earnings' | 'mag7' | 'myholdings'
+let _calMinImp = 0;           // 0=전부, 4=●이상, 5=●●만
+
+function switchCalView(v) {
+  _calView = v;
+  document.querySelectorAll('#cal-view-list-btn, #cal-view-month-btn').forEach(b => {
+    b.classList.remove('active');
+    b.style.background = 'transparent';
+    b.style.color = 'var(--sub)';
+    b.style.boxShadow = 'none';
+  });
+  const activeBtn = document.getElementById(v === 'list' ? 'cal-view-list-btn' : 'cal-view-month-btn');
+  if(activeBtn) {
+    activeBtn.classList.add('active');
+    activeBtn.style.background = '#fff';
+    activeBtn.style.color = 'var(--text)';
+    activeBtn.style.boxShadow = '0 1px 3px rgba(0,0,0,.08)';
+  }
+  renderCalendar();
+}
+
+function toggleCalFilter(filter) {
+  _calFilter = filter;
+  document.querySelectorAll('.cal-filter-btn').forEach(b => {
+    const isActive = b.dataset.filter === filter;
+    b.classList.toggle('active', isActive);
+    b.style.background = isActive ? '#2563eb' : '#fff';
+    b.style.color      = isActive ? '#fff'    : 'var(--text)';
+    b.style.borderColor = isActive ? '#2563eb' : 'var(--border)';
+  });
+  renderCalendar();
+}
+
+function setCalImportance(min) {
+  _calMinImp = min;
+  document.querySelectorAll('.cal-imp-btn').forEach(b => {
+    const isActive = parseInt(b.dataset.imp) === min;
+    b.classList.toggle('active', isActive);
+    b.style.background = isActive ? '#2563eb' : '#fff';
+    b.style.color      = isActive ? '#fff'    : 'var(--text)';
+    b.style.borderColor = isActive ? '#2563eb' : 'var(--border)';
+  });
+  renderCalendar();
+}
+
+// 필터 적용
+function _applyCalFilters(events) {
+  return events.filter(ev => {
+    // 카테고리 필터
+    if(_calFilter === 'macro' && ev.category === 'Earnings') return false;
+    if(_calFilter === 'earnings' && ev.category !== 'Earnings') return false;
+    if(_calFilter === 'mag7' && !(ev.category === 'Earnings' && ev.is_mag7)) return false;
+    if(_calFilter === 'myholdings' && !(ev.category === 'Earnings' && !ev.is_mag7)) return false;
+    // 중요도 필터
+    if(_calMinImp > 0 && (ev.importance || 0) < _calMinImp) return false;
+    return true;
+  });
+}
+
+// ET → KST 시간 표기
+function _fmtKstTime(ev) {
+  if(!ev.time) return '';
+  if(ev.category === 'Earnings') {
+    const lab = ev.time_label || ev.time;
+    return `<span style="color:#0891b2;font-weight:600;font-size:11px;">${lab}</span>`;
+  }
+  const [hh, mm] = ev.time.split(':').map(x => parseInt(x));
+  if(isNaN(hh)) return `<span style="color:#64748b;font-size:11px;">${ev.time} ET</span>`;
+  const month = parseInt(ev.date.split('-')[1]);
+  const isDst = month >= 3 && month <= 10;
+  let kstH = hh + (isDst ? 13 : 14);
+  let kstNextDay = false;
+  if(kstH >= 24) { kstH -= 24; kstNextDay = true; }
+  const kstStr = `${String(kstH).padStart(2,'0')}:${String(mm).padStart(2,'0')}${kstNextDay ? '⁺' : ''}`;
+  return `<span style="color:#64748b;font-size:11px;font-weight:600;">${kstStr} KST</span>`;
+}
+
+function _fmtImportance(imp) {
+  if(imp >= 5) return '<span style="color:#dc2626;font-size:9px;letter-spacing:-1px;margin-left:4px;">●●</span>';
+  if(imp >= 4) return '<span style="color:#ea580c;font-size:9px;margin-left:4px;">●</span>';
+  return '';
+}
+
+function _fmtDateHeader(dateStr, daysUntil) {
+  const d = new Date(dateStr + 'T00:00:00');
+  const m = d.getMonth() + 1;
+  const day = d.getDate();
+  const dow = ['일','월','화','수','목','금','토'][d.getDay()];
+  let badge;
+  if(daysUntil === 0) badge = '<span style="background:#dc2626;color:#fff;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700;margin-left:6px;">오늘</span>';
+  else if(daysUntil === 1) badge = '<span style="background:#ea580c;color:#fff;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700;margin-left:6px;">내일</span>';
+  else if(daysUntil <= 3) badge = `<span style="background:#f59e0b;color:#fff;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700;margin-left:6px;">D-${daysUntil}</span>`;
+  else badge = `<span style="color:#64748b;font-size:11px;font-weight:600;margin-left:6px;">D-${daysUntil}</span>`;
+  const isWeekend = d.getDay() === 0 || d.getDay() === 6;
+  const dowColor = d.getDay() === 0 ? '#dc2626' : (d.getDay() === 6 ? '#2563eb' : 'var(--text)');
+  return `<span style="color:${dowColor};">${m}/${day} (${dow})</span>${badge}`;
 }
 
 function renderCalendar() {
   const data = _calendarData;
   if(!data) return;
-  const body = document.getElementById('pf-calendar-body');
-  const cnt  = document.getElementById('pf-calendar-count');
+  const body = document.getElementById('cal-body');
+  const cnt  = document.getElementById('cal-result-count');
 
-  if(!data.events || data.events.length === 0) {
-    body.innerHTML = `<div style="text-align:center;padding:16px;color:var(--sub);font-size:12px;">📭 향후 ${data.days}일 내 등록된 일정이 없습니다</div>`;
-    if(cnt) cnt.textContent = '';
+  const filteredEvents = _applyCalFilters(data.events || []);
+
+  if(cnt) cnt.textContent = `총 ${filteredEvents.length}건 / 전체 ${data.count}건`;
+
+  if(!filteredEvents.length) {
+    body.innerHTML = `<div class="card" style="text-align:center;padding:32px;color:var(--sub);font-size:13px;">📭 필터 조건에 맞는 일정이 없습니다</div>`;
     return;
   }
 
-  if(cnt) cnt.textContent = `· ${data.count}건`;
+  if(_calView === 'list') {
+    renderCalListView(filteredEvents);
+  } else {
+    renderCalMonthView(filteredEvents);
+  }
+}
 
-  // 날짜별 그룹화
+// ─────── 리스트 뷰 ───────
+function renderCalListView(events) {
+  const body = document.getElementById('cal-body');
+  // 날짜별 그룹
   const byDate = {};
-  data.events.forEach(ev => {
+  events.forEach(ev => {
     if(!byDate[ev.date]) byDate[ev.date] = [];
     byDate[ev.date].push(ev);
   });
   const sortedDates = Object.keys(byDate).sort();
 
-  // 한국식 날짜 포맷
-  const fmtDate = (dateStr, daysUntil) => {
-    const d = new Date(dateStr + 'T00:00:00');
-    const m = d.getMonth() + 1;
-    const day = d.getDate();
-    const dow = ['일','월','화','수','목','금','토'][d.getDay()];
-    let badge;
-    if(daysUntil === 0) badge = '<span style="background:#dc2626;color:#fff;padding:1px 6px;border-radius:3px;font-size:10px;font-weight:700;margin-left:4px;">오늘</span>';
-    else if(daysUntil === 1) badge = '<span style="background:#ea580c;color:#fff;padding:1px 6px;border-radius:3px;font-size:10px;font-weight:700;margin-left:4px;">내일</span>';
-    else if(daysUntil <= 3) badge = `<span style="background:#f59e0b;color:#fff;padding:1px 6px;border-radius:3px;font-size:10px;font-weight:700;margin-left:4px;">D-${daysUntil}</span>`;
-    else badge = `<span style="color:#92400e;font-size:11px;font-weight:600;margin-left:4px;">D-${daysUntil}</span>`;
-    return `${m}/${day} (${dow})${badge}`;
-  };
-
-  // 시간 라벨 (ET → KST 환산: ET + 13시간 또는 14시간 일광절약)
-  // 단순화: ET 8:30 → 21:30 KST (DST 적용 4월~11월 초)
-  const fmtTime = (ev) => {
-    if(!ev.time) return '';
-    if(ev.category === 'Earnings') {
-      // BMO/AMC/TBD
-      const lab = ev.time_label || ev.time;
-      return `<span style="color:#0891b2;font-weight:600;font-size:11px;">${lab}</span>`;
-    }
-    // ET → KST 변환 (DST 가정)
-    const [hh, mm] = ev.time.split(':').map(x => parseInt(x));
-    if(isNaN(hh)) return `<span style="color:#64748b;font-size:11px;">${ev.time} ET</span>`;
-    // 4~10월: ET +13h. 11~3월: ET +14h
-    const month = parseInt(ev.date.split('-')[1]);
-    const isDst = month >= 3 && month <= 10;  // 대략
-    let kstH = hh + (isDst ? 13 : 14);
-    let kstNextDay = false;
-    if(kstH >= 24) { kstH -= 24; kstNextDay = true; }
-    const kstStr = `${String(kstH).padStart(2,'0')}:${String(mm).padStart(2,'0')}${kstNextDay ? '⁺' : ''}`;
-    return `<span style="color:#64748b;font-size:11px;font-weight:600;">${kstStr} KST</span>`;
-  };
-
-  // 중요도 점 (3 미만은 출력 안 함, 5는 빨강 점 2개)
-  const fmtImportance = (imp) => {
-    if(imp >= 5) return '<span style="color:#dc2626;font-size:9px;letter-spacing:-1px;margin-left:4px;">●●</span>';
-    if(imp >= 4) return '<span style="color:#ea580c;font-size:9px;margin-left:4px;">●</span>';
-    return '';
-  };
-
-  let html = '<div style="display:flex;flex-direction:column;gap:8px;">';
+  let html = '<div style="display:flex;flex-direction:column;gap:10px;">';
   for(const date of sortedDates) {
     const evs = byDate[date];
     const daysUntil = evs[0].days_until;
-    html += `<div style="background:#fff;border:1px solid #fde68a;border-radius:8px;padding:8px 10px;">`;
-    html += `<div style="font-size:12px;font-weight:700;color:#92400e;margin-bottom:6px;">${fmtDate(date, daysUntil)}</div>`;
-    html += `<div style="display:flex;flex-direction:column;gap:4px;">`;
+    // 첫 카드 강조 (오늘/내일/D-3 이내)
+    const headerBg = daysUntil <= 3 ? 'linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%)' : '#fff';
+    const headerBorder = daysUntil <= 3 ? '#fcd34d' : 'var(--border)';
+    html += `<div class="card" style="padding:12px 14px;background:${headerBg};border:1px solid ${headerBorder};">`;
+    html += `<div style="font-size:13px;font-weight:800;margin-bottom:8px;">${_fmtDateHeader(date, daysUntil)}</div>`;
+    html += `<div style="display:flex;flex-direction:column;gap:6px;">`;
     for(const ev of evs) {
       const tickerLabel = ev.ticker
-        ? `<span style="background:${ev.is_mag7 ? '#0891b2' : '#94a3b8'};color:#fff;padding:1px 6px;border-radius:3px;font-size:10px;font-weight:700;margin-right:6px;">${ev.ticker}</span>`
+        ? `<span style="background:${ev.is_mag7 ? '#0891b2' : '#94a3b8'};color:#fff;padding:2px 7px;border-radius:4px;font-size:10px;font-weight:700;margin-right:6px;letter-spacing:.3px;">${ev.ticker}</span>`
         : '';
       html += `
-        <div style="display:flex;align-items:center;gap:6px;font-size:12px;line-height:1.4;">
-          <span style="font-size:14px;flex-shrink:0;">${ev.emoji}</span>
+        <div style="display:flex;align-items:center;gap:8px;font-size:13px;line-height:1.5;padding:6px 0;border-bottom:1px dashed #e2e8f0;">
+          <span style="font-size:16px;flex-shrink:0;width:22px;text-align:center;">${ev.emoji}</span>
           ${tickerLabel}
-          <span style="color:var(--text);font-weight:500;flex:1;min-width:0;">${ev.title}${fmtImportance(ev.importance)}</span>
-          <span style="flex-shrink:0;">${fmtTime(ev)}</span>
+          <span style="color:var(--text);font-weight:500;flex:1;min-width:0;">${ev.title}${_fmtImportance(ev.importance)}</span>
+          <span style="flex-shrink:0;">${_fmtKstTime(ev)}</span>
         </div>
       `;
     }
     html += `</div></div>`;
   }
   html += '</div>';
-  html += `<div style="font-size:10px;color:var(--sub);margin-top:8px;text-align:center;">💡 매크로(BLS/Fed 공식) · 실적(yfinance, 12h 캐시) · 시간은 ET→KST 환산 (⁺ = 다음날)</div>`;
   body.innerHTML = html;
 }
 
+// ─────── 달력 뷰 ───────
+function renderCalMonthView(events) {
+  const body = document.getElementById('cal-body');
+  // 이벤트를 날짜별로 그룹
+  const byDate = {};
+  events.forEach(ev => {
+    if(!byDate[ev.date]) byDate[ev.date] = [];
+    byDate[ev.date].push(ev);
+  });
+
+  // 표시할 월 범위: 첫 이벤트 월 ~ 마지막 이벤트 월
+  const allDates = Object.keys(byDate).sort();
+  const todayStr = _calendarData.today;
+  const firstDate = allDates[0] || todayStr;
+  const lastDate = allDates[allDates.length - 1] || todayStr;
+  const firstY = parseInt(firstDate.slice(0,4));
+  const firstM = parseInt(firstDate.slice(5,7));
+  const lastY  = parseInt(lastDate.slice(0,4));
+  const lastM  = parseInt(lastDate.slice(5,7));
+
+  let html = '';
+  let y = firstY, m = firstM;
+  while(y < lastY || (y === lastY && m <= lastM)) {
+    html += renderCalSingleMonth(y, m, byDate, todayStr);
+    m++;
+    if(m > 12) { m = 1; y++; }
+  }
+  body.innerHTML = html;
+}
+
+function renderCalSingleMonth(year, month, byDate, todayStr) {
+  // 해당 월의 첫 날 요일 + 마지막 날
+  const firstDay = new Date(year, month - 1, 1);
+  const lastDay = new Date(year, month, 0);
+  const daysInMonth = lastDay.getDate();
+  const startDow = firstDay.getDay();  // 0=일
+
+  let html = `<div class="card" style="padding:14px;margin-bottom:14px;">`;
+  html += `<div style="font-size:16px;font-weight:800;margin-bottom:10px;color:var(--text);">${year}년 ${month}월</div>`;
+  html += `<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;">`;
+  // 요일 헤더
+  ['일','월','화','수','목','금','토'].forEach((d,i) => {
+    const c = i === 0 ? '#dc2626' : (i === 6 ? '#2563eb' : 'var(--sub)');
+    html += `<div style="text-align:center;font-size:11px;font-weight:700;color:${c};padding:4px 0;">${d}</div>`;
+  });
+  // 빈 칸 (월 시작 전)
+  for(let i = 0; i < startDow; i++) html += `<div></div>`;
+  // 날짜 셀
+  for(let day = 1; day <= daysInMonth; day++) {
+    const dStr = `${year}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+    const evs = byDate[dStr] || [];
+    const isToday = dStr === todayStr;
+    const dow = (startDow + day - 1) % 7;
+    const dowColor = dow === 0 ? '#dc2626' : (dow === 6 ? '#2563eb' : 'var(--text)');
+    const cellBg = isToday ? '#dbeafe' : (evs.length ? '#fffbeb' : '#fff');
+    const cellBorder = isToday ? '#2563eb' : (evs.length ? '#fcd34d' : '#e2e8f0');
+    html += `<div style="border:1px solid ${cellBorder};background:${cellBg};border-radius:6px;padding:4px;min-height:64px;display:flex;flex-direction:column;gap:2px;">`;
+    html += `<div style="font-size:11px;font-weight:${isToday ? '800' : '600'};color:${dowColor};">${day}</div>`;
+    // 이벤트 칩 (최대 3개, 초과는 +N)
+    const shown = evs.slice(0, 3);
+    for(const ev of shown) {
+      const label = ev.ticker || ev.category;
+      const bg = ev.category === 'Earnings'
+        ? (ev.is_mag7 ? '#0891b2' : '#94a3b8')
+        : ev.color;
+      html += `<div title="${(ev.title || '').replace(/"/g,'')}"
+        style="background:${bg};color:#fff;font-size:9px;font-weight:700;padding:1px 4px;border-radius:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+        ${ev.emoji} ${label}
+      </div>`;
+    }
+    if(evs.length > 3) {
+      html += `<div style="font-size:9px;color:var(--sub);font-weight:600;padding-left:2px;">+${evs.length - 3}건</div>`;
+    }
+    html += `</div>`;
+  }
+  html += `</div></div>`;
+  return html;
+}
+
 async function refreshCalendarEarnings() {
-  const btn = document.getElementById('pf-calendar-refresh-btn');
+  const btn = document.getElementById('cal-refresh-btn');
   if(!btn) return;
   btn.disabled = true;
   btn.style.opacity = '0.5';
   const orig = btn.innerHTML;
-  btn.innerHTML = '⏳';
+  btn.innerHTML = '⏳ 갱신 중...';
   try {
     await fetch(`${API}/api/calendar/refresh_earnings`, {method: 'POST'});
     await loadCalendar();
