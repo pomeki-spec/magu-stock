@@ -295,6 +295,40 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
   .fred-chart-wrap{height:160px !important;}
   /* ── 모델 설명 카드 3열→1열 ── */
   .cond-grid{grid-template-columns:1fr !important;}
+  /* ── 주요 일정 리스트 모바일 (티커 셀 축소, 시간 셀 축소) ── */
+  .cal-row{grid-template-columns:24px 56px 1fr 24px 72px !important;gap:6px !important;font-size:12px !important;}
+  .cal-cell-emoji{font-size:14px !important;}
+  .cal-ticker-badge{width:48px !important;font-size:9px !important;}
+}
+/* ── 주요 일정 리스트 (데스크톱 기본) ── */
+.cal-row-list{display:flex;flex-direction:column;}
+.cal-row{
+  display:grid;
+  grid-template-columns:28px 64px 1fr 32px 100px;
+  align-items:center;
+  gap:8px;
+  font-size:13px;
+  line-height:1.5;
+  padding:7px 0;
+  border-bottom:1px dashed #e2e8f0;
+}
+.cal-row.cal-row-last{border-bottom:none;}
+.cal-cell-emoji{font-size:16px;text-align:center;}
+.cal-cell-ticker{text-align:left;}
+.cal-cell-title{color:var(--text);font-weight:500;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.cal-cell-imp{text-align:center;}
+.cal-cell-time{text-align:right;}
+.cal-ticker-badge{
+  display:inline-block;
+  width:56px;
+  padding:2px 0;
+  color:#fff;
+  border-radius:4px;
+  font-size:10px;
+  font-weight:700;
+  letter-spacing:.3px;
+  text-align:center;
+  font-family:'SF Mono',Menlo,Consolas,monospace;
 }
 .fred-chart-grid>div{min-width:0;overflow:hidden;}
 .fred-chart-wrap{position:relative;width:100%;height:200px;min-width:0;}
@@ -3342,22 +3376,38 @@ function renderCalListView(events) {
   for(const date of sortedDates) {
     const evs = byDate[date];
     const daysUntil = evs[0].days_until;
-    // 첫 카드 강조 (오늘/내일/D-3 이내)
+    // 정렬: 매크로 → 실적 (시간순 보존), 매크로끼리도 시간순
+    const sortedEvs = [...evs].sort((a, b) => {
+      const ma = a.category === 'Earnings' ? 1 : 0;
+      const mb = b.category === 'Earnings' ? 1 : 0;
+      if(ma !== mb) return ma - mb;
+      return (a.time || '99:99').localeCompare(b.time || '99:99');
+    });
+
     const headerBg = daysUntil <= 3 ? 'linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%)' : '#fff';
     const headerBorder = daysUntil <= 3 ? '#fcd34d' : 'var(--border)';
     html += `<div class="card" style="padding:12px 14px;background:${headerBg};border:1px solid ${headerBorder};">`;
-    html += `<div style="font-size:13px;font-weight:800;margin-bottom:8px;">${_fmtDateHeader(date, daysUntil)}</div>`;
-    html += `<div style="display:flex;flex-direction:column;gap:6px;">`;
-    for(const ev of evs) {
-      const tickerLabel = ev.ticker
-        ? `<span style="background:${ev.is_mag7 ? '#0891b2' : '#94a3b8'};color:#fff;padding:2px 7px;border-radius:4px;font-size:10px;font-weight:700;margin-right:6px;letter-spacing:.3px;">${ev.ticker}</span>`
+    html += `<div style="font-size:13px;font-weight:800;margin-bottom:10px;">${_fmtDateHeader(date, daysUntil)}</div>`;
+    html += `<div class="cal-row-list">`;
+
+    for(let i = 0; i < sortedEvs.length; i++) {
+      const ev = sortedEvs[i];
+      const isLast = i === sortedEvs.length - 1;
+      // 티커 셀 (매크로는 빈 칸으로 너비 차지)
+      const tickerCell = ev.ticker
+        ? `<span class="cal-ticker-badge" style="background:${ev.is_mag7 ? '#0891b2' : '#94a3b8'};">${ev.ticker}</span>`
         : '';
+      const impCell = _fmtImportance(ev.importance) || '';
+      const timeCell = _fmtKstTime(ev);
+      const rowClass = isLast ? 'cal-row cal-row-last' : 'cal-row';
+
       html += `
-        <div style="display:flex;align-items:center;gap:8px;font-size:13px;line-height:1.5;padding:6px 0;border-bottom:1px dashed #e2e8f0;">
-          <span style="font-size:16px;flex-shrink:0;width:22px;text-align:center;">${ev.emoji}</span>
-          ${tickerLabel}
-          <span style="color:var(--text);font-weight:500;flex:1;min-width:0;">${ev.title}${_fmtImportance(ev.importance)}</span>
-          <span style="flex-shrink:0;">${_fmtKstTime(ev)}</span>
+        <div class="${rowClass}">
+          <span class="cal-cell-emoji">${ev.emoji}</span>
+          <span class="cal-cell-ticker">${tickerCell}</span>
+          <span class="cal-cell-title">${ev.title}</span>
+          <span class="cal-cell-imp">${impCell}</span>
+          <span class="cal-cell-time">${timeCell}</span>
         </div>
       `;
     }
