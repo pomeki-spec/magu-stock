@@ -2996,6 +2996,8 @@ async def add_holding(request: Request):
         """, (account, ticker, name, sector, quantity, avg, currency, memo))
         new_id = cur.fetchone()[0]
         conn.commit(); cur.close(); conn.close()
+        # 보유 종목 추가 → 일정 페이지 즉시 반영 위해 실적 캐시 무효화
+        _earnings_cache.clear()
         return {"ok": True, "id": new_id, "currency": currency, "name": name,
                 "sector": sector, "sector_method": sector_method}
     except Exception as e:
@@ -3026,6 +3028,8 @@ async def update_holding(holding_id: int, request: Request):
               payload.get('memo'),
               holding_id))
         conn.commit(); cur.close(); conn.close()
+        # 보유 종목 수정 → 캐시 무효화
+        _earnings_cache.clear()
         return {"ok": True}
     except Exception as e:
         logger.error(f"holdings PUT 오류: {e}")
@@ -3040,6 +3044,8 @@ def delete_holding(holding_id: int, request: Request):
         conn = get_conn(); cur = conn.cursor()
         cur.execute("DELETE FROM holdings WHERE id = %s", (holding_id,))
         conn.commit(); cur.close(); conn.close()
+        # 보유 종목 삭제 → 캐시 무효화
+        _earnings_cache.clear()
         return {"ok": True}
     except Exception as e:
         logger.error(f"holdings DELETE 오류: {e}")
@@ -3164,40 +3170,75 @@ def reclassify_all_sectors(request: Request):
 def calendar_upcoming(request: Request, days: int = 30):
     """
     향후 N일 주요 일정 — 매크로 + 실적 (Mag7 + 보유 종목)
+    🇰🇷 모든 날짜/시간을 KST(한국 시간) 기준으로 변환해서 반환
     days: 조회 기간 (기본 30일, 최대 90일)
-    반환: {ok, today, events: [{date, time, category, title, ticker?, importance, emoji, color, days_until}]}
+    반환: {ok, today, events: [{date(KST), time(KST 또는 BMO/AMC), category, ..., days_until}]}
     """
     try:
         days = max(1, min(int(days or 30), 90))
-        # ET 기준 today (이벤트가 ET 시간으로 정의돼 있으므로 ET 기준이 정합)
-        et_tz = pytz.timezone("America/New_York")
-        today_et = datetime.now(et_tz).date()
-        cutoff = today_et + timedelta(days=days)
+        kst_tz = pytz.timezone("Asia/Seoul")
+        et_tz  = pytz.timezone("America/New_York")
+        today_kst = datetime.now(kst_tz).date()
+        # 조회 윈도우: ET 기준으로도 약간 여유롭게 (양 끝 ±1일 이벤트는 KST 변환 후 윈도우 내일 수 있음)
+        et_start = today_kst - timedelta(days=2)
+        et_cutoff = today_kst + timedelta(days=days + 1)
 
         events = []
 
-        # 1) 매크로 이벤트
-        for date_str, time_str, category, title, importance in MACRO_EVENTS:
+        def _et_to_kst(date_str: str, time_str: str):
+            """
+            ET 날짜+시간을 KST로 변환.
+            time_str이 빈 문자열이면 None 시각 (날짜만 변환, 자정 기준)
+            반환: (kst_date_str 'YYYY-MM-DD', kst_time_str 'HH:MM' or '')
+            """
             try:
-                d = datetime.strptime(date_str, "%Y-%m-%d").date()
+                if time_str and ":" in time_str:
+                    hh, mm = [int(x) for x in time_str.split(":")[:2]]
+                    et_naive = datetime.strptime(date_str, "%Y-%m-%d").replace(hour=hh, minute=mm)
+                else:
+                    et_naive = datetime.strptime(date_str, "%Y-%m-%d")
+                et_aware = et_tz.localize(et_naive)
+                kst = et_aware.astimezone(kst_tz)
+                if time_str:
+                    return kst.strftime("%Y-%m-%d"), kst.strftime("%H:%M")
+                else:
+                    return kst.strftime("%Y-%m-%d"), ""
+            except Exception:
+                return date_str, time_str
+
+        # 1) 매크로 이벤트 — ET → KST 변환
+        for et_date_str, et_time_str, category, title, importance in MACRO_EVENTS:
+            try:
+                et_d = datetime.strptime(et_date_str, "%Y-%m-%d").date()
             except Exception:
                 continue
-            if d < today_et or d > cutoff:
+            # 윈도우 사전 필터링 (ET 기준 ±1일 여유)
+            if et_d < et_start or et_d > et_cutoff:
                 continue
+
+            kst_date, kst_time = _et_to_kst(et_date_str, et_time_str)
+            try:
+                kd = datetime.strptime(kst_date, "%Y-%m-%d").date()
+            except Exception:
+                continue
+            # KST 기준 윈도우 필터
+            if kd < today_kst or kd > today_kst + timedelta(days=days):
+                continue
+
             style = EVENT_STYLE.get(category, {"emoji":"📌","color":"#64748b"})
             events.append({
-                "date":       date_str,
-                "time":       time_str,
+                "date":       kst_date,
+                "time":       kst_time,
                 "category":   category,
                 "title":      title,
                 "ticker":     None,
                 "importance": importance,
                 "emoji":      style["emoji"],
                 "color":      style["color"],
-                "days_until": (d - today_et).days,
+                "days_until": (kd - today_kst).days,
             })
 
-        # 2) 실적 일정 — Mag 7 + 보유 종목 (USD 종목만, 한국주는 별도 로직 필요)
+        # 2) 실적 일정 — Mag 7 + 보유 종목
         tickers_to_check = set(MAG7_TICKERS)
         try:
             if DATABASE_URL:
@@ -3205,8 +3246,6 @@ def calendar_upcoming(request: Request, days: int = 30):
                 cur.execute("SELECT DISTINCT ticker FROM holdings WHERE currency='USD'")
                 for r in cur.fetchall():
                     tk = (r['ticker'] or '').strip().upper()
-                    # ETF는 실적 일정 의미 없음 — 추론 결과 활용해서 ETF 제외 가능하지만,
-                    # 단순화: 자주 쓰는 레버리지 ETF는 스킵, 나머지는 시도
                     if tk in ETF_SECTOR_MAP:
                         continue
                     tickers_to_check.add(tk)
@@ -3228,42 +3267,55 @@ def calendar_upcoming(request: Request, days: int = 30):
                     except Exception:
                         earnings_results[tk] = None
 
-        # 실적 이벤트 추가
+        # 실적 이벤트 추가 — yfinance가 ET 기준 날짜 반환하므로 KST 변환
         style_e = EVENT_STYLE["Earnings"]
         for tk, data in earnings_results.items():
             if not data:
                 continue
+            et_date = data.get("date")
             try:
-                d = datetime.strptime(data["date"], "%Y-%m-%d").date()
+                _ = datetime.strptime(et_date, "%Y-%m-%d").date()
             except Exception:
                 continue
-            if d < today_et or d > cutoff:
-                continue
+
             when = data.get("when") or "TBD"
             when_label = {"BMO":"장전","AMC":"장후","TBD":"미정"}.get(when, when)
+
+            # 실적은 시간 미정(BMO/AMC)이지만 대략 위치를 KST로 환산해서 날짜 결정
+            # BMO=ET 7:00 (장전, 일반적), AMC=ET 16:30 (장후), TBD=ET 09:30(시초가 가정)
+            proxy_time = {"BMO":"07:00","AMC":"16:30","TBD":"09:30"}.get(when, "09:30")
+            kst_date, _kst_time = _et_to_kst(et_date, proxy_time)
+            try:
+                kd = datetime.strptime(kst_date, "%Y-%m-%d").date()
+            except Exception:
+                continue
+            if kd < today_kst or kd > today_kst + timedelta(days=days):
+                continue
+
             is_mag7 = tk in MAG7_TICKERS
             events.append({
-                "date":       data["date"],
-                "time":       when,  # BMO/AMC/TBD
-                "time_label": when_label,
+                "date":       kst_date,
+                "time":       when,                # BMO/AMC/TBD (시각이 아닌 라벨 코드)
+                "time_label": when_label,          # 장전/장후/미정
                 "category":   "Earnings",
                 "title":      f"{tk} 실적 ({when_label})",
                 "ticker":     tk,
                 "importance": 5 if is_mag7 else 3,
                 "emoji":      "💎" if is_mag7 else "📊",
                 "color":      style_e["color"],
-                "days_until": (d - today_et).days,
+                "days_until": (kd - today_kst).days,
                 "is_mag7":    is_mag7,
             })
 
-        # 정렬: 날짜 → 시간 (ET 기준 시각이 빈 문자열이면 마지막)
+        # 정렬: 날짜 → 시간 (시각 빈 문자열이면 마지막)
         def _sort_key(ev):
             return (ev["date"], ev.get("time") or "99:99")
         events.sort(key=_sort_key)
 
         return {
             "ok": True,
-            "today": today_et.strftime("%Y-%m-%d"),
+            "today": today_kst.strftime("%Y-%m-%d"),
+            "tz": "KST",
             "days": days,
             "count": len(events),
             "events": events,
