@@ -2816,25 +2816,55 @@ def _fetch_live_price(ticker: str, max_age_minutes=10):
     return data
 
 def _fetch_live_price_uncached(ticker: str):
-    """단일 종목 실시간 가격 + 섹터 (캐시 우회)"""
+    """
+    단일 종목 실시간 가격 + 섹터 (캐시 우회)
+    🇺🇸 미국 종목: marketState에 따라 PRE/POST/REGULAR 가격 우선 사용
+    🇰🇷 한국 종목 (.KS/.KQ): yfinance가 시간외 필드 거의 안 주므로 일봉 종가 사용
+    """
     try:
         t = yf.Ticker(ticker)
         info = t.info or {}
-        hist = t.history(period="2d")
+        is_kr = ticker.endswith('.KS') or ticker.endswith('.KQ')
+        market_state = (info.get('marketState') or '').upper()
         price = None
-        if not hist.empty:
-            price = float(hist['Close'].iloc[-1])
-        elif info.get('regularMarketPrice'):
-            price = float(info['regularMarketPrice'])
+
+        if not is_kr:
+            # 미국 종목: 시간외 가격 우선 (0이나 None이면 폴백)
+            if market_state == 'PRE':
+                p = info.get('preMarketPrice')
+                if p:  # 0과 None 모두 falsy → 폴백으로 넘어감
+                    price = p
+            elif market_state in ('POST', 'POSTPOST'):
+                p = info.get('postMarketPrice')
+                if p:
+                    price = p
+            # 그 외 시간대(REGULAR/CLOSED) 또는 위에서 None일 경우 정규장 가격
+            if price is None:
+                price = info.get('regularMarketPrice') or info.get('currentPrice')
+            try:
+                price = float(price) if price else None
+            except (TypeError, ValueError):
+                price = None
+
+        # 폴백: 위에서 못 구했거나 한국 종목이면 일봉 종가
+        if price is None:
+            try:
+                hist = t.history(period="2d")
+                if not hist.empty:
+                    price = float(hist['Close'].iloc[-1])
+            except Exception:
+                pass
+
         return {
             "price": round(price, 4) if price else None,
             "name":  info.get('longName') or info.get('shortName') or ticker,
             "sector": info.get('sector') or '—',
-            "currency": info.get('currency') or ('KRW' if ticker.endswith('.KS') or ticker.endswith('.KQ') else 'USD'),
+            "currency": info.get('currency') or ('KRW' if is_kr else 'USD'),
+            "market_state": market_state if not is_kr else None,
         }
     except Exception as e:
         logger.warning(f"_fetch_live_price_uncached({ticker}) 실패: {e}")
-        return {"price": None, "name": ticker, "sector": "—", "currency": "USD"}
+        return {"price": None, "name": ticker, "sector": "—", "currency": "USD", "market_state": None}
 
 
 @app.get("/api/portfolio/holdings")
