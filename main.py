@@ -2919,16 +2919,26 @@ def get_holdings(request: Request, account: str = "all"):
         total_cash_krw = sum(c['cash_krw'] + c['cash_usd'] * usd_krw for c in cash_map.values())
         total_assets_krw = total_stock_krw + total_cash_krw
 
+        summary = {
+            "total_stock_krw": round(total_stock_krw, 0),
+            "total_cash_krw":  round(total_cash_krw,  0),
+            "total_assets_krw":round(total_assets_krw,0),
+            "stock_pct": round(total_stock_krw / total_assets_krw * 100, 2) if total_assets_krw > 0 else 0,
+            "cash_pct":  round(total_cash_krw  / total_assets_krw * 100, 2) if total_assets_krw > 0 else 0,
+        }
+
+        # 스냅샷 자동 백필 — 빈 평일 보간 (하루 1회만 실행, 사용자 무인지)
+        # account="all" 호출일 때만 트리거 (개별 계정 조회 시엔 스킵)
+        if account == "all" and total_assets_krw > 0:
+            try:
+                _backfill_snapshots(summary, usd_krw)
+            except Exception as e:
+                logger.warning(f"백필 스킵: {e}")
+
         return {
             "holdings": holdings_out,
             "cash": cash_map,
-            "summary": {
-                "total_stock_krw": round(total_stock_krw, 0),
-                "total_cash_krw":  round(total_cash_krw,  0),
-                "total_assets_krw":round(total_assets_krw,0),
-                "stock_pct": round(total_stock_krw / total_assets_krw * 100, 2) if total_assets_krw > 0 else 0,
-                "cash_pct":  round(total_cash_krw  / total_assets_krw * 100, 2) if total_assets_krw > 0 else 0,
-            },
+            "summary": summary,
             "usd_krw": round(usd_krw, 2),
             "updated_at": datetime.now(pytz.timezone("Asia/Seoul")).strftime("%Y-%m-%d %H:%M"),
         }
@@ -3462,41 +3472,93 @@ scheduler.add_job(
     misfire_grace_time=3600
 )
 
-# 매일 KST 00:05 — 자산 스냅샷 자동 저장 (일 단위 기록)
-def _daily_snapshot_job():
-    try:
-        if not DATABASE_URL:
-            return
-        # take_snapshot 내부 로직 직접 호출 (request 없이)
-        class FakeReq:
-            client = type('C', (), {'host': 'scheduler'})()
-        data = get_holdings(FakeReq(), account="all")
-        if data.get('error'):
-            logger.warning(f"스냅샷 스킵: {data['error']}")
-            return
-        summary = data['summary']
-        conn = get_conn(); cur = conn.cursor()
-        cur.execute("""
-            INSERT INTO portfolio_snapshots (snapshot_date, total_stock, total_cash, total_assets, usd_krw)
-            VALUES (CURRENT_DATE, %s, %s, %s, %s)
-            ON CONFLICT (snapshot_date) DO UPDATE SET
-                total_stock  = EXCLUDED.total_stock,
-                total_cash   = EXCLUDED.total_cash,
-                total_assets = EXCLUDED.total_assets,
-                usd_krw      = EXCLUDED.usd_krw
-        """, (summary['total_stock_krw'], summary['total_cash_krw'], summary['total_assets_krw'], data['usd_krw']))
-        conn.commit(); cur.close(); conn.close()
-        logger.info(f"일일 자산 스냅샷 저장 완료: {summary['total_assets_krw']:,}원")
-    except Exception as e:
-        logger.error(f"일일 스냅샷 오류: {e}")
 
-scheduler.add_job(
-    _daily_snapshot_job,
-    CronTrigger(hour=15, minute=5, timezone=pytz.utc),  # UTC 15:05 = KST 00:05
-    id="daily_portfolio_snapshot",
-    replace_existing=True,
-    misfire_grace_time=3600
-)
+# ══════════════════════════════════════════════════════════════
+# 스냅샷 백필 — 사용자 접속 시 자동으로 빈 날짜 채움
+# 옵션 2: 마지막 스냅샷 이후 빠진 평일을 현재 가치로 보간
+# ══════════════════════════════════════════════════════════════
+
+# 일일 1회만 실행되도록 메모리 캐시 (KST 날짜 문자열 저장)
+_backfill_last_run = {"date": None}
+
+def _backfill_snapshots(summary, usd_krw):
+    """
+    빈 날짜 자동 백필 (옵션 2 — 보간)
+    - DB에서 마지막 스냅샷 날짜 조회
+    - 그 다음날 ~ 오늘 사이의 평일 중 누락된 날짜를 현재 자산 가치로 채움
+    - 최대 30일까지만 백필 (그 이상 누락은 보간 무의미)
+    - 하루 1회만 실행 (반복 호출 시 캐시로 차단)
+    """
+    if not DATABASE_URL:
+        return
+    try:
+        kst_today = datetime.now(pytz.timezone("Asia/Seoul")).date()
+        # 같은 날 이미 백필했으면 스킵
+        if _backfill_last_run["date"] == kst_today.isoformat():
+            return
+
+        conn = get_conn(); cur = conn.cursor()
+        # 마지막 스냅샷 날짜 조회
+        cur.execute("SELECT MAX(snapshot_date) FROM portfolio_snapshots")
+        row = cur.fetchone()
+        last_date = row[0] if row else None
+
+        # 채울 날짜 목록 결정
+        if last_date is None:
+            # DB가 비어있으면 백필 안 함 (사용자가 처음 기록 버튼을 누르도록)
+            cur.close(); conn.close()
+            _backfill_last_run["date"] = kst_today.isoformat()
+            return
+
+        # 마지막 스냅샷 다음날부터 오늘까지 (오늘 포함)
+        start = last_date + timedelta(days=1)
+        end   = kst_today
+        if start > end:
+            # 이미 오늘 또는 미래 데이터까지 있으면 백필 불필요
+            cur.close(); conn.close()
+            _backfill_last_run["date"] = kst_today.isoformat()
+            return
+
+        # 30일 초과 갭이면 마지막 30일분만 채움 (방치된 계정 보호)
+        gap_days = (end - start).days + 1
+        if gap_days > 30:
+            start = end - timedelta(days=29)
+            logger.info(f"백필 범위 30일로 제한 (실제 갭: {gap_days}일)")
+
+        # 평일(월~금)만 채움
+        dates_to_fill = []
+        d = start
+        while d <= end:
+            if d.weekday() < 5:  # 0=월 ~ 4=금
+                dates_to_fill.append(d)
+            d += timedelta(days=1)
+
+        if not dates_to_fill:
+            cur.close(); conn.close()
+            _backfill_last_run["date"] = kst_today.isoformat()
+            return
+
+        # 일괄 INSERT (오늘 가치 = 보간값으로 사용)
+        # ON CONFLICT DO NOTHING — 사용자가 해당 날짜에 수동 기록한 게 있으면 보존
+        filled = 0
+        for d in dates_to_fill:
+            cur.execute("""
+                INSERT INTO portfolio_snapshots
+                    (snapshot_date, total_stock, total_cash, total_assets, usd_krw)
+                VALUES (%s, %s, %s, %s, %s)
+                ON CONFLICT (snapshot_date) DO NOTHING
+            """, (d, summary['total_stock_krw'], summary['total_cash_krw'],
+                  summary['total_assets_krw'], usd_krw))
+            if cur.rowcount:
+                filled += 1
+        conn.commit(); cur.close(); conn.close()
+
+        if filled:
+            logger.info(f"스냅샷 백필 완료: {filled}일치 ({dates_to_fill[0]} ~ {dates_to_fill[-1]})")
+        _backfill_last_run["date"] = kst_today.isoformat()
+    except Exception as e:
+        logger.error(f"스냅샷 백필 오류: {e}")
+
 
 # ── 가격 사전 갱신 (평일 KST 07:00~24:00, 10분마다) ────────────────
 def _prefetch_prices_job():
