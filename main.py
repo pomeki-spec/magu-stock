@@ -1952,12 +1952,13 @@ def root():
 def get_market_data(request: Request):
     try:
         tickers={"gold":"GC=F","wti":"CL=F","usdkrw":"KRW=X","us10y":"^TNX",
+                 "dxy":"DX-Y.NYB",
                  "vix":"^VIX","sp500":"^GSPC","nasdaq":"^IXIC","dow":"^DJI","russell":"^RUT",
                  "kospi":"^KS11","kosdaq":"^KQ11"}
         result={}
         for key,symbol in tickers.items():
             try:
-                t=yf.Ticker(symbol); hist=t.history(period="10d")
+                t=yf.Ticker(symbol); hist=t.history(period="30d")
                 if len(hist)>=2:
                     current=float(hist['Close'].iloc[-1]); prev=float(hist['Close'].iloc[-2])
                     if math.isnan(current) or math.isnan(prev) or prev==0:
@@ -1969,6 +1970,34 @@ def get_market_data(request: Request):
                         if not math.isnan(prev5):
                             row["direction"]="up" if current>prev5 else "down"
                             row["prev5"]=round(prev5,2)
+                    # ── DXY 매크로 컨텍스트 ──────────────────────────
+                    if key=="dxy" and len(hist)>=21:
+                        prev5=float(hist['Close'].iloc[-6])
+                        prev20=float(hist['Close'].iloc[-21])
+                        ma20=float(hist['Close'].iloc[-20:].mean())
+                        if not (math.isnan(prev5) or math.isnan(prev20) or math.isnan(ma20)):
+                            chg_5d=round((current/prev5-1)*100,2)
+                            chg_20d=round((current/prev20-1)*100,2)
+                            # 강도 판정 (DXY 105 = 강달러 위험, 100 = 중립선)
+                            if current>=107:    zone="강달러 위험구간 (107+)"
+                            elif current>=105:  zone="강달러 (105~107)"
+                            elif current>=102:  zone="달러 강세 (102~105)"
+                            elif current>=100:  zone="중립 (100~102)"
+                            elif current>=97:   zone="약달러 (97~100)"
+                            else:               zone="약달러 위험구간 (97 미만)"
+                            row["chg_5d"]=chg_5d
+                            row["chg_20d"]=chg_20d
+                            row["ma20"]=round(ma20,2)
+                            row["above_ma20"]=current>ma20
+                            row["direction_5d"]="up" if chg_5d>0 else "down"
+                            row["prev5"]=round(prev5,2)
+                            row["zone"]=zone
+                            # 위험자산 정합성 (DXY 상승 = 위험자산 역풍)
+                            row["risk_asset_signal"]=(
+                                "역풍 (DXY 상승)" if chg_5d>0.5
+                                else "우호 (DXY 하락)" if chg_5d<-0.5
+                                else "중립"
+                            )
                     result[key]=row
             except: result[key]={"value":None,"change":None}
 
