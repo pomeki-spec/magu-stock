@@ -524,11 +524,45 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
     <!-- ── 상단 매크로 + 하단 지표 — 동일 4열 그리드로 열 정렬 ── -->
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px;">
 
-      <!-- 상단 4개: 금/WTI/달러/국채 -->
+      <!-- 상단 5개: 금/WTI/달러/국채/DXY (DXY는 풀폭 카드로 5번째 행 시작) -->
       <div class="mkt-card"><div class="mkt-label">🏅 금 (Gold)</div><div class="mkt-val" id="gold-val">—</div><div class="mkt-chg" id="gold-chg">—</div></div>
       <div class="mkt-card"><div class="mkt-label">🛢 WTI 유가</div><div class="mkt-val" id="wti-val">—</div><div class="mkt-chg" id="wti-chg">—</div></div>
       <div class="mkt-card"><div class="mkt-label">💱 달러/원</div><div class="mkt-val" id="krw-val">—</div><div class="mkt-chg" id="krw-chg">—</div></div>
       <div class="mkt-card"><div class="mkt-label">🏦 미국 10년 국채</div><div class="mkt-val" id="bond-val">—</div><div class="mkt-chg" id="bond-chg">—</div></div>
+
+      <!-- DXY 매크로 카드 (4열 풀폭) -->
+      <div class="card" id="dxy-card" style="grid-column:1/-1;border-top:3px solid #e4e8f0;transition:border-color .3s;position:relative;padding:14px 16px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+          <div style="font-size:11px;font-weight:700;color:var(--sub);">💵 달러 인덱스 (DXY)</div>
+          <div style="font-size:10px;color:var(--sub);" id="dxy-zone">—</div>
+        </div>
+        <div style="display:flex;align-items:flex-end;gap:12px;margin-bottom:8px;">
+          <div style="font-size:24px;font-weight:800;line-height:1;" id="dxy-val">—</div>
+          <div style="font-size:13px;font-weight:700;line-height:1;" id="dxy-chg">—</div>
+          <div id="dxy-dir" style="font-size:18px;line-height:1;">—</div>
+        </div>
+        <!-- 임계대 게이지 (95~110 범위) -->
+        <div style="position:relative;height:6px;border-radius:3px;background:linear-gradient(to right,#22c55e 0%,#22c55e 20%,#eab308 35%,#eab308 50%,#f59e0b 67%,#ef4444 87%,#991b1b 100%);margin-bottom:6px;">
+          <div id="dxy-needle" style="position:absolute;top:-5px;width:14px;height:14px;background:#fff;border:3px solid #374151;border-radius:50%;transform:translateX(-50%);transition:left .6s ease;left:50%;"></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--sub);margin-bottom:8px;">
+          <span>95</span><span>100</span><span>105</span><span>110</span>
+        </div>
+        <div style="display:flex;border-top:1px solid var(--border);padding-top:8px;">
+          <div style="flex:1;text-align:center;border-right:1px solid var(--border);">
+            <div style="font-size:9px;color:var(--sub);margin-bottom:2px;">5일 변화</div>
+            <div style="font-size:12px;font-weight:700;" id="dxy-chg5d">—</div>
+          </div>
+          <div style="flex:1;text-align:center;border-right:1px solid var(--border);">
+            <div style="font-size:9px;color:var(--sub);margin-bottom:2px;">20일 MA</div>
+            <div style="font-size:12px;font-weight:700;" id="dxy-ma20">—</div>
+          </div>
+          <div style="flex:2;text-align:center;">
+            <div style="font-size:9px;color:var(--sub);margin-bottom:2px;">위험자산 정합성</div>
+            <div style="font-size:12px;font-weight:800;" id="dxy-signal">—</div>
+          </div>
+        </div>
+      </div>
 
       <!-- 하단 4개: CNN/하이일드/VIX/MMTH -->
 
@@ -2472,6 +2506,50 @@ async function loadMarketData() {
         const sigEl=document.getElementById('vix-signal');
         sigEl.textContent=vixSig; sigEl.style.color=vixCol;
         document.getElementById('vix-card').style.borderTopColor=vixBorder;
+      }
+    }
+
+    // ── DXY 달러 인덱스 + 매크로 컨텍스트 ──────────────────────
+    if(d.dxy){
+      const x=d.dxy;
+      if(x.value!=null){
+        document.getElementById('dxy-val').textContent=x.value.toFixed(2);
+        document.getElementById('dxy-chg').innerHTML=chgHtml(x.change);
+        document.getElementById('dxy-zone').textContent=x.zone??'—';
+        // 5일 방향성 화살표
+        if(x.direction_5d){
+          const isUp=x.direction_5d==='up';
+          const dirIcon=isUp?'↑':'↓';
+          const dirColor=isUp?'#ef4444':'#22c55e';
+          document.getElementById('dxy-dir').innerHTML=`<span style="color:${dirColor};">${dirIcon}</span>`;
+        }
+        // 5일 변화율
+        if(x.chg_5d!=null){
+          const el=document.getElementById('dxy-chg5d');
+          el.textContent=(x.chg_5d>=0?'+':'')+x.chg_5d.toFixed(2)+'%';
+          el.style.color=x.chg_5d>=0?'#ef4444':'#22c55e';
+        }
+        // 20일 MA 비교
+        if(x.ma20!=null){
+          const ma20El=document.getElementById('dxy-ma20');
+          ma20El.textContent=x.ma20.toFixed(2);
+          ma20El.style.color=x.above_ma20?'#ef4444':'#22c55e';
+        }
+        // 게이지 바늘 위치 (95~110 → 0~100%)
+        const needlePct=Math.min(Math.max((x.value-95)/15*100,2),98);
+        document.getElementById('dxy-needle').style.left=needlePct+'%';
+        // 위험자산 정합성 신호 + 카드 테두리 색
+        const sigEl=document.getElementById('dxy-signal');
+        let dxyBorder='#e4e8f0';
+        if(x.risk_asset_signal==='역풍 (DXY 상승)'){
+          sigEl.style.color='#991b1b'; dxyBorder='#ef4444';
+        } else if(x.risk_asset_signal==='우호 (DXY 하락)'){
+          sigEl.style.color='#15803d'; dxyBorder='#22c55e';
+        } else {
+          sigEl.style.color='#6b7280'; dxyBorder='#9ca3af';
+        }
+        sigEl.textContent=x.risk_asset_signal??'—';
+        document.getElementById('dxy-card').style.borderTopColor=dxyBorder;
       }
     }
 
