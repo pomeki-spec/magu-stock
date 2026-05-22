@@ -3931,7 +3931,7 @@ except ImportError:
 
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 AGENT_MODEL = "claude-sonnet-4-5"  # Sonnet 4.6 호환
-AGENT_MAX_TOKENS = 4000
+AGENT_MAX_TOKENS = 8000
 
 def get_anthropic_client():
     if not ANTHROPIC_AVAILABLE:
@@ -4021,8 +4021,11 @@ MACRO_AGENT_PROMPT = """당신은 WISEMAC STOCK의 매크로팀장 에이전트�
   "key_drivers": ["핵심 동인 1", "핵심 동인 2", "핵심 동인 3"],
   "watch_points": ["모니터링 포인트 1", "모니터링 포인트 2"],
   "rule_signal_comparison": {
-    "code_signal": "코드의 liquidity.signal.signal 값",
+    "code_signal": "코드의 liquidity.signal.signal 값 (예: 매수우호)",
+    "code_stage": "코드의 liquidity.signal.stage 값 (1~5 정수)",
+    "code_score": "코드의 liquidity.total_score 값 (정수)",
     "agent_signal": "에이전트 결론 5단계 매핑",
+    "agent_stage": "에이전트 판단 stage 번호 (1~5)",
     "match": true | false,
     "discrepancy_reason": "불일치 시 이유, 일치 시 null"
   },
@@ -4313,6 +4316,37 @@ MANAGER_AGENT_PROMPT = """당신은 WISEMAC STOCK의 포트폴리오 부장(Port
 - portfolio: holdings, cash, summary, usd_krw
 - rules: 사용자 5개 룰
 
+# ⚠️ 절대 룰 — Stage 매핑 (반드시 준수)
+
+매크로 점수와 Stage는 다음 변환표만 사용합니다. 절대 임의로 결정하지 마세요.
+
+  48~60점 → Stage 1 (적극매수)
+  36~47점 → Stage 2 (매수우호)   ← 37점은 여기
+  24~35점 → Stage 3 (중립관망)
+  12~23점 → Stage 4 (매수축소)
+  0~11점  → Stage 5 (현금보유)
+
+team_reports.macro의 데이터에서 정확한 점수를 받아 위 표에 매핑합니다.
+보고서 전체에서 stage 번호는 일관성 유지. 본문에서 "Stage 3"이라고 했으면 메타정보도 "Stage 3"이어야 합니다.
+
+매크로팀장이 environment를 risk_neutral_constructive로 판단했어도,
+점수에 따라 stage는 별도로 결정됩니다. environment ≠ stage.
+
+# ⚠️ 절대 룰 — 종목 분류 중복 금지
+
+신규 매수 후보는 다음 4개 그룹 중 정확히 하나에 배치합니다. 중복 금지.
+
+  강력 추천: stock_offensive의 entry_strength == "strong_buy" 인 종목
+  매수: entry_strength == "buy" 인 종목
+  관망: entry_strength == "watch" 인 종목
+  거부: entry_strength == "avoid" 인 종목 + 부장 필터 탈락 종목
+
+같은 티커가 두 그룹에 동시에 나타나면 안 됩니다.
+"관망과 거부 둘 다"는 불가능 — 둘 중 하나만 선택.
+
+부장 필터(섹터 중복, 자금 부족 등)로 탈락시킨 종목은 "거부"에만 표시.
+이미 entry_strength가 avoid인 종목은 추가 필터 검토 없이 "거부"에 직접 배치.
+
 # 사용자 룰 (절대 위반 금지)
 
 1. 손절 -15%
@@ -4344,10 +4378,12 @@ D. 자금 부족 (매수 합계 > 가용 현금 → 우선순위 또는 정리 �
 
 # 출력 형식 (마크다운, 사용자 화면 직접 표시)
 
+전체 길이: 600~900 단어 한국어. 각 섹션 길이 가이드 준수.
+
 ## 📅 [YYYY-MM-DD] 종합 분석 보고서
 
 ### 🌐 시장 환경 요약
-[매크로 + 자금흐름 통합 1~2문장]
+[매크로 + 자금흐름 통합. 2~3문장. 매크로 stage 번호 명시 — 메타정보와 일치시킬 것.]
 
 ### 🛡 보유 점검 결과
 
@@ -4355,35 +4391,44 @@ D. 자금 부족 (매수 합계 > 가용 현금 → 우선순위 또는 정리 �
 - [티커] [상태] — [권고] (pnl X%, 비중 Y%)
 
 **모니터링 (N종목)**
-- [티커]: [이유]
+- [티커]: [이유] (pnl X%, 비중 Y%)   ← 항상 pnl과 비중 함께 표시
 
 **조정 검토 (N종목)**
 - [티커]: [현재→권고]
 
 **안전 (N종목)**
-- [티커 목록]
+- [티커 목록만, 한 줄로 나열, pnl/비중 생략 가능]
+- 한국 종목은 가능하면 한글명도 병기. portfolio.holdings에서 name 필드 활용.
+  예: TSLL, 233740.KS(에코프로비엠) 형식
 
 ### 🎯 신규 매수 후보
 
-**강력 추천 Top N**
+**강력 추천 (entry_strength=strong_buy)**
 1. [티커] — 권고 비중 X%
-   - 근거: [요약]
+   - 근거: [요약 1문장]
    - 환경 정합성: [정합/중립/충돌]
-   - 자금 출처: [현금/정리 후]
+   - 자금 출처: [현금 잔액 활용 또는 정리 후]
 
-**관망**
-- [티커]: [사유]
+**매수 (entry_strength=buy)**
+1. [티커]: [한 줄 요약]
 
-**거부** (팀장 추천 but 부장 필터 탈락)
+**관망 (entry_strength=watch만)**
+- [티커]: [관망 사유 한 줄]
+
+**거부 (entry_strength=avoid 또는 부장 필터 탈락)**
 - [티커]: [거부 사유]
+
+⚠️ 같은 티커가 두 그룹에 나타나면 안 됨. 한 종목은 하나의 그룹에만.
 
 ### 💡 부장 종합 의견
 
-[오늘 무엇부터 해야 하는가 3~5문장. 가장 중요한 한 가지 강조.]
+[오늘 무엇부터 해야 하는가 3~5문장. 가장 중요한 한 가지 강조.
+ 자금 출처 언급 시 구체적 금액 추정 금지 — "손절 회수 자금으로 재배분"으로만 표현.]
 
 ### 📊 메타 정보
-- 분석 시각: [HH:MM]
-- 매크로 점수: X/60 ([단계])
+- 분석 시각: [HH:MM KST]
+- 매크로 점수: X/60 (Stage Y, [신호명])
+  ← 본문의 stage 언급과 반드시 일치시킬 것. 점수→stage 변환표 정확히 적용.
 - 총자산: ₩X / 주식 X% / 현금 X%
 - 룰 검증: [모두 통과 또는 N건 위반 감지]
 
@@ -4395,12 +4440,24 @@ D. 자금 부족 (매수 합계 > 가용 현금 → 우선순위 또는 정리 �
 - 위 마크다운 구조 정확히 유지
 - 이모지는 섹션 헤더에만
 
+# 자금 흐름 표현 규칙
+
+신규 매수의 자금 출처를 언급할 때:
+- ✗ "BMNR/ETHU 매도 ₩9.3M → NXPI 약 ₩4.0M 배분" (구체적 금액 추정 — 부정확)
+- ✓ "BMNR/ETHU 손절 회수 자금에서 우선 배분"
+- ✓ "현재 현금 비중 X%에서 신규 진입"
+
+손절 회수액은 매도 시점 시장가에 따라 변동하므로 구체적 금액 추정 금지.
+
 # 절대 금지
+
 - 자동 실행 명령
 - 룰 위반 권고
 - 데이터 추측
 - 일반론 도망
 - 면책 문구
+- Stage 표시 모순 (본문과 메타정보의 stage 번호 다르게 표기 금지)
+- 같은 종목을 신규 매수 후보의 두 그룹에 동시 표시
 
 마크다운 보고서만 반환. 다른 텍스트나 JSON 금지."""
 
@@ -4604,12 +4661,45 @@ def run_manager_agent(macro_result, flow_result, offensive_result, defensive_res
         port = req.get(f"{base}/api/portfolio/holdings?account=all", timeout=30).json()
     except:
         port = {"holdings": [], "summary": {}, "cash": {}, "usd_krw": 0}
+
+    # 매크로 점수 → stage 명시적 계산 (부장이 헷갈리지 않도록)
+    macro_score = None
+    macro_stage_num = None
+    macro_signal_name = None
+    if isinstance(macro_result, dict):
+        # 매크로팀장 출력에서 직접 추출
+        rsc = macro_result.get("rule_signal_comparison", {}) or {}
+        macro_score = rsc.get("code_score")
+        macro_stage_num = rsc.get("code_stage")
+        macro_signal_name = rsc.get("code_signal")
+
+    # 점수 → stage 변환 (fallback)
+    def _score_to_stage(score):
+        if score is None: return None, None
+        try:
+            s = int(score)
+            if s >= 48: return 1, "적극매수"
+            elif s >= 36: return 2, "매수우호"
+            elif s >= 24: return 3, "중립관망"
+            elif s >= 12: return 4, "매수축소"
+            else: return 5, "현금보유"
+        except: return None, None
+
+    if macro_score is not None and macro_stage_num is None:
+        macro_stage_num, macro_signal_name = _score_to_stage(macro_score)
+
     data = {
         "team_reports": {
             "macro": macro_result,
             "money_flow": flow_result,
             "stock_offensive": offensive_result,
             "stock_defensive": defensive_result
+        },
+        "current_macro_state": {
+            "score": macro_score,
+            "stage": macro_stage_num,
+            "signal_name": macro_signal_name,
+            "_explanation": f"점수 {macro_score}점은 Stage {macro_stage_num} ({macro_signal_name})입니다. 보고서 전체에서 이 stage와 신호명을 일관되게 사용하세요."
         },
         "portfolio": {
             "holdings": port.get("holdings", []),
