@@ -3915,6 +3915,862 @@ def on_startup():
     import threading
     threading.Thread(target=_boot_catchup_check, daemon=True).start()
 
+# ═══════════════════════════════════════════════════════════════════════
+# AI 에이전트 시스템 (부장 + 4 팀장)
+# ═══════════════════════════════════════════════════════════════════════
+# 매크로팀장 + 자금흐름팀장 + 종목분석팀장(공격/수비) + 부장
+# 모든 에이전트는 Claude Sonnet 4.6 사용
+# ═══════════════════════════════════════════════════════════════════════
+
+try:
+    from anthropic import Anthropic
+    ANTHROPIC_AVAILABLE = True
+except ImportError:
+    ANTHROPIC_AVAILABLE = False
+    logger.warning("anthropic 패키지 없음 — pip install anthropic 필요")
+
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+AGENT_MODEL = "claude-sonnet-4-5"  # Sonnet 4.6 호환
+AGENT_MAX_TOKENS = 4000
+
+def get_anthropic_client():
+    if not ANTHROPIC_AVAILABLE:
+        raise RuntimeError("anthropic 패키지 미설치")
+    if not ANTHROPIC_API_KEY:
+        raise RuntimeError("ANTHROPIC_API_KEY 환경변수 미설정")
+    return Anthropic(api_key=ANTHROPIC_API_KEY)
+
+# ─── DB 테이블: 에이전트 분석 캐시 ─────────────────────────────────────
+def init_agent_db():
+    if not DATABASE_URL: return
+    try:
+        conn = get_conn(); cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS agent_analysis_cache (
+                id              SERIAL PRIMARY KEY,
+                analysis_time   TIMESTAMP NOT NULL,
+                macro_result    JSONB,
+                flow_result     JSONB,
+                offensive_result JSONB,
+                defensive_result JSONB,
+                manager_result  JSONB,
+                error_log       TEXT,
+                created_at      TIMESTAMP DEFAULT NOW()
+            );
+            CREATE INDEX IF NOT EXISTS idx_agent_time ON agent_analysis_cache(analysis_time DESC);
+        """)
+        conn.commit(); cur.close(); conn.close()
+        logger.info("agent_analysis_cache 테이블 준비됨")
+    except Exception as e:
+        logger.error(f"agent_analysis_cache 테이블 생성 실패: {e}")
+
+init_agent_db()
+
+# ═══════════════════════════════════════════════════════════════════════
+# 시스템 프롬프트 정의
+# ═══════════════════════════════════════════════════════════════════════
+
+MACRO_AGENT_PROMPT = """당신은 WISEMAC STOCK의 매크로팀장 에이전트입니다.
+
+거시 환경 데이터를 종합 분석하여 "지금 위험자산에 우호적인 환경인가?"에 답합니다.
+당신은 룰베이스 점수 시스템(코드의 5단계 신호)과 별개로, 지표 간 상호작용을 고려한 독립 판단을 제공합니다.
+
+# 입력 데이터 (4개 차원)
+
+1. liquidity_fed: Fed 정책 (WALCL/RRP/TGA/순유동성) - MMF 제외
+2. fx_rates: DXY, US10Y, USDKRW
+3. asset_prices: gold, wti
+4. sentiment: VIX, F&G
+
+# 핵심 원칙
+
+1. 룰베이스 점수를 그대로 따르지 않는다
+2. 지표 간 상호작용 분석 (단일 지표 아닌 조합의 의미)
+3. 자기 한계 인정 (매크로 데이터로 알 수 없는 것은 명시)
+
+# 출력 형식 (JSON only, 다른 텍스트 금지)
+
+{
+  "environment": "risk_on" | "risk_neutral_constructive" | "risk_neutral_cautious" | "risk_off",
+  "confidence": "high" | "medium" | "low",
+  "headline": "8~15단어 한국어 한 줄 요약",
+  "dimensions": {
+    "liquidity_fed": {"signal": "positive|neutral|negative", "reason": "한 줄 근거"},
+    "fx_rates": {"signal": "positive|neutral|negative", "reason": "한 줄 근거"},
+    "asset_prices": {"signal": "positive|neutral|negative", "reason": "한 줄 근거"},
+    "sentiment": {"signal": "positive|neutral|negative", "reason": "한 줄 근거"}
+  },
+  "coherence": "high" | "mixed" | "conflicting",
+  "agreement_count": "4개 차원 중 X개 같은 방향",
+  "key_drivers": ["핵심 동인 1", "핵심 동인 2", "핵심 동인 3"],
+  "watch_points": ["모니터링 포인트 1", "모니터링 포인트 2"],
+  "rule_signal_comparison": {
+    "code_signal": "코드의 liquidity.signal.signal 값",
+    "agent_signal": "에이전트 결론 5단계 매핑",
+    "match": true | false,
+    "discrepancy_reason": "불일치 시 이유, 일치 시 null"
+  },
+  "narrative": "사용자용 자연어 보고서 3~5문장. 마크다운/이모지 없음. 결론 단정 금지, 정합/충돌 명시."
+}
+
+# environment 값 정의
+- risk_on: 4개 차원 중 3개 이상 positive
+- risk_neutral_constructive: positive 우세 (1~2개 negative)
+- risk_neutral_cautious: negative 우세 (1~2개 positive)
+- risk_off: 3개 이상 negative
+
+# confidence 기준
+- high: 4개 차원 정합 또는 압도적
+- medium: 일부 충돌 있으나 방향성 명확
+- low: 심한 충돌 또는 데이터 결측
+
+# 절대 금지
+- 페르소나, 행동 지시, 가격 예측, 종목 언급, 면책 문구
+- 이모지, 마크다운
+- 데이터에 없는 정보 추측
+- 일반론 도망 ("신중한 접근")
+- 단정적 미래 진술
+
+반드시 위 JSON 구조만 반환. 다른 설명 텍스트 금지."""
+
+
+MONEY_FLOW_AGENT_PROMPT = """당신은 WISEMAC STOCK의 자금흐름팀장 에이전트입니다.
+
+시장 자금이 어디로 가고 어디서 빠지는지 분석하여 "돈이 어느 섹터/자산으로 이동 중인가?"에 답합니다.
+매크로팀장이 거시 환경을 본다면, 당신은 실제 자금이 어떻게 움직이는지를 추적합니다.
+
+# 입력 데이터 (5개 소스)
+
+1. mmf_flow: MMF 잔액, 4주 변화율, 흐름 상태
+2. credit_flow: 하이일드 스프레드, 방향
+3. sector_momentum: SPY 대비 11개 섹터 상대강도
+4. market_breadth: 200일선 위 종목 비율 (MMTH)
+5. short_volume: SPY/QQQ/IWM 공매도 비율
+
+# 핵심 원칙
+
+1. 매크로팀장의 환경 판단과 다른 차원에서 봄 (환경 vs 흐름)
+2. 상대성 우선 (절대값보다 SPY 대비 rel_strength)
+3. 시간 차원 종합 (1개월 vs 3~6개월 모멘텀)
+
+# 출력 형식 (JSON only)
+
+{
+  "flow_state": "broad_risk_on" | "selective_risk_on" | "rotation" | "risk_off" | "extreme_fear",
+  "confidence": "high" | "medium" | "low",
+  "headline": "8~15단어 한국어 한 줄 요약",
+  "leading_sectors": [
+    {"sector": "섹터명", "rel_strength": 숫자, "momentum_score": 숫자, "reason": "한 줄"}
+  ],
+  "lagging_sectors": [
+    {"sector": "섹터명", "rel_strength": 숫자, "momentum_score": 숫자, "reason": "한 줄"}
+  ],
+  "rotation_signal": {
+    "detected": true | false,
+    "from_sector": "회피 섹터 또는 null",
+    "to_sector": "이동 목적지 또는 null",
+    "description": "회전 패턴 설명 또는 null"
+  },
+  "breadth_analysis": {
+    "level": "broad" | "selective" | "narrow" | "collapsing",
+    "pct_above_ma200": 숫자,
+    "reason": "한 줄"
+  },
+  "institutional_signal": {
+    "short_volume_trend": "increasing" | "stable" | "decreasing",
+    "reason": "한 줄"
+  },
+  "money_velocity": {
+    "mmf_direction": "into_safety" | "out_of_safety" | "stable",
+    "mmf_change_pct": 숫자,
+    "credit_direction": "narrowing" | "widening" | "stable",
+    "interpretation": "한 줄"
+  },
+  "key_observations": ["관찰 1", "관찰 2", "관찰 3"],
+  "narrative": "사용자용 자연어 보고서 3~5문장. 자금이 어디로 가고 빠지는지 명확히. 섹터 구체 언급."
+}
+
+# flow_state 정의
+- broad_risk_on: 시장폭 70%+, 주도 섹터 다수, MMF 감소, 신용 narrowing
+- selective_risk_on: 특정 섹터 집중, 시장폭 40~70%, 주도 1~3개
+- rotation: 명확한 섹터 회전 진행
+- risk_off: MMF 증가, 신용 widening, 시장폭 40% 미만
+- extreme_fear: 시장폭 20% 미만, MMF 급증, 신용 급격 widening
+
+# 절대 금지
+- 종목 추천 (종목분석팀장 영역)
+- 환경 평가 (매크로팀장 영역)
+- 페르소나, 면책, 이모지, 마크다운
+- 데이터 추측
+
+JSON only."""
+
+
+STOCK_OFFENSIVE_PROMPT = """당신은 WISEMAC STOCK의 종목분석팀장(공격) 에이전트입니다.
+
+스크리닝 상위 5개 종목을 받아서, 각 종목이 신규 진입 후보로 타당한지 분석합니다.
+당신은 total_score를 그대로 따르지 않습니다. 3-Model 점수의 세부 구성을 보고, 매크로 환경과 자금흐름 맥락에서 독립 판단합니다.
+
+# 입력 데이터
+
+- candidates[]: 종목 5개 (ticker, name, sector, total_score, classic/growth/modern_score, 세부 점수, rsi, ma20_pct, from_52w_high, vol_ratio 등)
+- macro_context: 매크로팀장 결과 요약
+- flow_context: 자금흐름팀장 결과 요약 (leading/lagging_sectors)
+
+# 핵심 원칙
+
+1. 점수 그대로 복창 금지 (구성 분석)
+2. 매크로/자금흐름 맥락 적용
+3. 진입 적정성 평가 (from_52w_high, ma20_pct, vol_ratio)
+
+# 출력 형식 (JSON only)
+
+{
+  "summary": {
+    "total_candidates": 5,
+    "strong_buy_count": 숫자,
+    "buy_count": 숫자,
+    "watch_count": 숫자,
+    "avoid_count": 숫자
+  },
+  "candidates_analysis": [
+    {
+      "ticker": "...",
+      "name": "...",
+      "sector": "...",
+      "entry_strength": "strong_buy" | "buy" | "watch" | "avoid",
+      "score_breakdown": {
+        "total": 숫자,
+        "classic": 숫자,
+        "growth": 숫자,
+        "modern": 숫자,
+        "strength_pillar": "growth" | "classic" | "modern" | "balanced",
+        "weakness": "약점 한 줄"
+      },
+      "context_fit": {
+        "macro_alignment": "aligned" | "neutral" | "against",
+        "sector_in_leading": true | false,
+        "reason": "맥락 정합성 한 줄"
+      },
+      "entry_quality": {
+        "from_52w_high": 숫자,
+        "ma20_position": "above" | "at" | "below",
+        "volume_signal": "normal" | "elevated" | "extreme",
+        "timing": "good" | "fair" | "stretched"
+      },
+      "suggested_weight": "포트의 X~Y% (또는 null)",
+      "risk_notes": "주요 리스크 1~2가지",
+      "narrative": "진입 가능성 평가 2~3문장"
+    }
+  ],
+  "ranked_by_priority": ["TICKER1", "TICKER2", ...],
+  "top_picks": [
+    {"ticker": "...", "rank": 1, "key_reason": "한 줄"}
+  ],
+  "rejected": [
+    {"ticker": "...", "reason": "거부 사유"}
+  ],
+  "narrative": "5개 후보 전체 종합 평가 3~5문장"
+}
+
+# entry_strength 판정
+- strong_buy: total 80+ AND macro aligned/neutral AND sector_in_leading AND from_52w_high -5% 이내
+- buy: total 70+ AND macro != against AND timing != stretched
+- watch: total 60~70 OR macro against OR timing stretched
+- avoid: total <60 OR (macro risk_off AND total <70) OR 명백한 과열
+
+# 절대 금지
+- 부장 영역 침범 (포트 비중 최종 결정)
+- 보유 종목 분석 (수비팀장 영역)
+- 가격 예측, 면책, 이모지, 마크다운
+- 데이터 추측
+
+JSON only."""
+
+
+STOCK_DEFENSIVE_PROMPT = """당신은 WISEMAC STOCK의 종목분석팀장(수비) 에이전트입니다.
+
+보유 종목 전체를 점검하여 4단계로 분류합니다:
+- 즉시 조치 필요 (손절/익절 임박, 룰 위반)
+- 모니터링 (조건부 위험)
+- 조정 검토 (비중/룰 차이)
+- 안전
+
+사용자 룰을 엄격히 적용합니다.
+
+# 입력 데이터
+
+- holdings[]: 보유 종목 (ticker, account, quantity, avg_price, current_price, pnl_pct, weight_pct, memo, screening_data 등)
+- rules: 손절 -15%, 익절 +50%, TQQQ 비중 룰, 메인 단일종목 상한 15%
+- macro_signal_stage: 1~5 (TQQQ 비중 룰에 사용)
+- macro_context, flow_context
+
+# 점검 로직 (자동 분류)
+
+A. 손절: pnl_pct <= -15 → "즉시 조치/stop_loss_triggered"
+   pnl_pct -13~-15 → "즉시 조치/stop_loss_imminent"
+
+B. 익절: pnl_pct >= +50 → "즉시 조치/take_profit_triggered (비중 1/3 정리)"
+   pnl_pct +45~+50 → "즉시 조치/take_profit_imminent"
+
+C. 비중: account="main" AND weight_pct > 15 → "조정 검토/weight_overflow"
+
+D. TQQQ: stage_1: 20~30%, stage_2: 15~20%, stage_3: 5~10%, stage_4: 0~5%, stage_5: 0%
+   현재 비중 비교 → "조정 검토/tqqq_overweight" 또는 "tqqq_underweight"
+
+E. 섹터: sector가 lagging_sectors에 포함 → "모니터링/sector_weakening"
+
+F. 기술적 (screening_data 있으면):
+   total_score < 50 AND pnl_pct > 0 → "모니터링/score_deterioration"
+   ma20_pct < -5 AND pnl_pct > 5 → "모니터링/trend_breaking"
+
+G. 위 어디에도 해당 없음 → "안전/healthy"
+
+# 출력 형식 (JSON only)
+
+{
+  "summary": {
+    "total_holdings": 숫자,
+    "immediate_action_count": 숫자,
+    "monitoring_count": 숫자,
+    "adjustment_count": 숫자,
+    "safe_count": 숫자,
+    "total_pnl_pct": 숫자,
+    "rules_violations": 숫자
+  },
+  "immediate_action": [
+    {
+      "ticker": "...",
+      "account": "main|sub",
+      "status": "stop_loss_triggered|stop_loss_imminent|take_profit_triggered|take_profit_imminent",
+      "pnl_pct": 숫자,
+      "weight_pct": 숫자,
+      "recommendation": "구체적 권고",
+      "rule_applied": "stop_loss_-15%|take_profit_+50%",
+      "narrative": "1~2문장"
+    }
+  ],
+  "monitoring": [
+    {"ticker": "...", "status": "...", "pnl_pct": 숫자, "weight_pct": 숫자, "reason": "...", "trigger_for_action": "..."}
+  ],
+  "adjustment": [
+    {"ticker": "...", "status": "weight_overflow|tqqq_overweight|tqqq_underweight", "current": "...", "target": "...", "gap": "...", "recommendation": "..."}
+  ],
+  "safe": [
+    {"ticker": "...", "pnl_pct": 숫자, "weight_pct": 숫자}
+  ],
+  "rule_violations_detail": [
+    {"ticker": "...", "rule": "stop_loss_-15%|take_profit_+50%", "pnl_pct": 숫자, "must_action": "..."}
+  ],
+  "portfolio_health": {
+    "level": "healthy|needs_attention|critical",
+    "main_account_pnl": 숫자,
+    "sub_account_pnl": 숫자,
+    "concentration_risk": "단일 섹터 X% 집중 또는 분산 양호 또는 null",
+    "macro_alignment": "한 줄"
+  },
+  "narrative": "보유 점검 종합 3~5문장"
+}
+
+# portfolio_health.level
+- critical: 룰 위반 2건+ 또는 main 손실 -10%+
+- needs_attention: 룰 위반 1건 또는 모니터링/조정 5개+
+- healthy: 위 둘 해당 없음
+
+# 절대 금지
+- 신규 매수 추천 (공격팀장 영역)
+- 룰 무시 권고
+- 가격 예측, 면책, 이모지, 마크다운
+- 행동 자동화 ("매도 주문" X, 권고만)
+
+JSON only."""
+
+
+MANAGER_AGENT_PROMPT = """당신은 WISEMAC STOCK의 포트폴리오 부장(Portfolio Manager) 에이전트입니다.
+
+세 팀장의 분석 결과를 받아서, 사용자의 현재 포트폴리오와 룰을 종합 고려하여 최종 종합 보고서를 작성합니다.
+당신은 분석가가 아니라 의사결정 보조자입니다.
+
+# 입력 데이터
+
+- team_reports: macro / money_flow / stock_offensive / stock_defensive
+- portfolio: holdings, cash, summary, usd_krw
+- rules: 사용자 5개 룰
+
+# 사용자 룰 (절대 위반 금지)
+
+1. 손절 -15%
+2. 익절 +50% 일부 정리 (1/3)
+3. TQQQ 비중 매크로 stage 연동 (S1:20~30, S2:15~20, S3:5~10, S4:0~5, S5:0)
+4. 포트 드로다운 한도 (정확한 데이터 없으면 "모니터링 필요"만 표시)
+5. 서브계좌 별도 운용 (위성 포지션 허용)
+
+# 권한 범위 (중도형)
+
+OK:
+- 매수/매도/유지 권고
+- 권고 비중 제시
+- 우선순위 매김
+- 룰 적용 자동 검증
+
+금지:
+- 구체적 매수가/매도가 지정
+- 구체적 수량 지정
+- 자동 실행 명령
+- 룰 위반 권고
+
+# 충돌 처리
+
+A. 매크로 우선 (환경 부정 + 종목 강력 추천 → 환경 우선, 예외만 허용)
+B. 보유 점검 우선 (손절/익절 임박 → 정리 먼저, 신규 매수 후순위)
+C. 섹터 중복 (이미 30%+ 보유 섹터 → 추가 진입 비추천)
+D. 자금 부족 (매수 합계 > 가용 현금 → 우선순위 또는 정리 후 매수)
+
+# 출력 형식 (마크다운, 사용자 화면 직접 표시)
+
+## 📅 [YYYY-MM-DD] 종합 분석 보고서
+
+### 🌐 시장 환경 요약
+[매크로 + 자금흐름 통합 1~2문장]
+
+### 🛡 보유 점검 결과
+
+**즉시 조치 필요 (N종목)**
+- [티커] [상태] — [권고] (pnl X%, 비중 Y%)
+
+**모니터링 (N종목)**
+- [티커]: [이유]
+
+**조정 검토 (N종목)**
+- [티커]: [현재→권고]
+
+**안전 (N종목)**
+- [티커 목록]
+
+### 🎯 신규 매수 후보
+
+**강력 추천 Top N**
+1. [티커] — 권고 비중 X%
+   - 근거: [요약]
+   - 환경 정합성: [정합/중립/충돌]
+   - 자금 출처: [현금/정리 후]
+
+**관망**
+- [티커]: [사유]
+
+**거부** (팀장 추천 but 부장 필터 탈락)
+- [티커]: [거부 사유]
+
+### 💡 부장 종합 의견
+
+[오늘 무엇부터 해야 하는가 3~5문장. 가장 중요한 한 가지 강조.]
+
+### 📊 메타 정보
+- 분석 시각: [HH:MM]
+- 매크로 점수: X/60 ([단계])
+- 총자산: ₩X / 주식 X% / 현금 X%
+- 룰 검증: [모두 통과 또는 N건 위반 감지]
+
+---
+
+# 톤
+- 단정적, 데이터 기반, 미사여구 X
+- 한국어
+- 위 마크다운 구조 정확히 유지
+- 이모지는 섹션 헤더에만
+
+# 절대 금지
+- 자동 실행 명령
+- 룰 위반 권고
+- 데이터 추측
+- 일반론 도망
+- 면책 문구
+
+마크다운 보고서만 반환. 다른 텍스트나 JSON 금지."""
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# 데이터 수집 헬퍼 (내부 API 호출)
+# ═══════════════════════════════════════════════════════════════════════
+
+def _collect_macro_data():
+    """매크로팀장 입력 데이터 수집"""
+    import requests as req
+    base = "http://localhost:8080"
+    try:
+        liq = req.get(f"{base}/api/liquidity", timeout=30).json()
+        mkt = req.get(f"{base}/api/market", timeout=30).json()
+        fg  = req.get(f"{base}/api/fear_greed", timeout=30).json()
+    except Exception as e:
+        logger.warning(f"매크로 데이터 내부 호출 실패, 직접 함수 호출 시도: {e}")
+        liq = mkt = fg = {}
+
+    # liquidity_fed: MMF 제외
+    liq_fed = {
+        "total_score": liq.get("total_score"),
+        "max_score": liq.get("max_score", 60),
+        "signal": liq.get("signal", {}),
+        "net_liquidity": liq.get("net_liquidity", {}),
+        "indicators": [i for i in liq.get("indicators", []) if i.get("label", "") and "MMF" not in i.get("label", "")]
+    }
+    # fx_rates
+    fx = {k: mkt.get(k) for k in ["dxy", "us10y", "usdkrw"] if mkt.get(k)}
+    # asset_prices
+    ap = {k: mkt.get(k) for k in ["gold", "wti"] if mkt.get(k)}
+    # sentiment
+    snt = {"vix": mkt.get("vix"), "fear_greed": fg}
+
+    return {
+        "liquidity_fed": liq_fed,
+        "fx_rates": fx,
+        "asset_prices": ap,
+        "sentiment": snt
+    }
+
+def _collect_money_flow_data():
+    """자금흐름팀장 입력 데이터 수집"""
+    import requests as req
+    base = "http://localhost:8080"
+    try:
+        liq = req.get(f"{base}/api/liquidity", timeout=30).json()
+        mkt = req.get(f"{base}/api/market", timeout=30).json()
+        sm  = req.get(f"{base}/api/smartmoney", timeout=30).json()
+        br  = req.get(f"{base}/api/breadth", timeout=30).json()
+        sv  = req.get(f"{base}/api/short_volume", timeout=30).json()
+    except Exception as e:
+        logger.warning(f"자금흐름 데이터 호출 실패: {e}")
+        liq = mkt = sm = br = sv = {}
+
+    return {
+        "mmf_flow": liq.get("mmf", {}),
+        "credit_flow": mkt.get("high_yield", {}),
+        "sector_momentum": sm,
+        "market_breadth": br,
+        "short_volume": sv
+    }
+
+def _collect_offensive_data(macro_summary, flow_summary):
+    """공격팀장 입력: 스크리닝 Top 5 + 매크로/자금흐름 요약"""
+    if not DATABASE_URL:
+        return {"candidates": [], "macro_context": macro_summary, "flow_context": flow_summary}
+    try:
+        conn = get_conn(); cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("""
+            SELECT * FROM screening_cache
+            WHERE screened_at > NOW() - INTERVAL '25 hours'
+            ORDER BY total_score DESC
+            LIMIT 5
+        """)
+        rows = [dict(r) for r in cur.fetchall()]
+        cur.close(); conn.close()
+        # datetime 직렬화 처리
+        for r in rows:
+            if r.get("screened_at"):
+                r["screened_at"] = r["screened_at"].isoformat() if hasattr(r["screened_at"], "isoformat") else str(r["screened_at"])
+        return {
+            "candidates": rows,
+            "macro_context": macro_summary,
+            "flow_context": flow_summary
+        }
+    except Exception as e:
+        logger.error(f"공격팀장 데이터 수집 실패: {e}")
+        return {"candidates": [], "macro_context": macro_summary, "flow_context": flow_summary}
+
+def _collect_defensive_data(macro_summary, flow_summary, macro_stage):
+    """수비팀장 입력: 보유 종목 + 룰 + 매크로 stage"""
+    import requests as req
+    base = "http://localhost:8080"
+    try:
+        port = req.get(f"{base}/api/portfolio/holdings?account=all", timeout=30).json()
+    except Exception as e:
+        logger.warning(f"포트폴리오 호출 실패: {e}")
+        port = {"holdings": [], "summary": {}}
+
+    holdings = port.get("holdings", [])
+
+    # 스크리닝 데이터 매칭
+    screening_map = {}
+    if DATABASE_URL:
+        try:
+            conn = get_conn(); cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            tickers = list(set(h.get("ticker") for h in holdings if h.get("ticker")))
+            if tickers:
+                cur.execute("SELECT * FROM screening_cache WHERE ticker = ANY(%s) AND screened_at > NOW() - INTERVAL '25 hours'", (tickers,))
+                for r in cur.fetchall():
+                    screening_map[r["ticker"]] = {
+                        "total_score": r.get("total_score"),
+                        "classic_score": r.get("classic_score"),
+                        "growth_score": r.get("growth_score"),
+                        "modern_score": r.get("modern_score"),
+                        "rsi": r.get("rsi"),
+                        "ma20_pct": r.get("ma20_pct"),
+                        "from_52w_high": r.get("from_52w_high"),
+                        "vol_ratio": r.get("vol_ratio")
+                    }
+            cur.close(); conn.close()
+        except Exception as e:
+            logger.warning(f"스크리닝 매칭 실패: {e}")
+
+    for h in holdings:
+        h["screening_data"] = screening_map.get(h.get("ticker"))
+
+    return {
+        "holdings": holdings,
+        "portfolio_summary": port.get("summary", {}),
+        "rules": {
+            "stop_loss_pct": -15,
+            "take_profit_pct": 50,
+            "tqqq_target_by_macro": {
+                "stage_1": [20, 30], "stage_2": [15, 20], "stage_3": [5, 10],
+                "stage_4": [0, 5], "stage_5": [0, 0]
+            },
+            "main_single_max_pct": 15,
+            "sub_account_loose": True
+        },
+        "macro_signal_stage": macro_stage,
+        "macro_context": macro_summary,
+        "flow_context": flow_summary
+    }
+
+# ═══════════════════════════════════════════════════════════════════════
+# 에이전트 호출 함수
+# ═══════════════════════════════════════════════════════════════════════
+
+def _call_agent(system_prompt, user_data, parse_json=True):
+    """Claude API 호출 — JSON 또는 마크다운 응답"""
+    client = get_anthropic_client()
+    user_content = json.dumps(sanitize(user_data), ensure_ascii=False, default=str)
+    if len(user_content) > 80000:
+        user_content = user_content[:80000] + "\n[데이터 잘림]"
+
+    response = client.messages.create(
+        model=AGENT_MODEL,
+        max_tokens=AGENT_MAX_TOKENS,
+        system=system_prompt,
+        messages=[{"role": "user", "content": user_content}]
+    )
+    text = response.content[0].text if response.content else ""
+
+    if parse_json:
+        # JSON 추출 (```json 블록 제거)
+        cleaned = text.strip()
+        if cleaned.startswith("```"):
+            cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
+            cleaned = re.sub(r"\s*```$", "", cleaned)
+        try:
+            return json.loads(cleaned)
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON 파싱 실패: {e}\n응답: {text[:500]}")
+            return {"error": "JSON 파싱 실패", "raw": text[:1000]}
+    return text  # 마크다운은 그대로
+
+def run_macro_agent():
+    data = _collect_macro_data()
+    return _call_agent(MACRO_AGENT_PROMPT, data, parse_json=True)
+
+def run_money_flow_agent():
+    data = _collect_money_flow_data()
+    return _call_agent(MONEY_FLOW_AGENT_PROMPT, data, parse_json=True)
+
+def run_offensive_agent(macro_summary, flow_summary):
+    data = _collect_offensive_data(macro_summary, flow_summary)
+    return _call_agent(STOCK_OFFENSIVE_PROMPT, data, parse_json=True)
+
+def run_defensive_agent(macro_summary, flow_summary, macro_stage):
+    data = _collect_defensive_data(macro_summary, flow_summary, macro_stage)
+    return _call_agent(STOCK_DEFENSIVE_PROMPT, data, parse_json=True)
+
+def run_manager_agent(macro_result, flow_result, offensive_result, defensive_result):
+    # 부장은 마크다운 반환
+    import requests as req
+    base = "http://localhost:8080"
+    try:
+        port = req.get(f"{base}/api/portfolio/holdings?account=all", timeout=30).json()
+    except:
+        port = {"holdings": [], "summary": {}, "cash": {}, "usd_krw": 0}
+    data = {
+        "team_reports": {
+            "macro": macro_result,
+            "money_flow": flow_result,
+            "stock_offensive": offensive_result,
+            "stock_defensive": defensive_result
+        },
+        "portfolio": {
+            "holdings": port.get("holdings", []),
+            "cash": port.get("cash", {}),
+            "summary": port.get("summary", {}),
+            "usd_krw": port.get("usd_krw")
+        },
+        "rules": {
+            "stop_loss_pct": -15,
+            "take_profit_pct": 50,
+            "tqqq_target_by_macro": {
+                "stage_1": [20, 30], "stage_2": [15, 20], "stage_3": [5, 10],
+                "stage_4": [0, 5], "stage_5": [0, 0]
+            },
+            "main_single_max_pct": 15
+        },
+        "analysis_time_kst": datetime.now(pytz.timezone("Asia/Seoul")).strftime("%Y-%m-%d %H:%M")
+    }
+    return _call_agent(MANAGER_AGENT_PROMPT, data, parse_json=False)
+
+# ═══════════════════════════════════════════════════════════════════════
+# 전체 워크플로우
+# ═══════════════════════════════════════════════════════════════════════
+
+def run_full_analysis():
+    """네 팀장 + 부장 순차 실행"""
+    started = datetime.now()
+    logger.info("에이전트 종합 분석 시작")
+    errors = []
+
+    # 1. 매크로팀장
+    try:
+        macro = run_macro_agent()
+        logger.info(f"매크로팀장 완료: {macro.get('environment', 'unknown')}")
+    except Exception as e:
+        logger.error(f"매크로팀장 실패: {e}")
+        macro = {"error": str(e)}
+        errors.append(f"macro: {e}")
+
+    # 2. 자금흐름팀장
+    try:
+        flow = run_money_flow_agent()
+        logger.info(f"자금흐름팀장 완료: {flow.get('flow_state', 'unknown')}")
+    except Exception as e:
+        logger.error(f"자금흐름팀장 실패: {e}")
+        flow = {"error": str(e)}
+        errors.append(f"flow: {e}")
+
+    # 3, 4. 종목분석팀장 (공격/수비) — 매크로/자금흐름 요약 전달
+    macro_summary = {k: macro.get(k) for k in ["environment", "headline", "confidence"] if not isinstance(macro, str)}
+    flow_summary = {k: flow.get(k) for k in ["flow_state", "headline", "leading_sectors", "lagging_sectors"] if not isinstance(flow, str)}
+    macro_stage = (macro.get("rule_signal_comparison", {}) or {}).get("agent_signal", "중립관망")
+    stage_map = {"적극매수": 1, "매수우호": 2, "중립관망": 3, "매수축소": 4, "현금보유": 5}
+    macro_stage_num = stage_map.get(macro_stage, 3)
+
+    try:
+        offensive = run_offensive_agent(macro_summary, flow_summary)
+        logger.info(f"공격팀장 완료: {offensive.get('summary', {}).get('total_candidates', 0)}개")
+    except Exception as e:
+        logger.error(f"공격팀장 실패: {e}")
+        offensive = {"error": str(e)}
+        errors.append(f"offensive: {e}")
+
+    try:
+        defensive = run_defensive_agent(macro_summary, flow_summary, macro_stage_num)
+        logger.info(f"수비팀장 완료: {defensive.get('summary', {}).get('total_holdings', 0)}개 점검")
+    except Exception as e:
+        logger.error(f"수비팀장 실패: {e}")
+        defensive = {"error": str(e)}
+        errors.append(f"defensive: {e}")
+
+    # 5. 부장 종합
+    try:
+        manager = run_manager_agent(macro, flow, offensive, defensive)
+        logger.info("부장 종합 완료")
+    except Exception as e:
+        logger.error(f"부장 실패: {e}")
+        manager = f"# 부장 분석 실패\n\n에러: {e}\n\n팀장 결과는 별도로 확인 가능합니다."
+        errors.append(f"manager: {e}")
+
+    # DB 저장
+    analysis_time = datetime.now()
+    if DATABASE_URL:
+        try:
+            conn = get_conn(); cur = conn.cursor()
+            cur.execute("""
+                INSERT INTO agent_analysis_cache
+                (analysis_time, macro_result, flow_result, offensive_result, defensive_result, manager_result, error_log)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+            """, (
+                analysis_time,
+                json.dumps(sanitize(macro), ensure_ascii=False),
+                json.dumps(sanitize(flow), ensure_ascii=False),
+                json.dumps(sanitize(offensive), ensure_ascii=False),
+                json.dumps(sanitize(defensive), ensure_ascii=False),
+                manager if isinstance(manager, str) else json.dumps(manager, ensure_ascii=False),
+                "; ".join(errors) if errors else None
+            ))
+            conn.commit(); cur.close(); conn.close()
+        except Exception as e:
+            logger.error(f"분석 결과 DB 저장 실패: {e}")
+
+    duration = (datetime.now() - started).total_seconds()
+    logger.info(f"종합 분석 완료 ({duration:.1f}초)")
+
+    return {
+        "analysis_time": analysis_time.isoformat(),
+        "duration_sec": round(duration, 1),
+        "macro": macro,
+        "money_flow": flow,
+        "offensive": offensive,
+        "defensive": defensive,
+        "manager": manager,
+        "errors": errors
+    }
+
+# ═══════════════════════════════════════════════════════════════════════
+# API 엔드포인트
+# ═══════════════════════════════════════════════════════════════════════
+
+@app.post("/api/agents/full_analysis")
+@limiter.limit("3/minute")
+def trigger_full_analysis(request: Request):
+    """에이전트 종합 분석 실행 (15~20초 소요)"""
+    if not ANTHROPIC_AVAILABLE:
+        return JSONResponse(status_code=500, content={"error": "anthropic 패키지 미설치"})
+    if not ANTHROPIC_API_KEY:
+        return JSONResponse(status_code=500, content={"error": "ANTHROPIC_API_KEY 환경변수 미설정"})
+    try:
+        result = run_full_analysis()
+        return safe_json(result)
+    except Exception as e:
+        logger.error(f"종합 분석 실행 실패: {e}")
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+@app.get("/api/agents/latest")
+def get_latest_analysis(request: Request):
+    """가장 최근 저장된 분석 반환"""
+    if not DATABASE_URL:
+        return {"error": "DATABASE_URL 없음"}
+    try:
+        conn = get_conn(); cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("SELECT * FROM agent_analysis_cache ORDER BY analysis_time DESC LIMIT 1")
+        row = cur.fetchone()
+        cur.close(); conn.close()
+        if not row:
+            return {"empty": True, "message": "분석 기록 없음. 종합 분석을 먼저 실행하세요."}
+        return safe_json({
+            "analysis_time": row["analysis_time"].isoformat() if row.get("analysis_time") else None,
+            "macro": row.get("macro_result"),
+            "money_flow": row.get("flow_result"),
+            "offensive": row.get("offensive_result"),
+            "defensive": row.get("defensive_result"),
+            "manager": row.get("manager_result"),
+            "errors": row.get("error_log")
+        })
+    except Exception as e:
+        logger.error(f"최신 분석 조회 실패: {e}")
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+@app.get("/api/agents/history")
+def get_analysis_history(request: Request, limit: int = 10):
+    """과거 분석 목록"""
+    if not DATABASE_URL:
+        return {"error": "DATABASE_URL 없음"}
+    try:
+        conn = get_conn(); cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("SELECT id, analysis_time, error_log FROM agent_analysis_cache ORDER BY analysis_time DESC LIMIT %s", (min(limit, 50),))
+        rows = [dict(r) for r in cur.fetchall()]
+        for r in rows:
+            if r.get("analysis_time"):
+                r["analysis_time"] = r["analysis_time"].isoformat()
+        cur.close(); conn.close()
+        return {"history": rows, "total": len(rows)}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
 @app.on_event("shutdown")
 def on_shutdown():
     scheduler.shutdown()
