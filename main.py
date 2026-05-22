@@ -3953,11 +3953,27 @@ def init_agent_db():
                 flow_result     JSONB,
                 offensive_result JSONB,
                 defensive_result JSONB,
-                manager_result  JSONB,
+                manager_result  TEXT,
                 error_log       TEXT,
                 created_at      TIMESTAMP DEFAULT NOW()
             );
             CREATE INDEX IF NOT EXISTS idx_agent_time ON agent_analysis_cache(analysis_time DESC);
+        """)
+        # 기존 테이블이 manager_result를 JSONB로 만들었다면 TEXT로 변경 (마이그레이션)
+        cur.execute("""
+            DO $$
+            BEGIN
+                IF EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name='agent_analysis_cache'
+                    AND column_name='manager_result'
+                    AND data_type='jsonb'
+                ) THEN
+                    ALTER TABLE agent_analysis_cache
+                    ALTER COLUMN manager_result TYPE TEXT
+                    USING manager_result::text;
+                END IF;
+            END $$;
         """)
         conn.commit(); cur.close(); conn.close()
         logger.info("agent_analysis_cache 테이블 준비됨")
@@ -4674,27 +4690,35 @@ def run_full_analysis():
         manager = f"# 부장 분석 실패\n\n에러: {e}\n\n팀장 결과는 별도로 확인 가능합니다."
         errors.append(f"manager: {e}")
 
-    # DB 저장
+    # DB 저장 — psycopg2.extras.Json() 사용해서 명시적 JSONB 변환
     analysis_time = datetime.now()
     if DATABASE_URL:
+        from psycopg2.extras import Json
         try:
             conn = get_conn(); cur = conn.cursor()
+            # manager는 마크다운 문자열 — TEXT로 저장
+            manager_text = manager if isinstance(manager, str) else json.dumps(manager, ensure_ascii=False)
             cur.execute("""
                 INSERT INTO agent_analysis_cache
                 (analysis_time, macro_result, flow_result, offensive_result, defensive_result, manager_result, error_log)
                 VALUES (%s, %s, %s, %s, %s, %s, %s)
             """, (
                 analysis_time,
-                json.dumps(sanitize(macro), ensure_ascii=False),
-                json.dumps(sanitize(flow), ensure_ascii=False),
-                json.dumps(sanitize(offensive), ensure_ascii=False),
-                json.dumps(sanitize(defensive), ensure_ascii=False),
-                manager if isinstance(manager, str) else json.dumps(manager, ensure_ascii=False),
+                Json(sanitize(macro)),
+                Json(sanitize(flow)),
+                Json(sanitize(offensive)),
+                Json(sanitize(defensive)),
+                manager_text,
                 "; ".join(errors) if errors else None
             ))
-            conn.commit(); cur.close(); conn.close()
+            conn.commit()
+            cur.close(); conn.close()
+            logger.info(f"✓ 분석 결과 DB 저장 완료 (time={analysis_time})")
         except Exception as e:
-            logger.error(f"분석 결과 DB 저장 실패: {e}")
+            logger.error(f"✗ 분석 결과 DB 저장 실패: {type(e).__name__}: {e}")
+            errors.append(f"db_save: {type(e).__name__}: {e}")
+    else:
+        logger.warning("DATABASE_URL 없음 — 분석 결과 저장 안 됨")
 
     duration = (datetime.now() - started).total_seconds()
     logger.info(f"종합 분석 완료 ({duration:.1f}초)")
