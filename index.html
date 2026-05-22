@@ -407,6 +407,13 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
         
       </div>
     </div>
+    <div class="nav-item nav-item-main" id="nav-agents" onclick="showPage('agents')" style="background:rgba(168,85,247,.18);border-left-color:#a855f7;">
+      <span class="nav-icon">🤖</span>
+      <div>
+        <div class="nav-label" style="color:#e9d5ff;">AI 종합 분석</div>
+        <div class="nav-sub" style="color:#c4b5fd;font-size:10px;">부장 + 4팀장</div>
+      </div>
+    </div>
     <div class="nav-item" id="nav-liquidity" onclick="showPage('liquidity')">
       <span class="nav-icon">💧</span>
       <div><div class="nav-label">유동성 판단</div></div>
@@ -1566,6 +1573,109 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
 
   </div>
 
+  <!-- ───────── 🤖 AI 종합 분석 (부장 + 4 팀장) ───────── -->
+  <div id="page-agents" style="display:none;">
+
+    <div class="topbar">
+      <div>
+        <div class="page-title">🤖 AI 종합 분석</div>
+        <div class="update-row">부장 + 매크로팀장 + 자금흐름팀장 + 종목분석팀장(공격/수비) · Claude Sonnet 4.6</div>
+      </div>
+    </div>
+
+    <!-- 컨트롤 카드 -->
+    <div class="card" style="margin-bottom:14px;padding:18px 20px;background:linear-gradient(135deg,#faf5ff,#fff);border:1px solid #e9d5ff;">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:14px;">
+        <div>
+          <div style="font-size:14px;font-weight:700;color:#6b21a8;margin-bottom:4px;">🎯 종합 분석 실행</div>
+          <div style="font-size:11px;color:#7c3aed;line-height:1.5;">
+            한 번 클릭으로 매크로 + 자금흐름 + 종목분석(공격/수비) + 부장 종합 보고서를 받습니다.<br>
+            소요 시간 약 15~25초 · 1회 비용 약 ₩100
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;">
+          <button id="agent-run-btn" onclick="runAgentAnalysis()" 
+            style="padding:12px 24px;background:linear-gradient(135deg,#a855f7,#7c3aed);color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;box-shadow:0 4px 12px rgba(168,85,247,.35);transition:all .2s;">
+            🎯 종합 분석 시작
+          </button>
+        </div>
+      </div>
+      <div id="agent-meta-row" style="margin-top:12px;padding-top:12px;border-top:1px solid #e9d5ff;font-size:11px;color:#7c3aed;display:none;">
+        <span id="agent-last-time">—</span>
+      </div>
+    </div>
+
+    <!-- 진행 상태 표시 -->
+    <div id="agent-progress" class="card" style="display:none;margin-bottom:14px;padding:24px;text-align:center;">
+      <div style="font-size:32px;margin-bottom:10px;" id="agent-spinner">⏳</div>
+      <div style="font-size:14px;font-weight:700;color:var(--text);margin-bottom:6px;" id="agent-status-text">분석 시작 중...</div>
+      <div style="font-size:11px;color:var(--sub);" id="agent-status-sub">잠시만 기다려주세요</div>
+      <div style="margin-top:14px;background:#f1f5f9;border-radius:8px;height:6px;overflow:hidden;">
+        <div id="agent-progress-bar" style="height:100%;width:5%;background:linear-gradient(90deg,#a855f7,#7c3aed);border-radius:8px;transition:width .8s ease;"></div>
+      </div>
+    </div>
+
+    <!-- 부장 종합 보고서 (최상단) -->
+    <div id="agent-manager-report" class="card" style="display:none;margin-bottom:14px;padding:24px;border:2px solid #a855f7;background:#fefbff;">
+      <!-- 마크다운 렌더링 결과 -->
+    </div>
+
+    <!-- 팀장 결과 (탭 형식) -->
+    <div id="agent-teams" style="display:none;">
+      <div class="card" style="padding:0;overflow:hidden;">
+        <!-- 탭 헤더 -->
+        <div style="display:flex;border-bottom:1px solid var(--border);background:#f8fafc;">
+          <button class="agent-tab-btn active" data-tab="macro" onclick="switchAgentTab('macro')"
+            style="flex:1;padding:14px 12px;border:none;background:transparent;color:var(--text);font-size:12px;font-weight:700;cursor:pointer;border-bottom:3px solid #3b82f6;">
+            🌐 매크로
+          </button>
+          <button class="agent-tab-btn" data-tab="flow" onclick="switchAgentTab('flow')"
+            style="flex:1;padding:14px 12px;border:none;background:transparent;color:var(--sub);font-size:12px;font-weight:700;cursor:pointer;border-bottom:3px solid transparent;">
+            💰 자금흐름
+          </button>
+          <button class="agent-tab-btn" data-tab="offensive" onclick="switchAgentTab('offensive')"
+            style="flex:1;padding:14px 12px;border:none;background:transparent;color:var(--sub);font-size:12px;font-weight:700;cursor:pointer;border-bottom:3px solid transparent;">
+            🎯 신규매수
+          </button>
+          <button class="agent-tab-btn" data-tab="defensive" onclick="switchAgentTab('defensive')"
+            style="flex:1;padding:14px 12px;border:none;background:transparent;color:var(--sub);font-size:12px;font-weight:700;cursor:pointer;border-bottom:3px solid transparent;">
+            🛡 보유점검
+          </button>
+        </div>
+        <!-- 탭 본문 -->
+        <div style="padding:20px;">
+          <div id="agent-tab-macro" class="agent-tab-content"></div>
+          <div id="agent-tab-flow" class="agent-tab-content" style="display:none;"></div>
+          <div id="agent-tab-offensive" class="agent-tab-content" style="display:none;"></div>
+          <div id="agent-tab-defensive" class="agent-tab-content" style="display:none;"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 빈 상태 (분석 기록 없을 때) -->
+    <div id="agent-empty" class="card" style="padding:48px 24px;text-align:center;color:var(--sub);">
+      <div style="font-size:48px;margin-bottom:14px;opacity:.5;">🤖</div>
+      <div style="font-size:14px;font-weight:700;color:var(--text);margin-bottom:6px;">분석 기록이 없습니다</div>
+      <div style="font-size:12px;line-height:1.6;">
+        위의 "🎯 종합 분석 시작" 버튼을 눌러 첫 분석을 실행해주세요.<br>
+        4명의 팀장 + 부장 에이전트가 매크로/자금흐름/보유종목/신규후보를 종합 분석합니다.
+      </div>
+    </div>
+
+    <!-- 에러 상태 -->
+    <div id="agent-error" class="card" style="display:none;padding:20px;background:#fef2f2;border:1px solid #fecaca;color:#991b1b;">
+      <div style="font-weight:700;margin-bottom:8px;">⚠️ 분석 실행 실패</div>
+      <div id="agent-error-msg" style="font-size:12px;line-height:1.6;"></div>
+    </div>
+
+    <!-- 안내 -->
+    <div class="card" style="margin-top:14px;padding:14px 16px;background:#f8fafc;font-size:11px;color:var(--sub);line-height:1.7;">
+      💡 <b>작동 방식</b>: 버튼 클릭 시 4명의 팀장 에이전트가 각자 분석 후, 부장 에이전트가 종합 보고서를 작성합니다. 사용자의 보유 종목과 -15% 손절 / +50% 익절 룰을 자동 검증합니다.<br>
+      💡 <b>한계</b>: AI 분석은 보조 도구이며 매수/매도 결정은 사용자가 최종 판단합니다. 데이터 부족 시 분석 정확도가 떨어질 수 있습니다.
+    </div>
+
+  </div>
+
 </div><!-- /main -->
 
 <script>
@@ -1587,7 +1697,7 @@ function closeSidebar() {
 }
 
 function showPage(page) {
-  ['dashboard','classic','growth','modern','tenbagger','backtest','smartmoney','liquidity','rebalance','portfolio','calendar'].forEach(p => {
+  ['dashboard','classic','growth','modern','tenbagger','backtest','smartmoney','liquidity','rebalance','portfolio','calendar','agents'].forEach(p => {
     document.getElementById('page-'+p).style.display = p===page?'block':'none';
     const nav = document.getElementById('nav-'+p);
     if(nav) nav.classList.toggle('active', p===page);
@@ -1613,6 +1723,9 @@ function showPage(page) {
   }
   if(page === 'calendar') {
     loadCalendar();
+  }
+  if(page === 'agents') {
+    loadLatestAgentAnalysis();
   }
   if(['classic','growth','modern'].includes(page)) {
     if(_lastResults && _lastResults.length>0) renderModelPage(page);
@@ -4789,5 +4902,546 @@ function renderFredCharts(data) {
 }
 </script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script>
+// ═══════════════════════════════════════════════════════════════════════
+// 🤖 AI 에이전트 분석 — 클라이언트 로직
+// ═══════════════════════════════════════════════════════════════════════
+
+let _agentData = null;  // 최근 분석 결과 저장
+let _agentProgressTimer = null;
+
+async function loadLatestAgentAnalysis() {
+  try {
+    const res = await fetch(API + '/api/agents/latest');
+    const data = await res.json();
+    if(data.empty) {
+      showAgentEmpty();
+      return;
+    }
+    if(data.error) {
+      showAgentError(data.error);
+      return;
+    }
+    _agentData = data;
+    renderAgentResults(data);
+  } catch(e) {
+    console.error('AI 분석 불러오기 실패', e);
+    showAgentEmpty();
+  }
+}
+
+async function runAgentAnalysis() {
+  const btn = document.getElementById('agent-run-btn');
+  btn.disabled = true;
+  btn.style.opacity = '0.5';
+  btn.textContent = '⏳ 분석 중...';
+
+  hideAgentEmpty();
+  hideAgentError();
+  hideAgentResults();
+  showAgentProgress();
+
+  try {
+    const res = await fetch(API + '/api/agents/full_analysis', { method: 'POST' });
+    if(!res.ok) {
+      const errData = await res.json().catch(() => ({error: 'HTTP ' + res.status}));
+      throw new Error(errData.error || 'HTTP ' + res.status);
+    }
+    const data = await res.json();
+    _agentData = data;
+    hideAgentProgress();
+    renderAgentResults(data);
+  } catch(e) {
+    hideAgentProgress();
+    showAgentError(e.message);
+  } finally {
+    btn.disabled = false;
+    btn.style.opacity = '1';
+    btn.textContent = '🔄 다시 분석';
+  }
+}
+
+function showAgentProgress() {
+  document.getElementById('agent-progress').style.display = 'block';
+  const stages = [
+    {pct:10, text:'🌐 매크로팀장 분석 중...', sub:'Fed 유동성 + DXY + 심리 지표 종합'},
+    {pct:30, text:'💰 자금흐름팀장 분석 중...', sub:'섹터 모멘텀 + MMF + 신용시장 추적'},
+    {pct:55, text:'🎯 종목분석팀장(공격) 분석 중...', sub:'스크리닝 Top 5 신규 진입 평가'},
+    {pct:75, text:'🛡 종목분석팀장(수비) 분석 중...', sub:'보유 종목 룰 검증'},
+    {pct:90, text:'📋 부장 종합 판단 중...', sub:'세 팀장 결과 통합 + 포트 정합성 검토'}
+  ];
+  let i = 0;
+  const updateStage = () => {
+    if(i >= stages.length) return;
+    const s = stages[i];
+    document.getElementById('agent-status-text').textContent = s.text;
+    document.getElementById('agent-status-sub').textContent = s.sub;
+    document.getElementById('agent-progress-bar').style.width = s.pct + '%';
+    i++;
+  };
+  updateStage();
+  _agentProgressTimer = setInterval(updateStage, 4000);
+}
+
+function hideAgentProgress() {
+  document.getElementById('agent-progress').style.display = 'none';
+  if(_agentProgressTimer) {
+    clearInterval(_agentProgressTimer);
+    _agentProgressTimer = null;
+  }
+  document.getElementById('agent-progress-bar').style.width = '5%';
+}
+
+function showAgentEmpty() {
+  document.getElementById('agent-empty').style.display = 'block';
+}
+function hideAgentEmpty() {
+  document.getElementById('agent-empty').style.display = 'none';
+}
+
+function showAgentError(msg) {
+  document.getElementById('agent-error').style.display = 'block';
+  document.getElementById('agent-error-msg').textContent = msg;
+}
+function hideAgentError() {
+  document.getElementById('agent-error').style.display = 'none';
+}
+
+function hideAgentResults() {
+  document.getElementById('agent-manager-report').style.display = 'none';
+  document.getElementById('agent-teams').style.display = 'none';
+}
+
+function renderAgentResults(data) {
+  hideAgentEmpty();
+  hideAgentError();
+
+  // 메타 시각
+  if(data.analysis_time) {
+    const t = new Date(data.analysis_time);
+    const fmt = t.toLocaleString('ko-KR', { year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit' });
+    document.getElementById('agent-last-time').innerHTML = '📅 마지막 분석: <b>' + fmt + '</b>';
+    document.getElementById('agent-meta-row').style.display = 'block';
+  }
+
+  // 부장 보고서 (마크다운 렌더링)
+  const managerBox = document.getElementById('agent-manager-report');
+  if(data.manager && typeof data.manager === 'string') {
+    try {
+      managerBox.innerHTML = marked.parse(data.manager);
+    } catch(e) {
+      managerBox.textContent = data.manager;
+    }
+    managerBox.style.display = 'block';
+  }
+
+  // 팀장 결과 렌더링
+  document.getElementById('agent-teams').style.display = 'block';
+  renderMacroTab(data.macro);
+  renderFlowTab(data.money_flow);
+  renderOffensiveTab(data.offensive);
+  renderDefensiveTab(data.defensive);
+}
+
+function switchAgentTab(tab) {
+  document.querySelectorAll('.agent-tab-btn').forEach(b => {
+    const active = b.dataset.tab === tab;
+    b.style.color = active ? 'var(--text)' : 'var(--sub)';
+    b.style.borderBottomColor = active ? '#3b82f6' : 'transparent';
+    b.classList.toggle('active', active);
+  });
+  document.querySelectorAll('.agent-tab-content').forEach(c => c.style.display = 'none');
+  document.getElementById('agent-tab-' + tab).style.display = 'block';
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// 팀장별 렌더링 함수
+// ──────────────────────────────────────────────────────────────────────
+
+function _agentErrBox(msg) {
+  return `<div style="padding:16px;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;color:#991b1b;font-size:12px;">⚠️ ${msg}</div>`;
+}
+
+function _agentSignalBadge(signal) {
+  const map = {
+    positive: {bg:'#dcfce7', col:'#15803d', label:'긍정'},
+    neutral:  {bg:'#fef3c7', col:'#b45309', label:'중립'},
+    negative: {bg:'#fee2e2', col:'#991b1b', label:'부정'}
+  };
+  const s = map[signal] || map.neutral;
+  return `<span style="display:inline-block;padding:2px 8px;background:${s.bg};color:${s.col};border-radius:10px;font-size:10px;font-weight:700;">${s.label}</span>`;
+}
+
+function _agentEnvBadge(env) {
+  const map = {
+    risk_on: {bg:'#dcfce7', col:'#15803d', label:'위험선호'},
+    risk_neutral_constructive: {bg:'#dbeafe', col:'#1d4ed8', label:'중립(긍정 우세)'},
+    risk_neutral_cautious: {bg:'#fef3c7', col:'#b45309', label:'중립(부정 우세)'},
+    risk_off: {bg:'#fee2e2', col:'#991b1b', label:'위험회피'}
+  };
+  const s = map[env] || {bg:'#f1f5f9', col:'#475569', label:env || '—'};
+  return `<span style="display:inline-block;padding:4px 12px;background:${s.bg};color:${s.col};border-radius:12px;font-size:12px;font-weight:800;">${s.label}</span>`;
+}
+
+function renderMacroTab(macro) {
+  const el = document.getElementById('agent-tab-macro');
+  if(!macro || macro.error) {
+    el.innerHTML = _agentErrBox('매크로팀장 분석 실패: ' + (macro?.error || '데이터 없음'));
+    return;
+  }
+  const dims = macro.dimensions || {};
+  const dimLabels = {
+    liquidity_fed: '💧 Fed 유동성',
+    fx_rates: '💱 통화/금리',
+    asset_prices: '🏅 자산가격',
+    sentiment: '😨 심리'
+  };
+  const dimRows = Object.entries(dims).map(([k,v]) => `
+    <div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #f1f5f9;">
+      <div style="flex:0 0 110px;font-size:12px;font-weight:700;">${dimLabels[k] || k}</div>
+      <div style="flex:0 0 50px;">${_agentSignalBadge(v.signal)}</div>
+      <div style="flex:1;font-size:11px;color:var(--sub);line-height:1.5;">${v.reason || '—'}</div>
+    </div>
+  `).join('');
+
+  const drivers = (macro.key_drivers || []).map(d => `<li style="margin-bottom:4px;">${d}</li>`).join('');
+  const watch = (macro.watch_points || []).map(d => `<li style="margin-bottom:4px;">${d}</li>`).join('');
+
+  const ruleComp = macro.rule_signal_comparison || {};
+  const matchBadge = ruleComp.match ? 
+    '<span style="color:#15803d;font-weight:700;">✓ 일치</span>' : 
+    '<span style="color:#b45309;font-weight:700;">⚠ 불일치</span>';
+
+  el.innerHTML = `
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;flex-wrap:wrap;">
+      ${_agentEnvBadge(macro.environment)}
+      <span style="font-size:11px;color:var(--sub);">신뢰도: <b>${macro.confidence || '—'}</b></span>
+      <span style="font-size:11px;color:var(--sub);">정합성: <b>${macro.coherence || '—'}</b> (${macro.agreement_count || '—'})</span>
+    </div>
+    <div style="font-size:14px;font-weight:700;color:var(--text);margin-bottom:14px;line-height:1.5;">${macro.headline || ''}</div>
+    <div style="background:#f8fafc;border-radius:8px;padding:14px;margin-bottom:14px;line-height:1.7;font-size:13px;color:var(--text);">${macro.narrative || ''}</div>
+    <div style="margin-bottom:14px;">
+      <div style="font-size:11px;font-weight:700;color:var(--sub);margin-bottom:8px;">📊 4개 차원 분석</div>
+      ${dimRows}
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;">
+      <div>
+        <div style="font-size:11px;font-weight:700;color:var(--sub);margin-bottom:6px;">🎯 핵심 동인</div>
+        <ul style="margin:0;padding-left:18px;font-size:12px;line-height:1.6;">${drivers}</ul>
+      </div>
+      <div>
+        <div style="font-size:11px;font-weight:700;color:var(--sub);margin-bottom:6px;">👀 관찰 포인트</div>
+        <ul style="margin:0;padding-left:18px;font-size:12px;line-height:1.6;">${watch}</ul>
+      </div>
+    </div>
+    <div style="padding:10px 12px;background:#f8fafc;border-radius:6px;font-size:11px;">
+      <b>코드 신호 vs 에이전트 판단:</b> 
+      코드 <code>${ruleComp.code_signal || '—'}</code> · 
+      에이전트 <code>${ruleComp.agent_signal || '—'}</code> · 
+      ${matchBadge}
+      ${!ruleComp.match && ruleComp.discrepancy_reason ? '<div style="margin-top:6px;color:var(--sub);">사유: ' + ruleComp.discrepancy_reason + '</div>' : ''}
+    </div>
+  `;
+}
+
+function renderFlowTab(flow) {
+  const el = document.getElementById('agent-tab-flow');
+  if(!flow || flow.error) {
+    el.innerHTML = _agentErrBox('자금흐름팀장 분석 실패: ' + (flow?.error || '데이터 없음'));
+    return;
+  }
+  const stateMap = {
+    broad_risk_on: {bg:'#dcfce7', col:'#15803d', label:'광범위 강세'},
+    selective_risk_on: {bg:'#dbeafe', col:'#1d4ed8', label:'선별 강세'},
+    rotation: {bg:'#fef3c7', col:'#b45309', label:'섹터 회전'},
+    risk_off: {bg:'#fee2e2', col:'#991b1b', label:'자금 회수'},
+    extreme_fear: {bg:'#7f1d1d', col:'#fff', label:'극단 공포'}
+  };
+  const fs = stateMap[flow.flow_state] || {bg:'#f1f5f9', col:'#475569', label:flow.flow_state || '—'};
+
+  const leading = (flow.leading_sectors || []).map(s => `
+    <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #f1f5f9;">
+      <div style="flex:0 0 130px;font-size:12px;font-weight:700;">${s.sector || '—'}</div>
+      <div style="flex:0 0 80px;font-size:11px;color:#15803d;font-weight:700;">+${s.rel_strength?.toFixed?.(1) || s.rel_strength}</div>
+      <div style="flex:1;font-size:11px;color:var(--sub);line-height:1.5;">${s.reason || '—'}</div>
+    </div>
+  `).join('');
+  const lagging = (flow.lagging_sectors || []).map(s => `
+    <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #f1f5f9;">
+      <div style="flex:0 0 130px;font-size:12px;font-weight:700;">${s.sector || '—'}</div>
+      <div style="flex:0 0 80px;font-size:11px;color:#991b1b;font-weight:700;">${s.rel_strength?.toFixed?.(1) || s.rel_strength}</div>
+      <div style="flex:1;font-size:11px;color:var(--sub);line-height:1.5;">${s.reason || '—'}</div>
+    </div>
+  `).join('');
+
+  const rotation = flow.rotation_signal || {};
+  const breadth = flow.breadth_analysis || {};
+  const inst = flow.institutional_signal || {};
+  const vel = flow.money_velocity || {};
+  const obs = (flow.key_observations || []).map(o => `<li style="margin-bottom:4px;">${o}</li>`).join('');
+
+  el.innerHTML = `
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;flex-wrap:wrap;">
+      <span style="display:inline-block;padding:4px 12px;background:${fs.bg};color:${fs.col};border-radius:12px;font-size:12px;font-weight:800;">${fs.label}</span>
+      <span style="font-size:11px;color:var(--sub);">신뢰도: <b>${flow.confidence || '—'}</b></span>
+    </div>
+    <div style="font-size:14px;font-weight:700;color:var(--text);margin-bottom:14px;line-height:1.5;">${flow.headline || ''}</div>
+    <div style="background:#f8fafc;border-radius:8px;padding:14px;margin-bottom:14px;line-height:1.7;font-size:13px;color:var(--text);">${flow.narrative || ''}</div>
+    
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px;">
+      <div>
+        <div style="font-size:11px;font-weight:700;color:#15803d;margin-bottom:6px;">📈 주도 섹터</div>
+        ${leading || '<div style="font-size:11px;color:var(--sub);">데이터 없음</div>'}
+      </div>
+      <div>
+        <div style="font-size:11px;font-weight:700;color:#991b1b;margin-bottom:6px;">📉 부진 섹터</div>
+        ${lagging || '<div style="font-size:11px;color:var(--sub);">데이터 없음</div>'}
+      </div>
+    </div>
+
+    ${rotation.detected ? `
+      <div style="padding:12px;background:#fef3c7;border:1px solid #fde68a;border-radius:8px;margin-bottom:14px;font-size:12px;">
+        <b>🔄 섹터 회전 감지:</b> ${rotation.from_sector || ''} → ${rotation.to_sector || ''}<br>
+        <span style="color:var(--sub);">${rotation.description || ''}</span>
+      </div>
+    ` : ''}
+
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px;">
+      <div style="padding:10px;background:#f8fafc;border-radius:6px;">
+        <div style="font-size:10px;color:var(--sub);font-weight:700;margin-bottom:4px;">시장 폭 (MMTH)</div>
+        <div style="font-size:14px;font-weight:800;">${breadth.pct_above_ma200 || '—'}%</div>
+        <div style="font-size:10px;color:var(--sub);margin-top:2px;">${breadth.level || '—'}</div>
+      </div>
+      <div style="padding:10px;background:#f8fafc;border-radius:6px;">
+        <div style="font-size:10px;color:var(--sub);font-weight:700;margin-bottom:4px;">기관 공매도</div>
+        <div style="font-size:14px;font-weight:800;">${inst.short_volume_trend || '—'}</div>
+        <div style="font-size:10px;color:var(--sub);margin-top:2px;">${inst.reason || ''}</div>
+      </div>
+      <div style="padding:10px;background:#f8fafc;border-radius:6px;">
+        <div style="font-size:10px;color:var(--sub);font-weight:700;margin-bottom:4px;">MMF 방향</div>
+        <div style="font-size:14px;font-weight:800;">${vel.mmf_direction || '—'}</div>
+        <div style="font-size:10px;color:var(--sub);margin-top:2px;">${vel.mmf_change_pct ? (vel.mmf_change_pct > 0 ? '+' : '') + vel.mmf_change_pct + '%' : ''}</div>
+      </div>
+    </div>
+
+    <div>
+      <div style="font-size:11px;font-weight:700;color:var(--sub);margin-bottom:6px;">🔍 핵심 관찰</div>
+      <ul style="margin:0;padding-left:18px;font-size:12px;line-height:1.6;">${obs}</ul>
+    </div>
+  `;
+}
+
+function renderOffensiveTab(off) {
+  const el = document.getElementById('agent-tab-offensive');
+  if(!off || off.error) {
+    el.innerHTML = _agentErrBox('공격팀장 분석 실패: ' + (off?.error || '데이터 없음'));
+    return;
+  }
+  const sum = off.summary || {};
+  const strengthMap = {
+    strong_buy: {bg:'#15803d', col:'#fff', label:'강력 매수'},
+    buy: {bg:'#3b82f6', col:'#fff', label:'매수'},
+    watch: {bg:'#f59e0b', col:'#fff', label:'관망'},
+    avoid: {bg:'#991b1b', col:'#fff', label:'회피'}
+  };
+  
+  const cards = (off.candidates_analysis || []).map(c => {
+    const sb = strengthMap[c.entry_strength] || {bg:'#475569', col:'#fff', label:c.entry_strength};
+    const sd = c.score_breakdown || {};
+    const cf = c.context_fit || {};
+    const eq = c.entry_quality || {};
+    return `
+      <div style="padding:14px;background:#fff;border:1px solid var(--border);border-radius:10px;margin-bottom:10px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px;">
+          <div>
+            <span style="font-size:16px;font-weight:800;">${c.ticker || '—'}</span>
+            <span style="font-size:11px;color:var(--sub);margin-left:6px;">${c.name || ''} · ${c.sector || ''}</span>
+          </div>
+          <span style="padding:4px 10px;background:${sb.bg};color:${sb.col};border-radius:10px;font-size:11px;font-weight:700;">${sb.label}</span>
+        </div>
+        <div style="font-size:12px;line-height:1.6;color:var(--text);margin-bottom:10px;">${c.narrative || ''}</div>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:8px;">
+          <div style="padding:8px;background:#f8fafc;border-radius:6px;text-align:center;">
+            <div style="font-size:9px;color:var(--sub);font-weight:700;">총점</div>
+            <div style="font-size:14px;font-weight:800;">${sd.total || '—'}</div>
+          </div>
+          <div style="padding:8px;background:#f8fafc;border-radius:6px;text-align:center;">
+            <div style="font-size:9px;color:var(--sub);font-weight:700;">Classic</div>
+            <div style="font-size:13px;font-weight:700;">${sd.classic || '—'}/30</div>
+          </div>
+          <div style="padding:8px;background:#f8fafc;border-radius:6px;text-align:center;">
+            <div style="font-size:9px;color:var(--sub);font-weight:700;">Growth</div>
+            <div style="font-size:13px;font-weight:700;">${sd.growth || '—'}/40</div>
+          </div>
+          <div style="padding:8px;background:#f8fafc;border-radius:6px;text-align:center;">
+            <div style="font-size:9px;color:var(--sub);font-weight:700;">Modern</div>
+            <div style="font-size:13px;font-weight:700;">${sd.modern || '—'}/30</div>
+          </div>
+        </div>
+        <div style="font-size:11px;color:var(--sub);line-height:1.6;">
+          <b>강점:</b> ${sd.strength_pillar || '—'} · <b>약점:</b> ${sd.weakness || '—'}<br>
+          <b>매크로 정합:</b> ${cf.macro_alignment || '—'} · <b>주도섹터:</b> ${cf.sector_in_leading ? '✓' : '✗'} · <b>타이밍:</b> ${eq.timing || '—'}<br>
+          <b>권고 비중:</b> ${c.suggested_weight || '—'} · <b>리스크:</b> ${c.risk_notes || '—'}
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  const topPicks = (off.top_picks || []).map(t => `
+    <div style="display:flex;align-items:center;gap:10px;padding:8px;background:#dcfce7;border-radius:6px;margin-bottom:6px;">
+      <div style="font-size:14px;font-weight:800;color:#15803d;">#${t.rank}</div>
+      <div style="font-size:13px;font-weight:700;">${t.ticker}</div>
+      <div style="font-size:11px;color:var(--sub);">${t.key_reason || ''}</div>
+    </div>
+  `).join('');
+
+  el.innerHTML = `
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:14px;">
+      <div style="padding:10px;background:#dcfce7;border-radius:6px;text-align:center;">
+        <div style="font-size:10px;color:#15803d;font-weight:700;">강력매수</div>
+        <div style="font-size:18px;font-weight:800;color:#15803d;">${sum.strong_buy_count || 0}</div>
+      </div>
+      <div style="padding:10px;background:#dbeafe;border-radius:6px;text-align:center;">
+        <div style="font-size:10px;color:#1d4ed8;font-weight:700;">매수</div>
+        <div style="font-size:18px;font-weight:800;color:#1d4ed8;">${sum.buy_count || 0}</div>
+      </div>
+      <div style="padding:10px;background:#fef3c7;border-radius:6px;text-align:center;">
+        <div style="font-size:10px;color:#b45309;font-weight:700;">관망</div>
+        <div style="font-size:18px;font-weight:800;color:#b45309;">${sum.watch_count || 0}</div>
+      </div>
+      <div style="padding:10px;background:#fee2e2;border-radius:6px;text-align:center;">
+        <div style="font-size:10px;color:#991b1b;font-weight:700;">회피</div>
+        <div style="font-size:18px;font-weight:800;color:#991b1b;">${sum.avoid_count || 0}</div>
+      </div>
+    </div>
+    <div style="background:#f8fafc;border-radius:8px;padding:14px;margin-bottom:14px;line-height:1.7;font-size:13px;color:var(--text);">${off.narrative || ''}</div>
+    
+    ${topPicks ? `
+      <div style="margin-bottom:14px;">
+        <div style="font-size:11px;font-weight:700;color:#15803d;margin-bottom:8px;">🏆 Top Picks</div>
+        ${topPicks}
+      </div>
+    ` : ''}
+
+    <div style="font-size:11px;font-weight:700;color:var(--sub);margin-bottom:8px;">📊 후보 5개 상세 분석</div>
+    ${cards}
+  `;
+}
+
+function renderDefensiveTab(def) {
+  const el = document.getElementById('agent-tab-defensive');
+  if(!def || def.error) {
+    el.innerHTML = _agentErrBox('수비팀장 분석 실패: ' + (def?.error || '데이터 없음'));
+    return;
+  }
+  const sum = def.summary || {};
+  const health = def.portfolio_health || {};
+  const healthMap = {
+    healthy: {bg:'#dcfce7', col:'#15803d', label:'건강'},
+    needs_attention: {bg:'#fef3c7', col:'#b45309', label:'주의 필요'},
+    critical: {bg:'#fee2e2', col:'#991b1b', label:'위험'}
+  };
+  const h = healthMap[health.level] || {bg:'#f1f5f9', col:'#475569', label:'—'};
+
+  const immediate = (def.immediate_action || []).map(a => {
+    const isLoss = a.status?.includes('stop_loss');
+    const color = isLoss ? '#991b1b' : '#15803d';
+    const bg = isLoss ? '#fee2e2' : '#dcfce7';
+    return `
+      <div style="padding:12px;background:${bg};border-left:4px solid ${color};border-radius:6px;margin-bottom:8px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;flex-wrap:wrap;gap:6px;">
+          <div>
+            <span style="font-size:14px;font-weight:800;">${a.ticker}</span>
+            <span style="font-size:10px;color:var(--sub);margin-left:6px;">[${a.account === 'sub' ? '서브' : '메인'}]</span>
+          </div>
+          <div style="font-size:11px;color:${color};font-weight:700;">${a.pnl_pct?.toFixed(2)}% (비중 ${a.weight_pct?.toFixed(1)}%)</div>
+        </div>
+        <div style="font-size:12px;color:var(--text);margin-bottom:4px;"><b>${a.recommendation || ''}</b></div>
+        <div style="font-size:11px;color:var(--sub);line-height:1.5;">${a.narrative || ''} <span style="color:${color};">[룰: ${a.rule_applied}]</span></div>
+      </div>
+    `;
+  }).join('');
+
+  const monitor = (def.monitoring || []).map(m => `
+    <div style="display:flex;align-items:center;gap:10px;padding:10px;background:#fef9c3;border-radius:6px;margin-bottom:6px;">
+      <div style="flex:0 0 80px;font-size:13px;font-weight:700;">${m.ticker}</div>
+      <div style="flex:0 0 60px;font-size:11px;color:${m.pnl_pct >= 0 ? '#15803d' : '#991b1b'};font-weight:700;">${m.pnl_pct >= 0 ? '+' : ''}${m.pnl_pct?.toFixed(1)}%</div>
+      <div style="flex:1;font-size:11px;color:var(--text);line-height:1.5;">
+        <b>${m.reason || ''}</b>
+        ${m.trigger_for_action ? '<br><span style="color:var(--sub);">트리거: ' + m.trigger_for_action + '</span>' : ''}
+      </div>
+    </div>
+  `).join('');
+
+  const adjust = (def.adjustment || []).map(a => `
+    <div style="display:flex;align-items:center;gap:10px;padding:10px;background:#dbeafe;border-radius:6px;margin-bottom:6px;">
+      <div style="flex:0 0 80px;font-size:13px;font-weight:700;">${a.ticker}</div>
+      <div style="flex:1;font-size:11px;color:var(--text);line-height:1.5;">
+        ${a.current} → ${a.target} (차이 ${a.gap})<br>
+        <span style="color:var(--sub);">${a.recommendation || ''}</span>
+      </div>
+    </div>
+  `).join('');
+
+  const safe = (def.safe || []).map(s => `<span style="display:inline-block;padding:3px 8px;background:#dcfce7;color:#15803d;border-radius:10px;font-size:11px;font-weight:700;margin:2px;">${s.ticker} (${s.pnl_pct >= 0 ? '+' : ''}${s.pnl_pct?.toFixed(1)}%)</span>`).join('');
+
+  el.innerHTML = `
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap;">
+      <span style="padding:4px 12px;background:${h.bg};color:${h.col};border-radius:12px;font-size:12px;font-weight:800;">포트 상태: ${h.label}</span>
+      <span style="font-size:11px;color:var(--sub);">메인 ${health.main_account_pnl?.toFixed(1)}% / 서브 ${health.sub_account_pnl?.toFixed(1)}%</span>
+      ${health.concentration_risk ? '<span style="font-size:11px;color:#b45309;">⚠ ' + health.concentration_risk + '</span>' : ''}
+    </div>
+    <div style="background:#f8fafc;border-radius:8px;padding:14px;margin-bottom:14px;line-height:1.7;font-size:13px;color:var(--text);">${def.narrative || ''}</div>
+
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:14px;">
+      <div style="padding:10px;background:#fee2e2;border-radius:6px;text-align:center;">
+        <div style="font-size:10px;color:#991b1b;font-weight:700;">즉시조치</div>
+        <div style="font-size:18px;font-weight:800;color:#991b1b;">${sum.immediate_action_count || 0}</div>
+      </div>
+      <div style="padding:10px;background:#fef3c7;border-radius:6px;text-align:center;">
+        <div style="font-size:10px;color:#b45309;font-weight:700;">모니터링</div>
+        <div style="font-size:18px;font-weight:800;color:#b45309;">${sum.monitoring_count || 0}</div>
+      </div>
+      <div style="padding:10px;background:#dbeafe;border-radius:6px;text-align:center;">
+        <div style="font-size:10px;color:#1d4ed8;font-weight:700;">조정검토</div>
+        <div style="font-size:18px;font-weight:800;color:#1d4ed8;">${sum.adjustment_count || 0}</div>
+      </div>
+      <div style="padding:10px;background:#dcfce7;border-radius:6px;text-align:center;">
+        <div style="font-size:10px;color:#15803d;font-weight:700;">안전</div>
+        <div style="font-size:18px;font-weight:800;color:#15803d;">${sum.safe_count || 0}</div>
+      </div>
+    </div>
+
+    ${immediate ? `
+      <div style="margin-bottom:14px;">
+        <div style="font-size:11px;font-weight:700;color:#991b1b;margin-bottom:8px;">⚠️ 즉시 조치 필요</div>
+        ${immediate}
+      </div>
+    ` : ''}
+
+    ${monitor ? `
+      <div style="margin-bottom:14px;">
+        <div style="font-size:11px;font-weight:700;color:#b45309;margin-bottom:8px;">📊 모니터링</div>
+        ${monitor}
+      </div>
+    ` : ''}
+
+    ${adjust ? `
+      <div style="margin-bottom:14px;">
+        <div style="font-size:11px;font-weight:700;color:#1d4ed8;margin-bottom:8px;">⚖️ 조정 검토</div>
+        ${adjust}
+      </div>
+    ` : ''}
+
+    ${safe ? `
+      <div>
+        <div style="font-size:11px;font-weight:700;color:#15803d;margin-bottom:8px;">✅ 안전 (${sum.safe_count || 0}종목)</div>
+        <div>${safe}</div>
+      </div>
+    ` : ''}
+  `;
+}
+</script>
 </body>
 </html>
