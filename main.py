@@ -4794,6 +4794,17 @@ def _call_agent(system_prompt, user_data, parse_json=True, web_search_max_uses=0
             logger.warning(f"웹 검색 도구 사용 불가, fallback으로 검색 없이 호출: {e}")
             create_kwargs.pop("tools", None)
             response = client.messages.create(**create_kwargs)
+        # Rate limit 에러 시 대기 후 재시도 (분당 토큰 한도)
+        elif "rate_limit" in err_msg.lower() or "429" in err_msg:
+            logger.warning(f"⏸ Rate limit 도달, 35초 대기 후 재시도: {err_msg[:200]}")
+            import time
+            time.sleep(35)
+            try:
+                response = client.messages.create(**create_kwargs)
+                logger.info("✓ Rate limit 재시도 성공")
+            except Exception as e2:
+                logger.error(f"✗ Rate limit 재시도도 실패: {e2}")
+                raise
         else:
             raise
 
@@ -4858,6 +4869,98 @@ def run_defensive_agent(macro_summary, flow_summary, macro_stage):
     data = _collect_defensive_data(macro_summary, flow_summary, macro_stage)
     return _call_agent(STOCK_DEFENSIVE_PROMPT, data, parse_json=True, web_search_max_uses=5)
 
+def _slim_team_report(report, agent_type):
+    """팀장 결과에서 부장이 진짜 필요한 핵심만 추출 (토큰 절감)"""
+    if not isinstance(report, dict):
+        return report
+    if report.get("error"):
+        return {"error": report["error"]}
+    
+    if agent_type == "macro":
+        return {
+            "environment": report.get("environment"),
+            "confidence": report.get("confidence"),
+            "headline": report.get("headline"),
+            "coherence": report.get("coherence"),
+            "key_drivers": report.get("key_drivers", []),
+            "watch_points": report.get("watch_points", []),
+            "rule_signal_comparison": report.get("rule_signal_comparison", {}),
+            "external_view": report.get("external_view", {}),
+            "narrative": report.get("narrative")
+        }
+    elif agent_type == "flow":
+        return {
+            "flow_state": report.get("flow_state"),
+            "confidence": report.get("confidence"),
+            "headline": report.get("headline"),
+            "leading_sectors": [
+                {"sector": s.get("sector"), "rel_strength": s.get("rel_strength")} 
+                for s in (report.get("leading_sectors") or [])[:3]
+            ],
+            "lagging_sectors": [
+                {"sector": s.get("sector"), "rel_strength": s.get("rel_strength")} 
+                for s in (report.get("lagging_sectors") or [])[:3]
+            ],
+            "rotation_signal": report.get("rotation_signal", {}),
+            "external_view": report.get("external_view", {}),
+            "narrative": report.get("narrative")
+        }
+    elif agent_type == "offensive":
+        # 종목 분석은 핵심 필드만 (narrative + entry_strength + 점수 + 권고 비중)
+        slim_cands = []
+        for c in (report.get("candidates_analysis") or []):
+            slim_cands.append({
+                "ticker": c.get("ticker"),
+                "sector": c.get("sector"),
+                "entry_strength": c.get("entry_strength"),
+                "score_breakdown": {
+                    "total": (c.get("score_breakdown") or {}).get("total"),
+                    "strength_pillar": (c.get("score_breakdown") or {}).get("strength_pillar"),
+                    "weakness": (c.get("score_breakdown") or {}).get("weakness")
+                },
+                "context_fit": c.get("context_fit", {}),
+                "suggested_weight": c.get("suggested_weight"),
+                "risk_notes": c.get("risk_notes"),
+                "external_signals": c.get("external_signals", {}),
+                "narrative": c.get("narrative")
+            })
+        return {
+            "summary": report.get("summary"),
+            "candidates_analysis": slim_cands,
+            "top_picks": report.get("top_picks", []),
+            "rejected": report.get("rejected", []),
+            "narrative": report.get("narrative")
+        }
+    elif agent_type == "defensive":
+        # 안전 그룹은 티커만 (가장 큰 절감)
+        return {
+            "summary": report.get("summary"),
+            "immediate_action": report.get("immediate_action", []),
+            "monitoring": report.get("monitoring", []),
+            "adjustment": report.get("adjustment", []),
+            "safe": [{"ticker": s.get("ticker"), "pnl_pct": s.get("pnl_pct")} 
+                     for s in (report.get("safe") or [])],
+            "rule_violations_detail": report.get("rule_violations_detail", []),
+            "portfolio_health": report.get("portfolio_health", {}),
+            "narrative": report.get("narrative")
+        }
+    return report
+
+def _slim_holdings(holdings):
+    """보유 종목에서 부장이 필요한 핵심 필드만"""
+    slim = []
+    for h in holdings:
+        slim.append({
+            "ticker": h.get("ticker"),
+            "name": h.get("name"),  # 한글명 병기용
+            "sector": h.get("sector"),
+            "account": h.get("account"),
+            "pnl_pct": h.get("pnl_pct"),
+            "weight_pct": h.get("weight_pct"),
+            "memo": h.get("memo")  # 매수 논리 (있으면)
+        })
+    return slim
+
 def run_manager_agent(macro_result, flow_result, offensive_result, defensive_result):
     # 부장은 마크다운 반환
     import requests as req
@@ -4893,12 +4996,13 @@ def run_manager_agent(macro_result, flow_result, offensive_result, defensive_res
     if macro_score is not None and macro_stage_num is None:
         macro_stage_num, macro_signal_name = _score_to_stage(macro_score)
 
+    # 부장 입력 슬림화 — 핵심만 추려서 토큰 사용량 감소 (35K → 약 15K 목표)
     data = {
         "team_reports": {
-            "macro": macro_result,
-            "money_flow": flow_result,
-            "stock_offensive": offensive_result,
-            "stock_defensive": defensive_result
+            "macro": _slim_team_report(macro_result, "macro"),
+            "money_flow": _slim_team_report(flow_result, "flow"),
+            "stock_offensive": _slim_team_report(offensive_result, "offensive"),
+            "stock_defensive": _slim_team_report(defensive_result, "defensive")
         },
         "current_macro_state": {
             "score": macro_score,
@@ -4907,7 +5011,7 @@ def run_manager_agent(macro_result, flow_result, offensive_result, defensive_res
             "_explanation": f"점수 {macro_score}점은 Stage {macro_stage_num} ({macro_signal_name})입니다. 보고서 전체에서 이 stage와 신호명을 일관되게 사용하세요."
         },
         "portfolio": {
-            "holdings": port.get("holdings", []),
+            "holdings": _slim_holdings(port.get("holdings", [])),
             "cash": port.get("cash", {}),
             "summary": port.get("summary", {}),
             "usd_krw": port.get("usd_krw")
@@ -4960,6 +5064,8 @@ def _run_full_analysis_impl():
     logger.info("에이전트 종합 분석 시작")
     errors = []
 
+    import time as _time
+
     # 1. 매크로팀장
     try:
         macro = run_macro_agent()
@@ -4968,6 +5074,7 @@ def _run_full_analysis_impl():
         logger.error(f"매크로팀장 실패: {e}")
         macro = {"error": str(e)}
         errors.append(f"macro: {e}")
+    _time.sleep(2)  # 분당 토큰 한도 분산
 
     # 2. 자금흐름팀장
     try:
@@ -4977,6 +5084,7 @@ def _run_full_analysis_impl():
         logger.error(f"자금흐름팀장 실패: {e}")
         flow = {"error": str(e)}
         errors.append(f"flow: {e}")
+    _time.sleep(2)
 
     # 3, 4. 종목분석팀장 (공격/수비) — 매크로/자금흐름 요약 전달
     macro_summary = {k: macro.get(k) for k in ["environment", "headline", "confidence"] if not isinstance(macro, str)}
@@ -4992,6 +5100,7 @@ def _run_full_analysis_impl():
         logger.error(f"공격팀장 실패: {e}")
         offensive = {"error": str(e)}
         errors.append(f"offensive: {e}")
+    _time.sleep(2)
 
     try:
         defensive = run_defensive_agent(macro_summary, flow_summary, macro_stage_num)
@@ -5000,6 +5109,7 @@ def _run_full_analysis_impl():
         logger.error(f"수비팀장 실패: {e}")
         defensive = {"error": str(e)}
         errors.append(f"defensive: {e}")
+    _time.sleep(3)  # 부장 호출 전 더 긴 간격 (부장 입력이 가장 큼)
 
     # 5. 부장 종합
     try:
