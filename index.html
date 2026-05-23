@@ -384,6 +384,192 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
 .sm-period-btn.active{background:#1e3a5f;color:#fff;border-color:#1e3a5f;}
 .market-judge-card{border-radius:12px;padding:18px;margin-bottom:14px;border:2px solid;}
 .sm-toggle-box{display:flex;align-items:center;gap:10px;padding:14px 18px;background:linear-gradient(135deg,#f0fdf4,#dcfce7);border:1px solid #86efac;border-radius:12px;margin-bottom:14px;}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   📄 부장 IB 리서치 보고서 스타일
+   ═══════════════════════════════════════════════════════════════════════ */
+#agent-manager-report {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Pretendard', 
+               'Noto Sans KR', 'Apple SD Gothic Neo', sans-serif;
+  color: #0f172a;
+  font-size: 14px;
+  line-height: 1.7;
+  letter-spacing: -0.01em;
+  padding: 32px 36px 36px !important;
+  background: #ffffff !important;
+  max-width: 100%;
+}
+
+/* H1 — 보고서 메인 타이틀 */
+#agent-manager-report h1 {
+  font-size: 22px;
+  font-weight: 800;
+  color: #1e1b4b;
+  margin: 0 0 28px 0;
+  padding-bottom: 14px;
+  border-bottom: 2px solid #6366f1;
+  letter-spacing: -0.02em;
+}
+
+/* H2 — 주요 섹션 (시장 환경, 보유 점검 등) */
+#agent-manager-report h2 {
+  font-size: 17px;
+  font-weight: 700;
+  color: #1e1b4b;
+  margin: 32px 0 14px 0;
+  padding: 0 0 8px 0;
+  border-bottom: 1px solid #e2e8f0;
+  letter-spacing: -0.01em;
+}
+#agent-manager-report h2:first-of-type {
+  margin-top: 0;
+}
+
+/* H3 — 하위 섹션 (즉시 조치, 모니터링 등) */
+#agent-manager-report h3 {
+  font-size: 14px;
+  font-weight: 700;
+  color: #334155;
+  margin: 22px 0 10px 0;
+  padding: 0;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+/* H4 — 더 하위 */
+#agent-manager-report h4 {
+  font-size: 13px;
+  font-weight: 700;
+  color: #475569;
+  margin: 18px 0 8px 0;
+}
+
+/* 본문 단락 */
+#agent-manager-report p {
+  margin: 0 0 12px 0;
+  color: #1e293b;
+  line-height: 1.75;
+}
+
+#agent-manager-report p:last-child {
+  margin-bottom: 0;
+}
+
+/* 인용구 — 핵심 변수 강조 */
+#agent-manager-report blockquote {
+  margin: 16px 0;
+  padding: 12px 18px;
+  background: #f8fafc;
+  border-left: 4px solid #6366f1;
+  border-radius: 0 6px 6px 0;
+  color: #334155;
+  font-size: 13px;
+}
+#agent-manager-report blockquote p {
+  margin: 0;
+}
+
+/* 굵게 — 종목명·핵심 숫자 */
+#agent-manager-report strong, 
+#agent-manager-report b {
+  font-weight: 700;
+  color: #0f172a;
+}
+
+/* 리스트 */
+#agent-manager-report ul,
+#agent-manager-report ol {
+  margin: 0 0 16px 0;
+  padding-left: 22px;
+}
+
+#agent-manager-report li {
+  margin-bottom: 8px;
+  line-height: 1.7;
+  color: #1e293b;
+}
+
+#agent-manager-report li:last-child {
+  margin-bottom: 0;
+}
+
+#agent-manager-report li > ul,
+#agent-manager-report li > ol {
+  margin-top: 6px;
+  margin-bottom: 0;
+}
+
+/* 표 — IB 리포트 스타일 */
+#agent-manager-report table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 14px 0 20px 0;
+  font-size: 13px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+#agent-manager-report thead {
+  background: #f1f5f9;
+}
+
+#agent-manager-report th {
+  text-align: left;
+  padding: 10px 14px;
+  font-weight: 700;
+  font-size: 12px;
+  color: #475569;
+  border-bottom: 1px solid #cbd5e1;
+  letter-spacing: 0;
+}
+
+#agent-manager-report td {
+  padding: 10px 14px;
+  border-bottom: 1px solid #f1f5f9;
+  color: #1e293b;
+  vertical-align: top;
+}
+
+#agent-manager-report tr:last-child td {
+  border-bottom: none;
+}
+
+#agent-manager-report tbody tr:hover {
+  background: #fafbfc;
+}
+
+/* 코드 (인라인) — 만약 노출되면 눈에 띄게 */
+#agent-manager-report code {
+  background: #fef2f2;
+  color: #991b1b;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-family: 'SF Mono', 'Monaco', 'Cascadia Code', monospace;
+}
+
+/* 구분선 */
+#agent-manager-report hr {
+  margin: 28px 0;
+  border: none;
+  border-top: 1px solid #e2e8f0;
+}
+
+/* 링크 */
+#agent-manager-report a {
+  color: #6366f1;
+  text-decoration: none;
+  border-bottom: 1px dashed #c7d2fe;
+}
+#agent-manager-report a:hover {
+  border-bottom-style: solid;
+}
+
+/* 손익률 색상 (JS로 후처리 또는 부장이 직접) */
+#agent-manager-report .pnl-loss { color: #dc2626; font-weight: 700; }
+#agent-manager-report .pnl-gain { color: #16a34a; font-weight: 700; }
 </style>
 </head>
 <body>
@@ -1669,8 +1855,8 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
         </div>
         <span id="agent-manager-toggle" style="font-size:12px;color:var(--sub);">▼ 펼치기</span>
       </div>
-      <div id="agent-manager-report" style="display:none;padding:20px 22px;background:#fefbff;">
-        <!-- 마크다운 렌더링 결과 -->
+      <div id="agent-manager-report" style="display:none;">
+        <!-- 마크다운 렌더링 결과 (스타일은 CSS에서 관리) -->
       </div>
     </div>
 
@@ -5591,11 +5777,51 @@ function renderManagerCard(data) {
   if(data.manager && typeof data.manager === 'string') {
     try {
       report.innerHTML = marked.parse(data.manager);
+      // 손익률 자동 색상 입히기
+      _colorizePnlInReport(report);
     } catch(e) {
       report.textContent = data.manager;
     }
     card.style.display = 'block';
   }
+}
+
+function _colorizePnlInReport(container) {
+  // 표 셀(td)과 strong/b 안의 손익률 패턴(-XX.XX% 또는 +XX.XX%)을 색칠
+  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, null, false);
+  const textNodes = [];
+  let node;
+  while(node = walker.nextNode()) {
+    textNodes.push(node);
+  }
+  
+  const pnlPattern = /([+\-])(\d+\.?\d*)%/g;
+  textNodes.forEach(textNode => {
+    const text = textNode.nodeValue;
+    if(!pnlPattern.test(text)) return;
+    pnlPattern.lastIndex = 0;
+    
+    // 부모가 이미 strong/b 안이면 색만, 아니면 새 span 생성
+    const fragment = document.createDocumentFragment();
+    let lastIdx = 0;
+    let match;
+    pnlPattern.lastIndex = 0;
+    while((match = pnlPattern.exec(text)) !== null) {
+      if(match.index > lastIdx) {
+        fragment.appendChild(document.createTextNode(text.substring(lastIdx, match.index)));
+      }
+      const span = document.createElement('span');
+      span.textContent = match[0];
+      span.style.color = match[1] === '-' ? '#dc2626' : '#16a34a';
+      span.style.fontWeight = '700';
+      fragment.appendChild(span);
+      lastIdx = match.index + match[0].length;
+    }
+    if(lastIdx < text.length) {
+      fragment.appendChild(document.createTextNode(text.substring(lastIdx)));
+    }
+    textNode.parentNode.replaceChild(fragment, textNode);
+  });
 }
 
 function switchAgentTab(tab) {
