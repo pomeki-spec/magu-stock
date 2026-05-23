@@ -4965,11 +4965,39 @@ function renderFredCharts(data) {
 let _agentData = null;  // 최근 분석 결과 저장
 let _agentProgressTimer = null;
 
+let _agentRunInProgress = false;  // 클라이언트 측 진행 상태
+
 async function loadLatestAgentAnalysis() {
+  // 진행 중이면 그 상태 먼저 확인
+  try {
+    const statusRes = await fetch(API + '/api/agents/status');
+    if(statusRes.ok) {
+      const status = await statusRes.json();
+      if(status.running) {
+        _agentRunInProgress = true;
+        showAgentProgress();
+        const btn = document.getElementById('agent-run-btn');
+        btn.disabled = true;
+        btn.style.opacity = '0.5';
+        btn.textContent = '⏳ 분석 중 (' + Math.round(status.elapsed_sec) + '초 경과)';
+        // 5초마다 다시 확인
+        setTimeout(() => loadLatestAgentAnalysis(), 5000);
+        return;
+      }
+    }
+  } catch(e) { /* 무시 */ }
+  
+  _agentRunInProgress = false;
+  hideAgentProgress();
+  const btn = document.getElementById('agent-run-btn');
+  btn.disabled = false;
+  btn.style.opacity = '1';
+  
   try {
     const res = await fetch(API + '/api/agents/latest');
     const data = await res.json();
     if(data.empty) {
+      btn.textContent = '🎯 종합 분석 시작';
       showAgentEmpty();
       return;
     }
@@ -4978,6 +5006,7 @@ async function loadLatestAgentAnalysis() {
       return;
     }
     _agentData = data;
+    btn.textContent = '🔄 다시 분석';
     renderAgentResults(data);
   } catch(e) {
     console.error('AI 분석 불러오기 실패', e);
@@ -4986,7 +5015,16 @@ async function loadLatestAgentAnalysis() {
 }
 
 async function runAgentAnalysis() {
+  // 클라이언트 측 중복 방지
+  if(_agentRunInProgress) {
+    alert('분석이 이미 진행 중입니다. 잠시 기다려주세요.');
+    return;
+  }
+  
   const btn = document.getElementById('agent-run-btn');
+  if(btn.disabled) return;  // 이미 비활성화면 무시
+  
+  _agentRunInProgress = true;
   btn.disabled = true;
   btn.style.opacity = '0.5';
   btn.textContent = '⏳ 분석 중...';
@@ -4998,6 +5036,14 @@ async function runAgentAnalysis() {
 
   try {
     const res = await fetch(API + '/api/agents/full_analysis', { method: 'POST' });
+    if(res.status === 409) {
+      // 이미 진행 중 — 폴링 모드로 전환
+      const errData = await res.json().catch(() => ({}));
+      btn.textContent = '⏳ 다른 분석 진행 중...';
+      // 5초 후 결과 확인 시작
+      setTimeout(() => loadLatestAgentAnalysis(), 5000);
+      return;
+    }
     if(!res.ok) {
       const errData = await res.json().catch(() => ({error: 'HTTP ' + res.status}));
       throw new Error(errData.error || 'HTTP ' + res.status);
@@ -5010,6 +5056,7 @@ async function runAgentAnalysis() {
     hideAgentProgress();
     showAgentError(e.message);
   } finally {
+    _agentRunInProgress = false;
     btn.disabled = false;
     btn.style.opacity = '1';
     btn.textContent = '🔄 다시 분석';
