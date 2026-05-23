@@ -4796,9 +4796,9 @@ def _call_agent(system_prompt, user_data, parse_json=True, web_search_max_uses=0
             response = client.messages.create(**create_kwargs)
         # Rate limit 에러 시 대기 후 재시도 (분당 토큰 한도)
         elif "rate_limit" in err_msg.lower() or "429" in err_msg:
-            logger.warning(f"⏸ Rate limit 도달, 35초 대기 후 재시도: {err_msg[:200]}")
+            logger.warning(f"⏸ Rate limit 도달, 65초 대기 후 재시도 (분당 카운트 리셋 대기): {err_msg[:200]}")
             import time
-            time.sleep(35)
+            time.sleep(65)
             try:
                 response = client.messages.create(**create_kwargs)
                 logger.info("✓ Rate limit 재시도 성공")
@@ -5074,7 +5074,8 @@ def _run_full_analysis_impl():
         logger.error(f"매크로팀장 실패: {e}")
         macro = {"error": str(e)}
         errors.append(f"macro: {e}")
-    _time.sleep(2)  # 분당 토큰 한도 분산
+    logger.info("⏸ 분당 토큰 한도 분산 — 8초 대기")
+    _time.sleep(8)
 
     # 2. 자금흐름팀장
     try:
@@ -5084,7 +5085,8 @@ def _run_full_analysis_impl():
         logger.error(f"자금흐름팀장 실패: {e}")
         flow = {"error": str(e)}
         errors.append(f"flow: {e}")
-    _time.sleep(2)
+    logger.info("⏸ 8초 대기")
+    _time.sleep(8)
 
     # 3, 4. 종목분석팀장 (공격/수비) — 매크로/자금흐름 요약 전달
     macro_summary = {k: macro.get(k) for k in ["environment", "headline", "confidence"] if not isinstance(macro, str)}
@@ -5100,7 +5102,8 @@ def _run_full_analysis_impl():
         logger.error(f"공격팀장 실패: {e}")
         offensive = {"error": str(e)}
         errors.append(f"offensive: {e}")
-    _time.sleep(2)
+    logger.info("⏸ 8초 대기")
+    _time.sleep(8)
 
     try:
         defensive = run_defensive_agent(macro_summary, flow_summary, macro_stage_num)
@@ -5109,7 +5112,8 @@ def _run_full_analysis_impl():
         logger.error(f"수비팀장 실패: {e}")
         defensive = {"error": str(e)}
         errors.append(f"defensive: {e}")
-    _time.sleep(3)  # 부장 호출 전 더 긴 간격 (부장 입력이 가장 큼)
+    logger.info("⏸ 부장 호출 전 12초 대기 (가장 큰 입력)")
+    _time.sleep(12)
 
     # 5. 부장 종합
     try:
