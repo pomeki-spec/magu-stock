@@ -3991,6 +3991,28 @@ MACRO_AGENT_PROMPT = """당신은 WISEMAC STOCK의 매크로팀장 에이전트�
 거시 환경 데이터를 종합 분석하여 "지금 위험자산에 우호적인 환경인가?"에 답합니다.
 당신은 룰베이스 점수 시스템(코드의 5단계 신호)과 별개로, 지표 간 상호작용을 고려한 독립 판단을 제공합니다.
 
+# 🔍 웹 검색 도구 사용 가이드
+
+당신은 web_search 도구를 최대 3회 사용할 수 있습니다. 이 도구로 사이트 내부 데이터에 없는 외부 매크로 시각을 수집하세요.
+
+검색해야 할 것:
+1. 최근 24~48시간 내 FOMC, Fed 발언, 금리 정책 동향
+2. 단기 매크로 리스크 (지정학, 정책, 외환 등)
+3. 시장 컨센서스 / 주요 IB 의견 (골드만삭스, JP모건, 모건스탠리 등)
+
+검색 쿼리 예시:
+- "FOMC June 2026 dot plot expectations"
+- "DXY dollar index outlook this week"
+- "Fed rate cut probability latest"
+- "VIX volatility outlook 2026"
+
+검색하지 말 것:
+- 사이트 데이터에 이미 있는 지표의 절대값 (이미 받았으니 중복)
+- 종목 단위 정보 (이건 종목분석팀장 영역)
+
+검색 결과를 dimensions 분석에 반영하고, narrative에 외부 시각을 명시하세요.
+사이트 데이터와 외부 시각이 다르면 그 차이를 명확히 표시하세요.
+
 # 입력 데이터 (4개 차원)
 
 1. liquidity_fed: Fed 정책 (WALCL/RRP/TGA/순유동성) - MMF 제외
@@ -4002,7 +4024,8 @@ MACRO_AGENT_PROMPT = """당신은 WISEMAC STOCK의 매크로팀장 에이전트�
 
 1. 룰베이스 점수를 그대로 따르지 않는다
 2. 지표 간 상호작용 분석 (단일 지표 아닌 조합의 의미)
-3. 자기 한계 인정 (매크로 데이터로 알 수 없는 것은 명시)
+3. 사이트 내부 데이터 + 외부 시각(웹 검색)을 모두 활용
+4. 자기 한계 인정 (매크로 데이터로 알 수 없는 것은 명시)
 
 # 출력 형식 (JSON only, 다른 텍스트 금지)
 
@@ -4028,6 +4051,12 @@ MACRO_AGENT_PROMPT = """당신은 WISEMAC STOCK의 매크로팀장 에이전트�
     "agent_stage": "에이전트 판단 stage 번호 (1~5)",
     "match": true | false,
     "discrepancy_reason": "불일치 시 이유, 일치 시 null"
+  },
+  "external_view": {
+    "consulted": true | false,
+    "key_findings": ["웹 검색에서 얻은 핵심 외부 시각 1", "2", "3"],
+    "alignment_with_internal": "aligned" | "diverging" | "conflicting",
+    "summary": "외부 시각이 사이트 데이터와 어떻게 다른지 한 줄 요약 (또는 검색 안 했으면 null)"
   },
   "narrative": "사용자용 자연어 보고서 3~5문장. 마크다운/이모지 없음. 결론 단정 금지, 정합/충돌 명시."
 }
@@ -4057,6 +4086,22 @@ MONEY_FLOW_AGENT_PROMPT = """당신은 WISEMAC STOCK의 자금흐름팀장 에�
 
 시장 자금이 어디로 가고 어디서 빠지는지 분석하여 "돈이 어느 섹터/자산으로 이동 중인가?"에 답합니다.
 매크로팀장이 거시 환경을 본다면, 당신은 실제 자금이 어떻게 움직이는지를 추적합니다.
+
+# 🔍 웹 검색 도구 사용 가이드
+
+최대 3회 검색 가능. 다음에 대한 외부 시각을 수집하세요:
+
+1. 최근 기관 자금 흐름 보도 (월가, 헤지펀드, 패시브 vs 액티브 자금)
+2. 섹터 로테이션 관련 분석가 의견
+3. 외국인 매매 동향, 옵션 시장 신호
+
+검색 쿼리 예시:
+- "sector rotation 2026 institutional flows"
+- "tech sector concentration risk warning"
+- "small cap vs large cap money flow"
+- "options market gamma squeeze latest"
+
+검색 결과를 narrative에 통합하고, 사이트 데이터(섹터 모멘텀 등)와 외부 시각이 정합/충돌하면 그것을 명시.
 
 # 입력 데이터 (5개 소스)
 
@@ -4106,7 +4151,13 @@ MONEY_FLOW_AGENT_PROMPT = """당신은 WISEMAC STOCK의 자금흐름팀장 에�
     "interpretation": "한 줄"
   },
   "key_observations": ["관찰 1", "관찰 2", "관찰 3"],
-  "narrative": "사용자용 자연어 보고서 3~5문장. 자금이 어디로 가고 빠지는지 명확히. 섹터 구체 언급."
+  "external_view": {
+    "consulted": true | false,
+    "key_findings": ["외부 시각 핵심 1", "2"],
+    "alignment_with_internal": "aligned" | "diverging" | "conflicting",
+    "summary": "한 줄 요약 또는 null"
+  },
+  "narrative": "사용자용 자연어 보고서 3~5문장. 자금이 어디로 가고 빠지는지 명확히. 섹터 구체 언급. 외부 시각 명시."
 }
 
 # flow_state 정의
@@ -4129,6 +4180,28 @@ STOCK_OFFENSIVE_PROMPT = """당신은 WISEMAC STOCK의 종목분석팀장(공격
 
 스크리닝 상위 5개 종목을 받아서, 각 종목이 신규 진입 후보로 타당한지 분석합니다.
 당신은 total_score를 그대로 따르지 않습니다. 3-Model 점수의 세부 구성을 보고, 매크로 환경과 자금흐름 맥락에서 독립 판단합니다.
+
+# 🔍 웹 검색 도구 사용 가이드
+
+최대 5회 검색 가능. 각 종목당 1회 정도 검색하여 외부 시각을 수집하세요.
+
+검색해야 할 것:
+1. 종목별 최근 뉴스 (호악재, 실적, 가이던스)
+2. 분석가 목표가, 등급 변경, 컨센서스
+3. 섹터 트렌드, 경쟁사 동향
+
+검색 쿼리 예시:
+- "NVDA earnings Q1 2026 guidance"
+- "NXPI analyst price target latest"
+- "semiconductor demand outlook 2026"
+- "GOOGL antitrust ruling impact"
+
+검색 결과로 다음을 평가:
+- 사이트 점수는 높으나 외부 악재가 있는지
+- 사이트 점수는 보통이나 외부 호재가 강한지
+- 분석가 컨센서스가 동의하는지
+
+이런 차이를 narrative와 risk_notes에 명시하세요.
 
 # 입력 데이터
 
@@ -4178,8 +4251,14 @@ STOCK_OFFENSIVE_PROMPT = """당신은 WISEMAC STOCK의 종목분석팀장(공격
         "timing": "good" | "fair" | "stretched"
       },
       "suggested_weight": "포트의 X~Y% (또는 null)",
-      "risk_notes": "주요 리스크 1~2가지",
-      "narrative": "진입 가능성 평가 2~3문장"
+      "risk_notes": "주요 리스크 1~2가지 (외부 정보 포함)",
+      "external_signals": {
+        "consulted": true | false,
+        "key_news": "최근 뉴스 1~2개 핵심 (한 줄)",
+        "analyst_view": "분석가 컨센서스 (positive/mixed/negative/unknown)",
+        "alignment_with_score": "사이트 점수와 외부 시각이 일치하는지 (aligned/diverging)"
+      },
+      "narrative": "진입 가능성 평가 2~3문장 (외부 시각 반영)"
     }
   ],
   "ranked_by_priority": ["TICKER1", "TICKER2", ...],
@@ -4216,6 +4295,27 @@ STOCK_DEFENSIVE_PROMPT = """당신은 WISEMAC STOCK의 종목분석팀장(수비
 - 안전
 
 사용자 룰을 엄격히 적용합니다.
+
+# 🔍 웹 검색 도구 사용 가이드
+
+최대 5회 검색 가능. 손실 종목 또는 룰 위반 종목에 우선적으로 검색하여 추가 맥락을 확인:
+
+1. 룰 위반 종목의 하락 원인 (회사 자체 이슈 vs 섹터 이슈 vs 매크로)
+2. 손절 임박 종목의 단기 반등 가능성 신호
+3. 익절 임박 종목의 추가 상승 여력
+4. 보유 종목의 임박 이벤트 (실적 발표, FDA 승인, 정책 결정 등)
+
+검색 쿼리 예시:
+- "BMNR stock crash 2026 reason"
+- "ETHU ETF crypto outlook"
+- "TQQQ Nasdaq leveraged ETF risk"
+- "SOXL semiconductor pullback latest"
+
+검색 결과로 immediate_action의 recommendation을 더 정교하게:
+- 단순 "즉시 매도" 보다 "이번 주 실적 발표 전 매도" 같은 타이밍 권고
+- 외부 호재가 임박했으면 "대기 후 재평가" 옵션 제시
+
+룰은 여전히 엄격 적용. 다만 권고의 뉘앙스를 외부 정보로 풍부하게.
 
 # 입력 데이터
 
@@ -4264,9 +4364,10 @@ G. 위 어디에도 해당 없음 → "안전/healthy"
       "status": "stop_loss_triggered|stop_loss_imminent|take_profit_triggered|take_profit_imminent",
       "pnl_pct": 숫자,
       "weight_pct": 숫자,
-      "recommendation": "구체적 권고",
+      "recommendation": "구체적 권고 (외부 정보 반영, 타이밍 명시)",
       "rule_applied": "stop_loss_-15%|take_profit_+50%",
-      "narrative": "1~2문장"
+      "external_context": "외부 검색으로 확인한 추가 맥락 한 줄 (없으면 null)",
+      "narrative": "1~2문장 (외부 시각 반영)"
     }
   ],
   "monitoring": [
@@ -4309,6 +4410,32 @@ MANAGER_AGENT_PROMPT = """당신은 WISEMAC STOCK의 포트폴리오 부장(Port
 
 세 팀장의 분석 결과를 받아서, 사용자의 현재 포트폴리오와 룰을 종합 고려하여 최종 종합 보고서를 작성합니다.
 당신은 분석가가 아니라 의사결정 보조자입니다.
+
+# 🔍 웹 검색 도구 사용 가이드
+
+최대 2회 검색 가능. 다음 경우에만 검색:
+
+1. 팀장들이 제기한 핵심 외부 리스크를 마지막으로 확인할 때
+2. 종합 판단 시 최신 뉴스가 결정적일 때 (예: 임박한 FOMC, 주요 실적)
+
+검색 안 해도 됩니다 — 팀장들이 이미 검색해서 정보를 줬으므로, 부장은 종합이 주 역할.
+검색 쿼리 예시:
+- "stock market today major news"
+- "S&P 500 outlook this week"
+
+# 외부 시각 통합 원칙
+
+팀장들의 결과에는 external_view 또는 external_signals 필드가 있을 수 있습니다.
+이 정보를 보고서에 적극 통합하세요:
+
+1. 시장 환경 요약에 "외부 시각: X" 명시
+2. 신규 매수 후보에서 사이트 점수와 외부 시각이 충돌하면 그 정보 표시
+3. 보유 점검에서 외부 악재 발견 시 권고 강화
+4. 부장 종합 의견에서 외부 리스크를 명시적으로 언급
+
+부장 자신도 사이트 데이터의 함정에 빠지지 마세요:
+- 사이트 점수가 매수우호여도 외부 시각이 신중하면 → 신중한 권고
+- 룰은 따르되, 외부 정보로 권고의 톤을 조정
 
 # 입력 데이터
 
@@ -4384,6 +4511,16 @@ D. 자금 부족 (매수 합계 > 가용 현금 → 우선순위 또는 정리 �
 
 ### 🌐 시장 환경 요약
 [매크로 + 자금흐름 통합. 2~3문장. 매크로 stage 번호 명시 — 메타정보와 일치시킬 것.]
+[외부 시각이 사이트 데이터와 다르면 "외부 시각: X" 형태로 명시]
+
+### 🌍 외부 시각 (팀장 검색 종합)
+[팀장들이 웹 검색으로 수집한 외부 정보 종합 2~3문장]
+[다음 항목 중 해당되는 것 포함:
+ - 주요 매크로 이벤트 (FOMC, 정책)
+ - 보유/후보 종목 관련 뉴스
+ - 분석가 컨센서스
+ - 사이트 데이터와의 정합성]
+[외부 시각이 없으면 이 섹션은 "외부 시각 정보 없음"으로 간단히]
 
 ### 🛡 보유 점검 결과
 
@@ -4609,20 +4746,88 @@ def _collect_defensive_data(macro_summary, flow_summary, macro_stage):
 # 에이전트 호출 함수
 # ═══════════════════════════════════════════════════════════════════════
 
-def _call_agent(system_prompt, user_data, parse_json=True):
-    """Claude API 호출 — JSON 또는 마크다운 응답"""
+def _call_agent(system_prompt, user_data, parse_json=True, web_search_max_uses=0):
+    """Claude API 호출 — JSON 또는 마크다운 응답
+    
+    web_search_max_uses: 0이면 검색 비활성화, 1+면 그 횟수까지 검색 가능
+    
+    프롬프트 캐싱: 시스템 프롬프트를 캐시하여 반복 호출 시 90% 할인.
+    5분 TTL이므로 한 번의 종합 분석(5개 에이전트, 약 1분 내) 안에서 효과적.
+    """
     client = get_anthropic_client()
     user_content = json.dumps(sanitize(user_data), ensure_ascii=False, default=str)
     if len(user_content) > 80000:
         user_content = user_content[:80000] + "\n[데이터 잘림]"
 
-    response = client.messages.create(
-        model=AGENT_MODEL,
-        max_tokens=AGENT_MAX_TOKENS,
-        system=system_prompt,
-        messages=[{"role": "user", "content": user_content}]
-    )
-    text = response.content[0].text if response.content else ""
+    # 시스템 프롬프트를 캐싱 가능한 블록 형태로 전송
+    # cache_control: {"type": "ephemeral"} → 5분 TTL 캐싱
+    system_blocks = [
+        {
+            "type": "text",
+            "text": system_prompt,
+            "cache_control": {"type": "ephemeral"}
+        }
+    ]
+
+    # API 호출 파라미터
+    create_kwargs = {
+        "model": AGENT_MODEL,
+        "max_tokens": AGENT_MAX_TOKENS,
+        "system": system_blocks,  # 캐싱용 블록 형태
+        "messages": [{"role": "user", "content": user_content}]
+    }
+    
+    # 웹 검색 도구 추가 (활성화 시)
+    if web_search_max_uses > 0:
+        create_kwargs["tools"] = [{
+            "type": "web_search_20250305",
+            "name": "web_search",
+            "max_uses": web_search_max_uses
+        }]
+
+    try:
+        response = client.messages.create(**create_kwargs)
+    except Exception as e:
+        err_msg = str(e)
+        # web_search 미활성화 시 fallback
+        if "web_search" in err_msg.lower() and web_search_max_uses > 0:
+            logger.warning(f"웹 검색 도구 사용 불가, fallback으로 검색 없이 호출: {e}")
+            create_kwargs.pop("tools", None)
+            response = client.messages.create(**create_kwargs)
+        else:
+            raise
+
+    # 토큰 사용량 + 캐싱 효과 로깅
+    usage = getattr(response, "usage", None)
+    if usage:
+        in_tokens = getattr(usage, "input_tokens", 0)
+        out_tokens = getattr(usage, "output_tokens", 0)
+        cache_read = getattr(usage, "cache_read_input_tokens", 0) or 0
+        cache_create = getattr(usage, "cache_creation_input_tokens", 0) or 0
+        if cache_read > 0:
+            saved_pct = round(cache_read / max(1, cache_read + in_tokens) * 100)
+            logger.info(f"📊 토큰: in={in_tokens} (cache_read={cache_read}, saved≈{saved_pct}%) + out={out_tokens}")
+        elif cache_create > 0:
+            logger.info(f"📊 토큰: in={in_tokens} (cache_create={cache_create}, 다음 호출부터 절감) + out={out_tokens}")
+        else:
+            logger.info(f"📊 토큰: in={in_tokens} + out={out_tokens}")
+
+    # 응답 텍스트 추출 — content 배열에서 text 블록만 합치기
+    text_parts = []
+    search_count = 0
+    for block in response.content:
+        block_type = getattr(block, "type", None)
+        if block_type == "text":
+            text_parts.append(block.text)
+        elif block_type == "server_tool_use" and getattr(block, "name", "") == "web_search":
+            search_count += 1
+        elif block_type == "web_search_tool_result":
+            search_count += 1
+    
+    text = "\n".join(text_parts).strip()
+    
+    if search_count > 0:
+        logger.info(f"🔍 웹 검색 사용: {search_count}회")
 
     if parse_json:
         # JSON 추출 (```json 블록 제거)
@@ -4639,19 +4844,19 @@ def _call_agent(system_prompt, user_data, parse_json=True):
 
 def run_macro_agent():
     data = _collect_macro_data()
-    return _call_agent(MACRO_AGENT_PROMPT, data, parse_json=True)
+    return _call_agent(MACRO_AGENT_PROMPT, data, parse_json=True, web_search_max_uses=3)
 
 def run_money_flow_agent():
     data = _collect_money_flow_data()
-    return _call_agent(MONEY_FLOW_AGENT_PROMPT, data, parse_json=True)
+    return _call_agent(MONEY_FLOW_AGENT_PROMPT, data, parse_json=True, web_search_max_uses=3)
 
 def run_offensive_agent(macro_summary, flow_summary):
     data = _collect_offensive_data(macro_summary, flow_summary)
-    return _call_agent(STOCK_OFFENSIVE_PROMPT, data, parse_json=True)
+    return _call_agent(STOCK_OFFENSIVE_PROMPT, data, parse_json=True, web_search_max_uses=5)
 
 def run_defensive_agent(macro_summary, flow_summary, macro_stage):
     data = _collect_defensive_data(macro_summary, flow_summary, macro_stage)
-    return _call_agent(STOCK_DEFENSIVE_PROMPT, data, parse_json=True)
+    return _call_agent(STOCK_DEFENSIVE_PROMPT, data, parse_json=True, web_search_max_uses=5)
 
 def run_manager_agent(macro_result, flow_result, offensive_result, defensive_result):
     # 부장은 마크다운 반환
@@ -4718,14 +4923,39 @@ def run_manager_agent(macro_result, flow_result, offensive_result, defensive_res
         },
         "analysis_time_kst": datetime.now(pytz.timezone("Asia/Seoul")).strftime("%Y-%m-%d %H:%M")
     }
-    return _call_agent(MANAGER_AGENT_PROMPT, data, parse_json=False)
+    return _call_agent(MANAGER_AGENT_PROMPT, data, parse_json=False, web_search_max_uses=2)
 
 # ═══════════════════════════════════════════════════════════════════════
 # 전체 워크플로우
 # ═══════════════════════════════════════════════════════════════════════
 
+import threading
+_analysis_lock = threading.Lock()
+_analysis_in_progress = {"running": False, "started_at": None}
+
 def run_full_analysis():
     """네 팀장 + 부장 순차 실행"""
+    # 중복 호출 방지
+    with _analysis_lock:
+        if _analysis_in_progress["running"]:
+            elapsed = (datetime.now() - _analysis_in_progress["started_at"]).total_seconds() if _analysis_in_progress["started_at"] else 0
+            if elapsed < 180:  # 3분 이내면 진행 중으로 간주
+                logger.warning(f"중복 분석 요청 차단 (이전 분석 진행 중, {elapsed:.0f}초 경과)")
+                raise RuntimeError(f"이미 분석이 진행 중입니다 ({elapsed:.0f}초 경과). 잠시 후 다시 시도하세요.")
+            else:
+                logger.warning(f"이전 분석 락이 3분 이상 (좀비 락 의심), 해제하고 새로 시작")
+        _analysis_in_progress["running"] = True
+        _analysis_in_progress["started_at"] = datetime.now()
+    
+    try:
+        return _run_full_analysis_impl()
+    finally:
+        with _analysis_lock:
+            _analysis_in_progress["running"] = False
+            _analysis_in_progress["started_at"] = None
+
+def _run_full_analysis_impl():
+    """실제 분석 로직 (락 해제 가능하도록 분리)"""
     started = datetime.now()
     logger.info("에이전트 종합 분석 시작")
     errors = []
@@ -4831,17 +5061,44 @@ def run_full_analysis():
 @app.post("/api/agents/full_analysis")
 @limiter.limit("3/minute")
 def trigger_full_analysis(request: Request):
-    """에이전트 종합 분석 실행 (15~20초 소요)"""
+    """에이전트 종합 분석 실행 (15~30초 소요)"""
     if not ANTHROPIC_AVAILABLE:
         return JSONResponse(status_code=500, content={"error": "anthropic 패키지 미설치"})
     if not ANTHROPIC_API_KEY:
         return JSONResponse(status_code=500, content={"error": "ANTHROPIC_API_KEY 환경변수 미설정"})
+    
+    # 진행 중 체크 (락 안 잡고 빠르게 확인)
+    if _analysis_in_progress["running"]:
+        elapsed = (datetime.now() - _analysis_in_progress["started_at"]).total_seconds() if _analysis_in_progress["started_at"] else 0
+        if elapsed < 180:
+            return JSONResponse(status_code=409, content={
+                "error": "분석이 이미 진행 중입니다",
+                "message": f"이전 분석이 {elapsed:.0f}초 전에 시작되어 진행 중입니다. 잠시 후 다시 시도하세요.",
+                "in_progress": True,
+                "elapsed_sec": round(elapsed, 1)
+            })
+    
     try:
         result = run_full_analysis()
         return safe_json(result)
+    except RuntimeError as e:
+        # 진행 중 에러 (락에서 발생)
+        return JSONResponse(status_code=409, content={"error": str(e), "in_progress": True})
     except Exception as e:
         logger.error(f"종합 분석 실행 실패: {e}")
         return JSONResponse(status_code=500, content={"error": str(e)})
+
+@app.get("/api/agents/status")
+def get_agent_status(request: Request):
+    """현재 분석 진행 상태 확인"""
+    if _analysis_in_progress["running"] and _analysis_in_progress["started_at"]:
+        elapsed = (datetime.now() - _analysis_in_progress["started_at"]).total_seconds()
+        return {
+            "running": True,
+            "elapsed_sec": round(elapsed, 1),
+            "started_at": _analysis_in_progress["started_at"].isoformat()
+        }
+    return {"running": False}
 
 @app.get("/api/agents/latest")
 def get_latest_analysis(request: Request):
