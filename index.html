@@ -1615,9 +1615,63 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
       </div>
     </div>
 
-    <!-- 부장 종합 보고서 (최상단) -->
-    <div id="agent-manager-report" class="card" style="display:none;margin-bottom:14px;padding:24px;border:2px solid #a855f7;background:#fefbff;">
-      <!-- 마크다운 렌더링 결과 -->
+    <!-- 🚨 오늘의 액션 (요약 카드 — 최상단) -->
+    <div id="agent-action-card" class="card" style="display:none;margin-bottom:14px;padding:0;border:2px solid #a855f7;background:linear-gradient(135deg,#faf5ff,#fff);overflow:hidden;">
+      <div style="padding:14px 18px;background:linear-gradient(135deg,#a855f7,#7c3aed);color:#fff;">
+        <div style="font-size:11px;opacity:.9;font-weight:600;margin-bottom:2px;">🚨 오늘의 액션</div>
+        <div id="agent-action-headline" style="font-size:15px;font-weight:800;line-height:1.4;">—</div>
+      </div>
+      <div id="agent-action-grid" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:1px;background:#e9d5ff;">
+        <!-- 3개 칸: 즉시매도 / 익절준비 / 신규매수 -->
+      </div>
+    </div>
+
+    <!-- 📊 시장 환경 카드 -->
+    <div id="agent-env-card" class="card" style="display:none;margin-bottom:14px;padding:16px 18px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
+        <div style="font-size:13px;font-weight:800;">📊 시장 환경</div>
+        <div id="agent-env-coherence" style="font-size:10px;color:var(--sub);"></div>
+      </div>
+      <div id="agent-env-body">
+        <!-- JS에서 채움 -->
+      </div>
+    </div>
+
+    <!-- 🛡 보유 종목 점검 (카드 그리드) -->
+    <div id="agent-holdings-card" class="card" style="display:none;margin-bottom:14px;padding:16px 18px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
+        <div style="font-size:13px;font-weight:800;">🛡 보유 점검 결과</div>
+        <div id="agent-holdings-summary" style="font-size:10px;color:var(--sub);"></div>
+      </div>
+      <div id="agent-holdings-body">
+        <!-- JS에서 채움 -->
+      </div>
+    </div>
+
+    <!-- 🎯 신규 매수 후보 카드 -->
+    <div id="agent-picks-card" class="card" style="display:none;margin-bottom:14px;padding:16px 18px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
+        <div style="font-size:13px;font-weight:800;">🎯 신규 매수 후보</div>
+        <div id="agent-picks-summary" style="font-size:10px;color:var(--sub);"></div>
+      </div>
+      <div id="agent-picks-body">
+        <!-- JS에서 채움 -->
+      </div>
+    </div>
+
+    <!-- 📄 부장 전체 보고서 (접힌 상태) -->
+    <div id="agent-manager-card" class="card" style="display:none;margin-bottom:14px;padding:0;border:1px solid var(--border);overflow:hidden;">
+      <div onclick="toggleManagerReport()" style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;cursor:pointer;background:#f8fafc;border-bottom:1px solid var(--border);">
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span style="font-size:14px;">📄</span>
+          <span style="font-size:13px;font-weight:700;">부장 전체 보고서</span>
+          <span style="font-size:10px;color:var(--sub);">마크다운 전문 — 매크로/포트/액션 종합</span>
+        </div>
+        <span id="agent-manager-toggle" style="font-size:12px;color:var(--sub);">▼ 펼치기</span>
+      </div>
+      <div id="agent-manager-report" style="display:none;padding:20px 22px;background:#fefbff;">
+        <!-- 마크다운 렌더링 결과 -->
+      </div>
     </div>
 
     <!-- 팀장 결과 (탭 형식) -->
@@ -5009,7 +5063,11 @@ function hideAgentError() {
 }
 
 function hideAgentResults() {
-  document.getElementById('agent-manager-report').style.display = 'none';
+  document.getElementById('agent-action-card').style.display = 'none';
+  document.getElementById('agent-env-card').style.display = 'none';
+  document.getElementById('agent-holdings-card').style.display = 'none';
+  document.getElementById('agent-picks-card').style.display = 'none';
+  document.getElementById('agent-manager-card').style.display = 'none';
   document.getElementById('agent-teams').style.display = 'none';
 }
 
@@ -5025,23 +5083,471 @@ function renderAgentResults(data) {
     document.getElementById('agent-meta-row').style.display = 'block';
   }
 
-  // 부장 보고서 (마크다운 렌더링)
-  const managerBox = document.getElementById('agent-manager-report');
-  if(data.manager && typeof data.manager === 'string') {
-    try {
-      managerBox.innerHTML = marked.parse(data.manager);
-    } catch(e) {
-      managerBox.textContent = data.manager;
-    }
-    managerBox.style.display = 'block';
-  }
+  // ─── 새 카드형 UI ─────────────────────────
+  renderActionCard(data);
+  renderEnvCard(data);
+  renderHoldingsCard(data);
+  renderPicksCard(data);
+  renderManagerCard(data);
 
-  // 팀장 결과 렌더링
+  // ─── 팀장 4탭 (기존) ─────────────────────
   document.getElementById('agent-teams').style.display = 'block';
   renderMacroTab(data.macro);
   renderFlowTab(data.money_flow);
   renderOffensiveTab(data.offensive);
   renderDefensiveTab(data.defensive);
+}
+
+function toggleManagerReport() {
+  const box = document.getElementById('agent-manager-report');
+  const toggle = document.getElementById('agent-manager-toggle');
+  if(box.style.display === 'none') {
+    box.style.display = 'block';
+    toggle.textContent = '▲ 접기';
+  } else {
+    box.style.display = 'none';
+    toggle.textContent = '▼ 펼치기';
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// 새 카드형 UI 렌더링
+// ──────────────────────────────────────────────────────────────────────
+
+function _extractManagerHeadline(markdown) {
+  // 부장 마크다운에서 "💡 부장 종합 의견" 섹션 첫 문장 추출
+  if(!markdown || typeof markdown !== 'string') return '';
+  const m = markdown.match(/💡[^\n]*부장 종합 의견[^\n]*\n([^\n]+)/);
+  if(m && m[1]) {
+    // 첫 문장만 (마침표 또는 줄바꿈까지)
+    const text = m[1].trim().replace(/^\*+|\*+$/g, '');
+    const firstSentence = text.split(/[.!?]\s+/)[0];
+    return firstSentence.length > 5 ? firstSentence + '.' : text;
+  }
+  return '';
+}
+
+function renderActionCard(data) {
+  const card = document.getElementById('agent-action-card');
+  const grid = document.getElementById('agent-action-grid');
+  const headline = document.getElementById('agent-action-headline');
+
+  const def = data.defensive || {};
+  const off = data.offensive || {};
+  const immediate = def.immediate_action || [];
+  const sells = immediate.filter(a => a.status?.includes('stop_loss'));
+  const profits = immediate.filter(a => a.status?.includes('take_profit'));
+  const topPicks = off.top_picks || [];
+
+  // 부장 한 줄 추출
+  const oneLineSummary = _extractManagerHeadline(data.manager);
+  if(oneLineSummary) {
+    headline.textContent = oneLineSummary;
+  } else {
+    headline.textContent = '오늘의 핵심 액션을 확인하세요';
+  }
+
+  // 3개 칸 채우기
+  let html = '';
+
+  // 1. 즉시 매도
+  if(sells.length > 0) {
+    const sellsHtml = sells.map(s => 
+      `<div style="margin-bottom:6px;"><b style="font-size:13px;color:#991b1b;">${s.ticker}</b> <span style="font-size:10px;color:#991b1b;">${s.pnl_pct?.toFixed(1)}% · ${s.weight_pct?.toFixed(1)}%</span></div>`
+    ).join('');
+    html += `
+      <div style="padding:14px;background:#fff;">
+        <div style="font-size:10px;color:#991b1b;font-weight:800;margin-bottom:8px;">🔴 즉시 매도 (${sells.length})</div>
+        ${sellsHtml}
+      </div>`;
+  } else {
+    html += `
+      <div style="padding:14px;background:#fff;">
+        <div style="font-size:10px;color:var(--sub);font-weight:800;margin-bottom:8px;">🔴 즉시 매도</div>
+        <div style="font-size:11px;color:var(--sub);">해당 없음</div>
+      </div>`;
+  }
+
+  // 2. 익절 준비
+  if(profits.length > 0) {
+    const profitsHtml = profits.map(p => 
+      `<div style="margin-bottom:6px;"><b style="font-size:13px;color:#15803d;">${p.ticker}</b> <span style="font-size:10px;color:#15803d;">+${p.pnl_pct?.toFixed(1)}%</span></div>`
+    ).join('');
+    html += `
+      <div style="padding:14px;background:#fff;">
+        <div style="font-size:10px;color:#15803d;font-weight:800;margin-bottom:8px;">🟢 익절 준비 (${profits.length})</div>
+        ${profitsHtml}
+      </div>`;
+  } else {
+    // 익절 임박이 모니터링에 있을 수도
+    const monProfits = (def.monitoring || []).filter(m => m.status?.includes('take_profit') || m.status?.includes('익절'));
+    if(monProfits.length > 0) {
+      const monHtml = monProfits.map(p => 
+        `<div style="margin-bottom:6px;"><b style="font-size:13px;color:#15803d;">${p.ticker}</b> <span style="font-size:10px;color:#15803d;">+${p.pnl_pct?.toFixed(1)}%</span></div>`
+      ).join('');
+      html += `
+        <div style="padding:14px;background:#fff;">
+          <div style="font-size:10px;color:#15803d;font-weight:800;margin-bottom:8px;">🟢 익절 준비 (${monProfits.length})</div>
+          ${monHtml}
+        </div>`;
+    } else {
+      html += `
+        <div style="padding:14px;background:#fff;">
+          <div style="font-size:10px;color:var(--sub);font-weight:800;margin-bottom:8px;">🟢 익절 준비</div>
+          <div style="font-size:11px;color:var(--sub);">해당 없음</div>
+        </div>`;
+    }
+  }
+
+  // 3. 신규 매수 후보
+  if(topPicks.length > 0) {
+    const picksHtml = topPicks.slice(0, 3).map(p => 
+      `<div style="margin-bottom:6px;"><b style="font-size:13px;color:#1d4ed8;">${p.ticker}</b> <span style="font-size:10px;color:var(--sub);">#${p.rank}</span></div>`
+    ).join('');
+    html += `
+      <div style="padding:14px;background:#fff;">
+        <div style="font-size:10px;color:#1d4ed8;font-weight:800;margin-bottom:8px;">🔵 신규 매수 후보 (${topPicks.length})</div>
+        ${picksHtml}
+      </div>`;
+  } else {
+    html += `
+      <div style="padding:14px;background:#fff;">
+        <div style="font-size:10px;color:var(--sub);font-weight:800;margin-bottom:8px;">🔵 신규 매수 후보</div>
+        <div style="font-size:11px;color:var(--sub);">해당 없음</div>
+      </div>`;
+  }
+
+  grid.innerHTML = html;
+  card.style.display = 'block';
+}
+
+function renderEnvCard(data) {
+  const card = document.getElementById('agent-env-card');
+  const body = document.getElementById('agent-env-body');
+  const coherence = document.getElementById('agent-env-coherence');
+
+  const macro = data.macro || {};
+  const flow = data.money_flow || {};
+  const rsc = macro.rule_signal_comparison || {};
+
+  // 매크로 stage 정보
+  const score = rsc.code_score || rsc.agent_stage || '—';
+  const stage = rsc.code_stage || '—';
+  const signal = rsc.code_signal || macro.environment || '—';
+  const envMap = {
+    risk_on: {bg:'#dcfce7', col:'#15803d', label:'위험선호'},
+    risk_neutral_constructive: {bg:'#dbeafe', col:'#1d4ed8', label:'중립(긍정)'},
+    risk_neutral_cautious: {bg:'#fef3c7', col:'#b45309', label:'중립(부정)'},
+    risk_off: {bg:'#fee2e2', col:'#991b1b', label:'위험회피'}
+  };
+  const envInfo = envMap[macro.environment] || {bg:'#f1f5f9', col:'#475569', label:macro.environment || '—'};
+
+  // 점수 → stage 게이지 (1~5 시각화)
+  const stageNum = parseInt(stage) || 3;
+  const stageBars = [1,2,3,4,5].map(n => {
+    const active = n === stageNum;
+    const colors = ['#15803d', '#3b82f6', '#b45309', '#c2410c', '#991b1b'];
+    return `<div style="flex:1;height:8px;background:${active ? colors[n-1] : '#e2e8f0'};border-radius:2px;"></div>`;
+  }).join('<div style="width:2px;"></div>');
+
+  // 자금흐름 주도/부진 섹터
+  const leading = (flow.leading_sectors || []).slice(0, 2);
+  const lagging = (flow.lagging_sectors || []).slice(0, 2);
+  const leadingHtml = leading.map(s => `<span style="display:inline-block;padding:3px 9px;background:#dcfce7;color:#15803d;border-radius:10px;font-size:11px;font-weight:700;margin:2px;">${s.sector} +${s.rel_strength?.toFixed?.(1) || s.rel_strength}</span>`).join('');
+  const laggingHtml = lagging.map(s => `<span style="display:inline-block;padding:3px 9px;background:#fee2e2;color:#991b1b;border-radius:10px;font-size:11px;font-weight:700;margin:2px;">${s.sector} ${s.rel_strength?.toFixed?.(1) || s.rel_strength}</span>`).join('');
+
+  // 정합성 표시
+  if(macro.coherence) {
+    coherence.innerHTML = `정합성: <b>${macro.coherence}</b> · 신뢰도: <b>${macro.confidence || '—'}</b>`;
+  }
+
+  body.innerHTML = `
+    <!-- 매크로 게이지 -->
+    <div style="margin-bottom:14px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+        <div style="font-size:11px;font-weight:700;color:var(--sub);">🌐 매크로 점수</div>
+        <div>
+          <span style="font-size:14px;font-weight:800;">${score}<span style="font-size:10px;color:var(--sub);">/60</span></span>
+          <span style="display:inline-block;margin-left:6px;padding:2px 8px;background:${envInfo.bg};color:${envInfo.col};border-radius:8px;font-size:10px;font-weight:700;">Stage ${stage} · ${signal}</span>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:0;margin-bottom:4px;">
+        ${stageBars}
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:8px;color:var(--sub);">
+        <span>적극매수</span><span>매수우호</span><span>중립관망</span><span>매수축소</span><span>현금보유</span>
+      </div>
+    </div>
+
+    <!-- 자금흐름 -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;">
+      <div style="padding:10px;background:#f0fdf4;border-radius:8px;">
+        <div style="font-size:10px;font-weight:700;color:#15803d;margin-bottom:6px;">📈 주도 섹터</div>
+        ${leadingHtml || '<span style="font-size:11px;color:var(--sub);">데이터 없음</span>'}
+      </div>
+      <div style="padding:10px;background:#fef2f2;border-radius:8px;">
+        <div style="font-size:10px;font-weight:700;color:#991b1b;margin-bottom:6px;">📉 부진 섹터</div>
+        ${laggingHtml || '<span style="font-size:11px;color:var(--sub);">데이터 없음</span>'}
+      </div>
+    </div>
+
+    <!-- 핵심 메시지 -->
+    <div style="padding:10px 12px;background:#f8fafc;border-left:3px solid #a855f7;border-radius:4px;font-size:12px;line-height:1.6;">
+      <b>${macro.headline || ''}</b>
+      ${flow.headline ? '<br><span style="color:var(--sub);">💰 ' + flow.headline + '</span>' : ''}
+    </div>
+  `;
+  card.style.display = 'block';
+}
+
+function renderHoldingsCard(data) {
+  const card = document.getElementById('agent-holdings-card');
+  const body = document.getElementById('agent-holdings-body');
+  const summary = document.getElementById('agent-holdings-summary');
+
+  const def = data.defensive || {};
+  const sum = def.summary || {};
+  const health = def.portfolio_health || {};
+
+  // 상단 요약
+  const healthMap = {
+    healthy: {bg:'#dcfce7', col:'#15803d', label:'건강'},
+    needs_attention: {bg:'#fef3c7', col:'#b45309', label:'주의'},
+    critical: {bg:'#fee2e2', col:'#991b1b', label:'위험'}
+  };
+  const h = healthMap[health.level] || {bg:'#f1f5f9', col:'#475569', label:'—'};
+  summary.innerHTML = `총 ${sum.total_holdings || 0}종목 · 평균 ${(sum.total_pnl_pct ?? 0).toFixed(1)}% · <span style="padding:2px 8px;background:${h.bg};color:${h.col};border-radius:8px;font-weight:700;">${h.label}</span>`;
+
+  // 그룹별 카드
+  let html = '';
+
+  // 즉시 조치
+  const immediate = def.immediate_action || [];
+  if(immediate.length > 0) {
+    const items = immediate.map(a => {
+      const isLoss = a.status?.includes('stop_loss');
+      const color = isLoss ? '#991b1b' : '#15803d';
+      const bg = isLoss ? '#fee2e2' : '#dcfce7';
+      const icon = isLoss ? '🔴' : '🟢';
+      return `
+        <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:${bg};border-left:3px solid ${color};border-radius:6px;margin-bottom:6px;">
+          <div style="font-size:14px;">${icon}</div>
+          <div style="flex:1;min-width:0;">
+            <div style="display:flex;align-items:center;gap:6px;margin-bottom:2px;flex-wrap:wrap;">
+              <b style="font-size:13px;">${a.ticker}</b>
+              <span style="font-size:10px;color:var(--sub);">${a.account === 'sub' ? '서브' : '메인'}</span>
+              <span style="font-size:11px;font-weight:700;color:${color};">${a.pnl_pct >= 0 ? '+' : ''}${a.pnl_pct?.toFixed(2)}%</span>
+              <span style="font-size:10px;color:var(--sub);">비중 ${a.weight_pct?.toFixed(1)}%</span>
+            </div>
+            <div style="font-size:11px;color:var(--text);line-height:1.4;"><b>${a.recommendation || ''}</b></div>
+          </div>
+        </div>`;
+    }).join('');
+    html += `
+      <div style="margin-bottom:12px;">
+        <div style="font-size:10px;font-weight:800;color:#991b1b;margin-bottom:6px;">⚠️ 즉시 조치 필요 (${immediate.length})</div>
+        ${items}
+      </div>`;
+  }
+
+  // 모니터링
+  const monitor = def.monitoring || [];
+  if(monitor.length > 0) {
+    const items = monitor.map(m => {
+      const pnl = m.pnl_pct ?? 0;
+      const pnlColor = pnl >= 0 ? '#15803d' : '#991b1b';
+      return `
+        <div style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:#fef9c3;border-radius:6px;margin-bottom:5px;">
+          <div style="font-size:12px;">🟡</div>
+          <div style="flex:1;min-width:0;">
+            <div style="display:flex;align-items:center;gap:6px;margin-bottom:2px;flex-wrap:wrap;">
+              <b style="font-size:13px;">${m.ticker}</b>
+              <span style="font-size:11px;font-weight:700;color:${pnlColor};">${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}%</span>
+              <span style="font-size:10px;color:var(--sub);">비중 ${m.weight_pct?.toFixed?.(1) || '—'}%</span>
+            </div>
+            <div style="font-size:11px;color:var(--text);line-height:1.4;">${m.reason || ''}</div>
+          </div>
+        </div>`;
+    }).join('');
+    html += `
+      <div style="margin-bottom:12px;">
+        <div style="font-size:10px;font-weight:800;color:#b45309;margin-bottom:6px;">📊 모니터링 (${monitor.length})</div>
+        ${items}
+      </div>`;
+  }
+
+  // 조정 검토
+  const adjust = def.adjustment || [];
+  if(adjust.length > 0) {
+    const items = adjust.map(a => `
+      <div style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:#dbeafe;border-radius:6px;margin-bottom:5px;">
+        <div style="font-size:12px;">⚖️</div>
+        <div style="flex:1;">
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:2px;">
+            <b style="font-size:13px;">${a.ticker}</b>
+            <span style="font-size:10px;color:var(--sub);">${a.current} → ${a.target}</span>
+          </div>
+          <div style="font-size:11px;color:var(--text);">${a.recommendation || ''}</div>
+        </div>
+      </div>`).join('');
+    html += `
+      <div style="margin-bottom:12px;">
+        <div style="font-size:10px;font-weight:800;color:#1d4ed8;margin-bottom:6px;">⚖️ 조정 검토 (${adjust.length})</div>
+        ${items}
+      </div>`;
+  }
+
+  // 안전 (펼치기/접기)
+  const safe = def.safe || [];
+  if(safe.length > 0) {
+    const items = safe.map(s => {
+      const pnl = s.pnl_pct ?? 0;
+      const pnlColor = pnl >= 0 ? '#15803d' : '#991b1b';
+      return `<span style="display:inline-block;padding:4px 10px;background:#f8fafc;border:1px solid var(--border);border-radius:14px;font-size:11px;margin:2px;"><b>${s.ticker}</b> <span style="color:${pnlColor};font-weight:700;">${pnl >= 0 ? '+' : ''}${pnl.toFixed(1)}%</span></span>`;
+    }).join('');
+    html += `
+      <div>
+        <div onclick="toggleSafeList()" style="display:flex;align-items:center;justify-content:space-between;font-size:10px;font-weight:800;color:#15803d;cursor:pointer;padding:6px 0;">
+          <span>✅ 안전 (${safe.length}종목)</span>
+          <span id="safe-list-toggle" style="color:var(--sub);">▼ 펼치기</span>
+        </div>
+        <div id="safe-list-body" style="display:none;padding:6px 0;">${items}</div>
+      </div>`;
+  }
+
+  body.innerHTML = html || '<div style="padding:20px;text-align:center;color:var(--sub);font-size:12px;">보유 종목 데이터 없음</div>';
+  card.style.display = 'block';
+}
+
+function toggleSafeList() {
+  const box = document.getElementById('safe-list-body');
+  const toggle = document.getElementById('safe-list-toggle');
+  if(box.style.display === 'none') {
+    box.style.display = 'block';
+    toggle.textContent = '▲ 접기';
+  } else {
+    box.style.display = 'none';
+    toggle.textContent = '▼ 펼치기';
+  }
+}
+
+function renderPicksCard(data) {
+  const card = document.getElementById('agent-picks-card');
+  const body = document.getElementById('agent-picks-body');
+  const summary = document.getElementById('agent-picks-summary');
+
+  const off = data.offensive || {};
+  const sum = off.summary || {};
+  summary.innerHTML = `강력 ${sum.strong_buy_count || 0} · 매수 ${sum.buy_count || 0} · 관망 ${sum.watch_count || 0} · 회피 ${sum.avoid_count || 0}`;
+
+  const cands = off.candidates_analysis || [];
+  const strong = cands.filter(c => c.entry_strength === 'strong_buy');
+  const buy = cands.filter(c => c.entry_strength === 'buy');
+  const watch = cands.filter(c => c.entry_strength === 'watch');
+  const avoid = cands.filter(c => c.entry_strength === 'avoid');
+
+  let html = '';
+
+  // 강력 추천 — 큰 카드
+  if(strong.length > 0) {
+    const cards = strong.map(c => {
+      const sd = c.score_breakdown || {};
+      const cf = c.context_fit || {};
+      return `
+        <div style="padding:14px;background:linear-gradient(135deg,#f0fdf4,#fff);border:2px solid #22c55e;border-radius:10px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+            <div>
+              <b style="font-size:16px;color:#15803d;">${c.ticker}</b>
+              <span style="font-size:10px;color:var(--sub);margin-left:6px;">${c.sector || ''}</span>
+            </div>
+            <span style="padding:3px 8px;background:#15803d;color:#fff;border-radius:8px;font-size:10px;font-weight:700;">강력 추천</span>
+          </div>
+          <div style="display:flex;gap:6px;margin-bottom:8px;font-size:10px;">
+            <span style="padding:2px 6px;background:#f8fafc;border-radius:4px;">총점 <b>${sd.total || '—'}</b></span>
+            <span style="padding:2px 6px;background:#f8fafc;border-radius:4px;">강점 <b>${sd.strength_pillar || '—'}</b></span>
+            <span style="padding:2px 6px;background:#f8fafc;border-radius:4px;">${cf.macro_alignment || '—'}</span>
+          </div>
+          <div style="font-size:11px;color:var(--text);line-height:1.5;margin-bottom:6px;">${c.narrative || ''}</div>
+          <div style="font-size:10px;color:#15803d;font-weight:700;">권고 비중: ${c.suggested_weight || '—'}</div>
+        </div>`;
+    }).join('');
+    html += `
+      <div style="margin-bottom:12px;">
+        <div style="font-size:10px;font-weight:800;color:#15803d;margin-bottom:8px;">🟢 강력 추천 (${strong.length})</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;">${cards}</div>
+      </div>`;
+  }
+
+  // 매수 — 중간 크기
+  if(buy.length > 0) {
+    const items = buy.map(c => `
+      <div style="padding:10px 12px;background:#dbeafe;border-radius:8px;margin-bottom:5px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+          <div><b style="font-size:13px;color:#1d4ed8;">${c.ticker}</b> <span style="font-size:10px;color:var(--sub);">${c.sector || ''}</span></div>
+          <span style="font-size:10px;color:#1d4ed8;font-weight:700;">${c.suggested_weight || '—'}</span>
+        </div>
+        <div style="font-size:11px;color:var(--text);line-height:1.4;">${c.narrative || ''}</div>
+      </div>`).join('');
+    html += `
+      <div style="margin-bottom:12px;">
+        <div style="font-size:10px;font-weight:800;color:#1d4ed8;margin-bottom:6px;">🔵 매수 (${buy.length})</div>
+        ${items}
+      </div>`;
+  }
+
+  // 관망 — 작은 칩
+  if(watch.length > 0) {
+    const items = watch.map(c => `
+      <div style="padding:8px 12px;background:#fef9c3;border-radius:6px;margin-bottom:5px;">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <b style="font-size:12px;color:#b45309;">${c.ticker}</b>
+          <span style="font-size:10px;color:var(--sub);">${c.sector || ''}</span>
+          <span style="font-size:10px;color:var(--text);flex:1;min-width:200px;">${c.narrative || ''}</span>
+        </div>
+      </div>`).join('');
+    html += `
+      <div style="margin-bottom:12px;">
+        <div style="font-size:10px;font-weight:800;color:#b45309;margin-bottom:6px;">🟡 관망 (${watch.length})</div>
+        ${items}
+      </div>`;
+  }
+
+  // 회피 — 가장 작게
+  if(avoid.length > 0) {
+    const items = avoid.map(c => `<span style="display:inline-block;padding:3px 8px;background:#fee2e2;color:#991b1b;border-radius:10px;font-size:10px;font-weight:700;margin:2px;">${c.ticker}</span>`).join('');
+    html += `
+      <div>
+        <div style="font-size:10px;font-weight:800;color:#991b1b;margin-bottom:6px;">🔴 회피 (${avoid.length})</div>
+        <div>${items}</div>
+      </div>`;
+  }
+
+  // (rejected 배열 — 별도)
+  const rejected = off.rejected || [];
+  if(rejected.length > 0 && avoid.length === 0) {
+    const items = rejected.map(r => `<span style="display:inline-block;padding:3px 8px;background:#fee2e2;color:#991b1b;border-radius:10px;font-size:10px;font-weight:700;margin:2px;" title="${r.reason || ''}">${r.ticker}</span>`).join('');
+    html += `
+      <div>
+        <div style="font-size:10px;font-weight:800;color:#991b1b;margin-bottom:6px;">🔴 거부 (${rejected.length})</div>
+        <div>${items}</div>
+      </div>`;
+  }
+
+  body.innerHTML = html || '<div style="padding:20px;text-align:center;color:var(--sub);font-size:12px;">신규 매수 후보 데이터 없음</div>';
+  card.style.display = 'block';
+}
+
+function renderManagerCard(data) {
+  const card = document.getElementById('agent-manager-card');
+  const report = document.getElementById('agent-manager-report');
+  if(data.manager && typeof data.manager === 'string') {
+    try {
+      report.innerHTML = marked.parse(data.manager);
+    } catch(e) {
+      report.textContent = data.manager;
+    }
+    card.style.display = 'block';
+  }
 }
 
 function switchAgentTab(tab) {
