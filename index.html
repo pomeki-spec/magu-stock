@@ -5066,11 +5066,11 @@ async function runAgentAnalysis() {
 function showAgentProgress() {
   document.getElementById('agent-progress').style.display = 'block';
   const stages = [
-    {pct:10, text:'🌐 매크로팀장 분석 중...', sub:'Fed 유동성 + DXY + 심리 지표 종합'},
-    {pct:30, text:'💰 자금흐름팀장 분석 중...', sub:'섹터 모멘텀 + MMF + 신용시장 추적'},
-    {pct:55, text:'🎯 종목분석팀장(공격) 분석 중...', sub:'스크리닝 Top 5 신규 진입 평가'},
-    {pct:75, text:'🛡 종목분석팀장(수비) 분석 중...', sub:'보유 종목 룰 검증'},
-    {pct:90, text:'📋 부장 종합 판단 중...', sub:'세 팀장 결과 통합 + 포트 정합성 검토'}
+    {pct:8, text:'🌐 매크로팀장 분석 중...', sub:'Fed 유동성 + DXY + 심리 지표 종합'},
+    {pct:25, text:'💰 자금흐름팀장 분석 중...', sub:'섹터 모멘텀 + MMF + 신용시장 추적'},
+    {pct:45, text:'🎯 종목분석팀장(공격) 분석 중...', sub:'스크리닝 Top 5 신규 진입 평가'},
+    {pct:65, text:'🛡 종목분석팀장(수비) 분석 중...', sub:'보유 종목 룰 검증'},
+    {pct:85, text:'📋 부장 종합 판단 중...', sub:'세 팀장 결과 통합 + 포트 정합성 검토'}
   ];
   let i = 0;
   const updateStage = () => {
@@ -5082,7 +5082,8 @@ function showAgentProgress() {
     i++;
   };
   updateStage();
-  _agentProgressTimer = setInterval(updateStage, 4000);
+  // 각 단계 약 15초씩 (분당 토큰 분산 + 검색 시간 고려)
+  _agentProgressTimer = setInterval(updateStage, 15000);
 }
 
 function hideAgentProgress() {
