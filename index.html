@@ -1967,7 +1967,7 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
           <div style="font-size:14px;font-weight:700;color:#6b21a8;margin-bottom:4px;">🎯 종합 분석 실행</div>
           <div style="font-size:11px;color:#7c3aed;line-height:1.5;">
             한 번 클릭으로 매크로 + 자금흐름 + 종목분석(공격/수비) + 부장 종합 보고서를 받습니다.<br>
-            소요 시간 약 15~25초 · 1회 비용 약 ₩100
+            소요 시간 약 60~90초 · 1회 비용 약 ₩200~300 · 5분 내 재실행은 캐시 응답 (무료)
           </div>
         </div>
         <div style="display:flex;align-items:center;gap:10px;">
@@ -5504,7 +5504,12 @@ function renderAgentResults(data) {
   if(data.analysis_time) {
     const t = new Date(data.analysis_time);
     const fmt = t.toLocaleString('ko-KR', { year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit' });
-    document.getElementById('agent-last-time').innerHTML = '📅 마지막 분석: <b>' + fmt + '</b>';
+    let html = '📅 마지막 분석: <b>' + fmt + '</b>';
+    // 캐시 응답 표시
+    if(data.cached) {
+      html += ` <span style="display:inline-block;margin-left:8px;padding:2px 8px;background:#dbeafe;color:#1e40af;border-radius:8px;font-size:10px;font-weight:700;">📦 5분 캐시 (${data.cache_age_min}분 전 분석, 새 호출 없음)</span>`;
+    }
+    document.getElementById('agent-last-time').innerHTML = html;
     document.getElementById('agent-meta-row').style.display = 'block';
   }
 
