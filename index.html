@@ -5026,7 +5026,19 @@ function renderSnapshotChart(snapshots) {
       responsive: true, maintainAspectRatio: false,
       plugins: {
         legend: {position:'bottom', labels:{font:{size:11}}},
-        tooltip: {callbacks:{label: c => c.dataset.label + ': ' + fmtKRW(c.parsed.y)}}
+        tooltip: {
+          callbacks: {
+            label: c => c.dataset.label + ': ' + fmtKRW(c.parsed.y),
+            footer: items => {
+              // 같은 x축 인덱스의 모든 데이터셋(주식+현금) 합계
+              const total = items.reduce((sum, it) => sum + (Number(it.parsed.y) || 0), 0);
+              return '총 자산: ' + fmtKRW(total);
+            }
+          },
+          footerFont: {weight: 'bold', size: 12},
+          footerColor: '#1e293b',
+          footerMarginTop: 6
+        }
       },
       scales: {
         x: {stacked:true, grid:{display:false}, ticks:{font:{size:10}, maxRotation:45, minRotation:0}},
