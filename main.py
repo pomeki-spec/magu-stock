@@ -3931,7 +3931,9 @@ except ImportError:
 
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 AGENT_MODEL = "claude-sonnet-4-5"  # Sonnet 4.6 호환
-AGENT_MAX_TOKENS = 8000
+AGENT_MAX_TOKENS = 8000  # 기본값 (사용 안 함, 호환성 유지)
+AGENT_MAX_TOKENS_TEAM = 3000     # 팀장 4명 (JSON 출력)
+AGENT_MAX_TOKENS_MANAGER = 5000  # 부장 (마크다운 보고서)
 
 def get_anthropic_client():
     if not ANTHROPIC_AVAILABLE:
@@ -4759,10 +4761,11 @@ def _collect_defensive_data(macro_summary, flow_summary, macro_stage):
 # 에이전트 호출 함수
 # ═══════════════════════════════════════════════════════════════════════
 
-def _call_agent(system_prompt, user_data, parse_json=True, web_search_max_uses=0):
+def _call_agent(system_prompt, user_data, parse_json=True, web_search_max_uses=0, max_tokens=None):
     """Claude API 호출 — JSON 또는 마크다운 응답
     
     web_search_max_uses: 0이면 검색 비활성화, 1+면 그 횟수까지 검색 가능
+    max_tokens: None이면 기본 AGENT_MAX_TOKENS_TEAM(3000) 사용
     
     프롬프트 캐싱: 시스템 프롬프트를 캐시하여 반복 호출 시 90% 할인.
     5분 TTL이므로 한 번의 종합 분석(5개 에이전트, 약 1분 내) 안에서 효과적.
@@ -4771,9 +4774,13 @@ def _call_agent(system_prompt, user_data, parse_json=True, web_search_max_uses=0
     user_content = json.dumps(sanitize(user_data), ensure_ascii=False, default=str)
     if len(user_content) > 80000:
         user_content = user_content[:80000] + "\n[데이터 잘림]"
+    
+    # 입력 토큰 추정 + 안전장치 (선택)
+    estimated_input = len(user_content) // 2 + len(system_prompt) // 2
+    if estimated_input > 30000:
+        logger.warning(f"⚠️ 큰 입력 감지: ~{estimated_input}토큰 (비용 주의)")
 
     # 시스템 프롬프트를 캐싱 가능한 블록 형태로 전송
-    # cache_control: {"type": "ephemeral"} → 5분 TTL 캐싱
     system_blocks = [
         {
             "type": "text",
@@ -4782,11 +4789,15 @@ def _call_agent(system_prompt, user_data, parse_json=True, web_search_max_uses=0
         }
     ]
 
+    # max_tokens 결정
+    if max_tokens is None:
+        max_tokens = AGENT_MAX_TOKENS_TEAM
+
     # API 호출 파라미터
     create_kwargs = {
         "model": AGENT_MODEL,
-        "max_tokens": AGENT_MAX_TOKENS,
-        "system": system_blocks,  # 캐싱용 블록 형태
+        "max_tokens": max_tokens,
+        "system": system_blocks,
         "messages": [{"role": "user", "content": user_content}]
     }
     
@@ -4807,17 +4818,11 @@ def _call_agent(system_prompt, user_data, parse_json=True, web_search_max_uses=0
             logger.warning(f"웹 검색 도구 사용 불가, fallback으로 검색 없이 호출: {e}")
             create_kwargs.pop("tools", None)
             response = client.messages.create(**create_kwargs)
-        # Rate limit 에러 시 대기 후 재시도 (분당 토큰 한도)
+        # Rate limit 에러 시 — 재시도 안 함 (비용 보호)
         elif "rate_limit" in err_msg.lower() or "429" in err_msg:
-            logger.warning(f"⏸ Rate limit 도달, 65초 대기 후 재시도 (분당 카운트 리셋 대기): {err_msg[:200]}")
-            import time
-            time.sleep(65)
-            try:
-                response = client.messages.create(**create_kwargs)
-                logger.info("✓ Rate limit 재시도 성공")
-            except Exception as e2:
-                logger.error(f"✗ Rate limit 재시도도 실패: {e2}")
-                raise
+            logger.error(f"⛔ Rate limit 도달 — 재시도 안 함 (비용 보호): {err_msg[:200]}")
+            logger.error(f"   1분 이상 대기 후 사용자가 직접 재시도하세요.")
+            raise
         else:
             raise
 
@@ -5040,7 +5045,7 @@ def run_manager_agent(macro_result, flow_result, offensive_result, defensive_res
         },
         "analysis_time_kst": datetime.now(pytz.timezone("Asia/Seoul")).strftime("%Y-%m-%d %H:%M")
     }
-    return _call_agent(MANAGER_AGENT_PROMPT, data, parse_json=False, web_search_max_uses=2)
+    return _call_agent(MANAGER_AGENT_PROMPT, data, parse_json=False, web_search_max_uses=2, max_tokens=AGENT_MAX_TOKENS_MANAGER)
 
 # ═══════════════════════════════════════════════════════════════════════
 # 전체 워크플로우
@@ -5204,6 +5209,34 @@ def trigger_full_analysis(request: Request):
                 "in_progress": True,
                 "elapsed_sec": round(elapsed, 1)
             })
+    
+    # 5분 이내 분석 캐시 확인 (비용 보호)
+    if DATABASE_URL:
+        try:
+            conn = get_conn(); cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            cur.execute("""
+                SELECT * FROM agent_analysis_cache 
+                WHERE analysis_time > NOW() - INTERVAL '5 minutes'
+                ORDER BY analysis_time DESC LIMIT 1
+            """)
+            recent = cur.fetchone()
+            cur.close(); conn.close()
+            if recent:
+                elapsed_min = (datetime.now() - recent["analysis_time"]).total_seconds() / 60
+                logger.info(f"📦 5분 캐시 적중 — 최근 분석 ({elapsed_min:.1f}분 전) 반환 (API 호출 없음)")
+                return safe_json({
+                    "analysis_time": recent["analysis_time"].isoformat() if recent.get("analysis_time") else None,
+                    "macro": recent.get("macro_result"),
+                    "money_flow": recent.get("flow_result"),
+                    "offensive": recent.get("offensive_result"),
+                    "defensive": recent.get("defensive_result"),
+                    "manager": recent.get("manager_result"),
+                    "errors": recent.get("error_log"),
+                    "cached": True,
+                    "cache_age_min": round(elapsed_min, 1)
+                })
+        except Exception as e:
+            logger.warning(f"캐시 조회 실패 (무시하고 진행): {e}")
     
     try:
         result = run_full_analysis()
