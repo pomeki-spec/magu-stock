@@ -761,6 +761,152 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
     flex: 0 0 100%;
   }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   📱 매크로 정합 시그널 카드 — 모바일 최적화
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* 메타 정보 행 — 데스크탑: 한 줄 / 모바일: 세로 */
+.alignment-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  font-size: 12px;
+  line-height: 1.7;
+}
+.alignment-meta-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.alignment-meta-divider {
+  color: #cbd5e1;
+  font-weight: 400;
+}
+
+/* 3분할 카드 그리드 */
+.alignment-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+.alignment-cell {
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid;
+}
+.alignment-cell-green  { background: #f0fdf4; border-color: #86efac; }
+.alignment-cell-yellow { background: #fefce8; border-color: #fde047; }
+.alignment-cell-red    { background: #fef2f2; border-color: #fca5a5; }
+
+.alignment-cell-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+.alignment-dot {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.alignment-cell-title {
+  font-weight: 800;
+  font-size: 14px;
+  letter-spacing: -0.01em;
+}
+.alignment-cell-count {
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.alignment-tickers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.alignment-ticker {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: 10px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: #0f172a;
+  white-space: nowrap;
+}
+
+.alignment-footer {
+  margin-top: 10px;
+  padding: 8px 12px;
+  background: #fff;
+  border-radius: 8px;
+  font-size: 11px;
+  color: #64748b;
+  line-height: 1.6;
+}
+
+/* ── 모바일 (640px 이하) ── */
+@media (max-width: 640px) {
+  /* 카드 패딩 축소 */
+  #pf-alignment-card {
+    padding: 14px !important;
+  }
+  
+  /* 헤더 — 타이틀 크기 + 상태/버튼 작게 */
+  #pf-alignment-card > div:first-child .section-title {
+    font-size: 14px !important;
+  }
+  #pf-alignment-status {
+    font-size: 10px !important;
+  }
+  #pf-reclassify-btn {
+    padding: 3px 8px !important;
+    font-size: 10px !important;
+  }
+  
+  /* 메타 정보 — 세로 배치, 구분자 숨김 */
+  .alignment-meta {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+    font-size: 11px;
+  }
+  .alignment-meta-divider {
+    display: none;
+  }
+  
+  /* 3분할 카드 → 세로 1열 */
+  .alignment-grid {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+  .alignment-cell {
+    padding: 10px 12px;
+  }
+  .alignment-cell-title {
+    font-size: 13px;
+  }
+  .alignment-ticker {
+    font-size: 10px;
+    padding: 2px 7px;
+  }
+  
+  /* 푸터 안내 작게 */
+  .alignment-footer {
+    font-size: 10px;
+    padding: 6px 10px;
+    line-height: 1.5;
+  }
+}
 </style>
 </head>
 <body>
@@ -4312,54 +4458,56 @@ function renderAlignment() {
   const weakStr    = weakSet.size > 0 ? sectorNames(weakSet) : '—';
   const screenStr  = screeningSet.size > 0 ? sectorNames(screeningSet) : '(스크리닝 실행 전)';
 
-  // 종목 리스트 (티커 위주, 최대 5개)
+  // 종목 리스트 (티커 위주, 최대 8개)
   const tkList = (arr) => {
-    if(arr.length === 0) return '<span style="color:var(--sub);">—</span>';
+    if(arr.length === 0) return '<span style="color:#94a3b8;font-size:11px;">—</span>';
     const shown = arr.slice(0, 8).map(h => {
-      const label = h.currency === 'KRW' ? (h.name || h.ticker).slice(0, 8) : h.ticker;
-      return `<span style="display:inline-block;padding:2px 7px;border-radius:10px;background:#fff;border:1px solid var(--border);font-size:11px;font-weight:700;margin:2px;" title="${h._alignment.reasons.join(' / ')}">${label}</span>`;
+      const label = h.currency === 'KRW' ? (h.name || h.ticker).slice(0, 6) : h.ticker;
+      return `<span class="alignment-ticker" title="${h._alignment.reasons.join(' / ')}">${label}</span>`;
     }).join('');
-    const more = arr.length > 8 ? ` <span style="color:var(--sub);font-size:11px;">+${arr.length-8}</span>` : '';
+    const more = arr.length > 8 ? ` <span style="color:#94a3b8;font-size:11px;">+${arr.length-8}</span>` : '';
     return shown + more;
   };
 
   bodyEl.innerHTML = `
-    <div style="font-size:11px;color:var(--sub);margin-bottom:10px;line-height:1.7;">
-      📊 주도 섹터: <b style="color:#15803d;">${leadingStr}</b> &nbsp;|&nbsp;
-      ⚠️ 이탈 섹터: <b style="color:#991b1b;">${weakStr}</b> &nbsp;|&nbsp;
-      🎯 스크리닝 상위: <b style="color:#1d4ed8;">${screenStr}</b>
+    <div class="alignment-meta">
+      <span class="alignment-meta-item">📊 주도 섹터: <b style="color:#15803d;">${leadingStr}</b></span>
+      <span class="alignment-meta-divider">|</span>
+      <span class="alignment-meta-item">⚠️ 이탈 섹터: <b style="color:#991b1b;">${weakStr}</b></span>
+      <span class="alignment-meta-divider">|</span>
+      <span class="alignment-meta-item">🎯 스크리닝 상위: <b style="color:#1d4ed8;">${screenStr}</b></span>
     </div>
 
-    <div style="display:flex;gap:12px;flex-wrap:wrap;">
-      <div style="flex:1;min-width:220px;padding:12px;background:#f0fdf4;border-radius:10px;border:1px solid #86efac;">
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
-          <span style="display:inline-block;width:14px;height:14px;border-radius:50%;background:#22c55e;"></span>
-          <span style="font-weight:800;color:#15803d;">흐름과 부합</span>
-          <span style="color:var(--sub);font-size:11px;">${green.length}개</span>
+    <div class="alignment-grid">
+      <div class="alignment-cell alignment-cell-green">
+        <div class="alignment-cell-header">
+          <span class="alignment-dot" style="background:#22c55e;"></span>
+          <span class="alignment-cell-title" style="color:#15803d;">흐름과 부합</span>
+          <span class="alignment-cell-count">${green.length}개</span>
         </div>
-        <div>${tkList(green)}</div>
+        <div class="alignment-tickers">${tkList(green)}</div>
       </div>
 
-      <div style="flex:1;min-width:220px;padding:12px;background:#fefce8;border-radius:10px;border:1px solid #fde047;">
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
-          <span style="display:inline-block;width:14px;height:14px;border-radius:50%;background:#eab308;"></span>
-          <span style="font-weight:800;color:#854d0e;">중립/관찰</span>
-          <span style="color:var(--sub);font-size:11px;">${yellow.length}개</span>
+      <div class="alignment-cell alignment-cell-yellow">
+        <div class="alignment-cell-header">
+          <span class="alignment-dot" style="background:#eab308;"></span>
+          <span class="alignment-cell-title" style="color:#854d0e;">중립/관찰</span>
+          <span class="alignment-cell-count">${yellow.length}개</span>
         </div>
-        <div>${tkList(yellow)}</div>
+        <div class="alignment-tickers">${tkList(yellow)}</div>
       </div>
 
-      <div style="flex:1;min-width:220px;padding:12px;background:#fef2f2;border-radius:10px;border:1px solid #fca5a5;">
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
-          <span style="display:inline-block;width:14px;height:14px;border-radius:50%;background:#ef4444;"></span>
-          <span style="font-weight:800;color:#991b1b;">흐름과 반대</span>
-          <span style="color:var(--sub);font-size:11px;">${red.length}개</span>
+      <div class="alignment-cell alignment-cell-red">
+        <div class="alignment-cell-header">
+          <span class="alignment-dot" style="background:#ef4444;"></span>
+          <span class="alignment-cell-title" style="color:#991b1b;">흐름과 반대</span>
+          <span class="alignment-cell-count">${red.length}개</span>
         </div>
-        <div>${tkList(red)}</div>
+        <div class="alignment-tickers">${tkList(red)}</div>
       </div>
     </div>
 
-    <div style="margin-top:10px;padding:8px 12px;background:#fff;border-radius:8px;font-size:11px;color:var(--sub);line-height:1.5;">
+    <div class="alignment-footer">
       💡 이 시그널은 참고용입니다. 각 종목의 신호 근거는 해당 뱃지에 마우스를 올려 확인하세요.
     </div>
   `;
@@ -5024,6 +5172,10 @@ function renderSnapshotChart(snapshots) {
     },
     options: {
       responsive: true, maintainAspectRatio: false,
+      interaction: {
+        mode: 'index',
+        intersect: false
+      },
       plugins: {
         legend: {position:'bottom', labels:{font:{size:11}}},
         tooltip: {
