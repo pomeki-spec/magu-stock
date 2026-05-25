@@ -2256,6 +2256,18 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
 </div><!-- /main -->
 
 <script>
+// 전역 401 핸들러 — 세션 만료 시 자동 로그인 페이지 이동
+(function() {
+  const _fetch = window.fetch;
+  window.fetch = async function(...args) {
+    const res = await _fetch(...args);
+    if (res.status === 401 && !args[0].toString().includes('/api/auth/')) {
+      window.location.href = '/login';
+    }
+    return res;
+  };
+})();
+
 const API = '';  // 상대 경로 — 현재 도메인 자동 사용 (주소 변경에 자동 대응)
 let currentMarket = 'nasdaq';
 let _lastResults  = [];

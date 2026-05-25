@@ -61,6 +61,18 @@ SESSION_TOKEN = hashlib.sha256(SITE_PASSWORD.encode()).hexdigest()
 def is_authenticated(session: str = None) -> bool:
     return session == SESSION_TOKEN
 
+@app.middleware("http")
+async def auth_middleware(request: Request, call_next):
+    if os.environ.get("BYPASS_AUTH") == "1":
+        return await call_next(request)
+    public_paths = {"/", "/login", "/api/auth/login", "/api/auth/check"}
+    if request.url.path in public_paths:
+        return await call_next(request)
+    session = request.cookies.get("session")
+    if not is_authenticated(session):
+        return JSONResponse({"detail": "Unauthorized"}, status_code=401)
+    return await call_next(request)
+
 @app.post("/api/auth/login")
 async def login(request: Request, response: Response):
     try:
