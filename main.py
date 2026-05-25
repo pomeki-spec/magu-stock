@@ -2782,26 +2782,35 @@ def _get_usd_krw(max_age_minutes=10):
     if not DATABASE_URL:
         return _fetch_usd_krw_live()
     try:
-        conn = get_conn(); cur = conn.cursor()
-        cur.execute(f"""
-            SELECT rate FROM fx_cache
-            WHERE pair = 'USD_KRW' AND cached_at > NOW() - INTERVAL '{int(max_age_minutes)} minutes'
-        """)
-        row = cur.fetchone()
-        cur.close(); conn.close()
-        if row and row[0]:
-            return float(row[0])
+        conn = get_conn()
+        cur = conn.cursor()
+        try:
+            cur.execute(f"""
+                SELECT rate FROM fx_cache
+                WHERE pair = 'USD_KRW' AND cached_at > NOW() - INTERVAL '{int(max_age_minutes)} minutes'
+            """)
+            row = cur.fetchone()
+            if row and row[0]:
+                return float(row[0])
+        finally:
+            cur.close()
+            conn.close()
     except Exception as e:
         logger.warning(f"fx_cache 조회 실패: {e}")
     # 캐시 없거나 만료 → 실시간 조회 후 저장
     rate = _fetch_usd_krw_live()
     try:
-        conn = get_conn(); cur = conn.cursor()
-        cur.execute("""
-            INSERT INTO fx_cache (pair, rate, cached_at) VALUES ('USD_KRW', %s, NOW())
-            ON CONFLICT (pair) DO UPDATE SET rate=EXCLUDED.rate, cached_at=NOW()
-        """, (rate,))
-        conn.commit(); cur.close(); conn.close()
+        conn = get_conn()
+        cur = conn.cursor()
+        try:
+            cur.execute("""
+                INSERT INTO fx_cache (pair, rate, cached_at) VALUES ('USD_KRW', %s, NOW())
+                ON CONFLICT (pair) DO UPDATE SET rate=EXCLUDED.rate, cached_at=NOW()
+            """, (rate,))
+            conn.commit()
+        finally:
+            cur.close()
+            conn.close()
     except Exception as e:
         logger.warning(f"fx_cache 저장 실패: {e}")
     return rate
