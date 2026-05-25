@@ -3467,9 +3467,9 @@ def get_snapshots(request: Request, months: int = 12, start_date: str = None, en
         else:
             cur.execute("""
                 SELECT * FROM portfolio_snapshots
-                WHERE snapshot_date > CURRENT_DATE - INTERVAL '%s months'
+                WHERE snapshot_date > CURRENT_DATE - (%s * INTERVAL '1 month')
                 ORDER BY snapshot_date ASC
-            """ % int(months))
+            """, (int(months),))
         rows = cur.fetchall(); cur.close(); conn.close()
         out = []
         for r in rows:
