@@ -1355,7 +1355,6 @@ def run_full_screening_job():
         logger.info(f"[{market}] {len(results)}개 완료")
 
     _run_tenbagger_job()
-    _run_sector_momentum_job()
     cleanup_old_data()
     elapsed = int((datetime.now() - start).total_seconds() // 60)
     logger.info(f"=== 스크리닝 완료: 소요 {elapsed}분 ===")
