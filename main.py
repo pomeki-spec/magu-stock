@@ -3642,10 +3642,14 @@ def _prefetch_prices_job():
             return
 
         # 보유 종목 티커 목록 조회
-        conn = get_conn(); cur = conn.cursor()
-        cur.execute("SELECT DISTINCT ticker FROM holdings")
-        tickers = [r[0] for r in cur.fetchall()]
-        cur.close(); conn.close()
+        conn = get_conn()
+        cur = conn.cursor()
+        try:
+            cur.execute("SELECT DISTINCT ticker FROM holdings")
+            tickers = [r[0] for r in cur.fetchall()]
+        finally:
+            cur.close()
+            conn.close()
         if not tickers:
             return
 
@@ -3661,28 +3665,33 @@ def _prefetch_prices_job():
                     pass
 
         # DB 일괄 저장
-        conn = get_conn(); cur = conn.cursor()
-        saved = 0
-        for tk, data in results.items():
-            if data.get('price'):
-                cur.execute("""
-                    INSERT INTO price_cache (ticker, price, name, sector, currency, cached_at)
-                    VALUES (%s, %s, %s, %s, %s, NOW())
-                    ON CONFLICT (ticker) DO UPDATE SET
-                        price=EXCLUDED.price, name=EXCLUDED.name,
-                        sector=EXCLUDED.sector, currency=EXCLUDED.currency, cached_at=NOW()
-                """, (tk, data['price'], data['name'], data['sector'], data['currency']))
-                saved += 1
+        conn = get_conn()
+        cur = conn.cursor()
+        try:
+            saved = 0
+            for tk, data in results.items():
+                if data.get('price'):
+                    cur.execute("""
+                        INSERT INTO price_cache (ticker, price, name, sector, currency, cached_at)
+                        VALUES (%s, %s, %s, %s, %s, NOW())
+                        ON CONFLICT (ticker) DO UPDATE SET
+                            price=EXCLUDED.price, name=EXCLUDED.name,
+                            sector=EXCLUDED.sector, currency=EXCLUDED.currency, cached_at=NOW()
+                    """, (tk, data['price'], data['name'], data['sector'], data['currency']))
+                    saved += 1
 
-        # 환율도 함께 갱신
-        rate = _fetch_usd_krw_live()
-        cur.execute("""
-            INSERT INTO fx_cache (pair, rate, cached_at) VALUES ('USD_KRW', %s, NOW())
-            ON CONFLICT (pair) DO UPDATE SET rate=EXCLUDED.rate, cached_at=NOW()
-        """, (rate,))
+            # 환율도 함께 갱신
+            rate = _fetch_usd_krw_live()
+            cur.execute("""
+                INSERT INTO fx_cache (pair, rate, cached_at) VALUES ('USD_KRW', %s, NOW())
+                ON CONFLICT (pair) DO UPDATE SET rate=EXCLUDED.rate, cached_at=NOW()
+            """, (rate,))
 
-        conn.commit(); cur.close(); conn.close()
-        logger.info(f"가격 사전 갱신 완료: {saved}개 종목, 환율 ₩{rate:.0f}")
+            conn.commit()
+            logger.info(f"가격 사전 갱신 완료: {saved}개 종목, 환율 ₩{rate:.0f}")
+        finally:
+            cur.close()
+            conn.close()
     except Exception as e:
         logger.error(f"가격 사전 갱신 오류: {e}")
 
