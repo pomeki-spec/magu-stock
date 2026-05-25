@@ -3930,8 +3930,7 @@ except ImportError:
     logger.warning("anthropic 패키지 없음 — pip install anthropic 필요")
 
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-AGENT_MODEL = "claude-sonnet-4-5"  # Sonnet 4.6 호환
-AGENT_MAX_TOKENS = 8000  # 기본값 (사용 안 함, 호환성 유지)
+AGENT_MODEL = "claude-sonnet-4-6"
 AGENT_MAX_TOKENS_TEAM = 3000     # 팀장 4명 (JSON 출력)
 AGENT_MAX_TOKENS_MANAGER = 5000  # 부장 (마크다운 보고서)
 
@@ -5045,7 +5044,7 @@ def run_manager_agent(macro_result, flow_result, offensive_result, defensive_res
         },
         "analysis_time_kst": datetime.now(pytz.timezone("Asia/Seoul")).strftime("%Y-%m-%d %H:%M")
     }
-    return _call_agent(MANAGER_AGENT_PROMPT, data, parse_json=False, web_search_max_uses=2, max_tokens=AGENT_MAX_TOKENS_MANAGER)
+    return _call_agent(MANAGER_AGENT_PROMPT, data, parse_json=False, web_search_max_uses=0, max_tokens=AGENT_MAX_TOKENS_MANAGER)
 
 # ═══════════════════════════════════════════════════════════════════════
 # 전체 워크플로우
