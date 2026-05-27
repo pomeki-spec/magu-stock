@@ -1586,6 +1586,9 @@ def run_full_screening_job():
         results.sort(key=lambda x: x['total_score'], reverse=True)
         results = get_portfolio_weight(results)
         save_screening_to_db(results)
+        if market in ("nasdaq", "sp500"):
+            picks = select_bestpick_5(results)
+            save_bestpick_to_db(picks, market=market)
         logger.info(f"[{market}] {len(results)}개 완료")
 
     _run_tenbagger_job()
@@ -2977,9 +2980,31 @@ def save_bestpick(market: str = "nasdaq"):
     }
 
 
+def _fetch_spy_returns() -> dict:
+    """SPY 벤치마크 수익률 조회 — 7d/30d/90d/180d"""
+    try:
+        spy = yf.Ticker("SPY").history(period="1y")
+        if spy.empty or len(spy) < 5:
+            return {}
+        latest = float(spy["Close"].iloc[-1])
+        def ret(days):
+            if len(spy) <= days: return None
+            base = float(spy["Close"].iloc[-days])
+            return round((latest / base - 1) * 100, 2) if base else None
+        return {
+            "spy_7d":  ret(5),
+            "spy_30d": ret(21),
+            "spy_90d": ret(63),
+            "spy_180d": ret(126),
+        }
+    except Exception as e:
+        logger.warning(f"SPY 수익률 조회 실패: {e}")
+        return {}
+
+
 @app.get("/api/bestpick/history")
 def get_bestpick_history(market: str = "nasdaq"):
-    """베스트픽 전체 이력 + 현재까지 수익률 추적"""
+    """베스트픽 전체 이력 + 현재까지 수익률 추적 + SPY 벤치마크 비교"""
     if not DATABASE_URL:
         return {"error": "DATABASE_URL 없음"}
     try:
@@ -3020,6 +3045,10 @@ def get_bestpick_history(market: str = "nasdaq"):
             ORDER BY r.picked_at DESC, r.total_score DESC
         """, (market,))
         rows = [dict(r) for r in cur.fetchall()]
+        cur.close(); conn.close()
+
+        # SPY 벤치마크
+        spy_rets = _fetch_spy_returns()
 
         # 날짜별 그룹핑
         from collections import defaultdict
@@ -3047,12 +3076,16 @@ def get_bestpick_history(market: str = "nasdaq"):
         win_count = sum(1 for r in all_returns if r > 0)
         win_rate = round(win_count / len(all_returns) * 100, 1) if all_returns else None
 
-        cur.close(); conn.close()
+        # SPY 대비 초과수익 (현재 추적 기간 기준)
+        alpha = round(overall_avg - spy_rets.get("spy_30d", 0), 2) if overall_avg is not None and spy_rets.get("spy_30d") is not None else None
+
         return {
             "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
             "total_records": len(rows),
             "overall_avg_return": overall_avg,
             "overall_win_rate": win_rate,
+            "spy_benchmark": spy_rets,
+            "alpha_vs_spy": alpha,
             "history": summary_by_date
         }
     except Exception as e:

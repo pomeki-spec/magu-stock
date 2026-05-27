@@ -1347,15 +1347,17 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
     <!-- 전체 통계 -->
     <div class="bt-summary-grid" id="bp-stats-grid">
       <div class="bt-stat-card"><div class="bt-stat-label">📊 총 기록 수</div><div class="bt-stat-val" id="bp-total">—</div></div>
-      <div class="bt-stat-card"><div class="bt-stat-label">📈 평균 수익률</div><div class="bt-stat-val" id="bp-avg-ret">—</div></div>
+      <div class="bt-stat-card"><div class="bt-stat-label">📈 베스트픽 평균</div><div class="bt-stat-val" id="bp-avg-ret">—</div></div>
+      <div class="bt-stat-card"><div class="bt-stat-label">📉 SPY (30일)</div><div class="bt-stat-val" id="bp-spy-ret">—</div></div>
+      <div class="bt-stat-card"><div class="bt-stat-label">⚡ 초과수익 (알파)</div><div class="bt-stat-val" id="bp-alpha">—</div></div>
       <div class="bt-stat-card"><div class="bt-stat-label">🏆 승률</div><div class="bt-stat-val" id="bp-winrate">—</div></div>
       <div class="bt-stat-card"><div class="bt-stat-label">📅 추적 기간</div><div class="bt-stat-val" id="bp-period">—</div></div>
     </div>
 
     <!-- 안내 박스 -->
     <div class="inv-note" style="margin-bottom:14px;">
-      💡 <b>사용법:</b> ① 스크리닝 탭에서 나스닥 스크리닝 실행 → ② 이 탭에서 <b>오늘 베스트픽 기록</b> 클릭 → ③ 매일 자동으로 수익률이 업데이트됩니다.<br>
-      같은 종목이 다음날 다시 선정되면 <b>연속선정 횟수</b>만 증가합니다 (중복 기록 없음). 데이터는 6개월간 보관됩니다.
+      💡 매일 KST 04:00 스크리닝 완료 후 <b>자동으로 베스트픽이 기록</b>됩니다. 수동으로도 저장 가능합니다.<br>
+      <b>초과수익(알파)</b> = 베스트픽 평균 수익률 − SPY 30일 수익률. 양수면 시장 대비 아웃퍼폼.
     </div>
 
     <!-- 이력 테이블 -->
@@ -2787,6 +2789,25 @@ async function loadBestpickHistory() {
     const avg = data.overall_avg_return;
     avgEl.textContent = avg !== null && avg !== undefined ? (avg >= 0 ? '+' : '') + avg + '%' : '—';
     avgEl.className = 'bt-stat-val ' + (avg >= 0 ? 'up' : 'dn');
+
+    // SPY 벤치마크
+    const spy = data.spy_benchmark || {};
+    const spyEl = document.getElementById('bp-spy-ret');
+    const spy30 = spy.spy_30d;
+    spyEl.textContent = spy30 !== null && spy30 !== undefined ? (spy30 >= 0 ? '+' : '') + spy30 + '%' : '—';
+    spyEl.className = 'bt-stat-val ' + (spy30 >= 0 ? 'up' : 'dn');
+
+    // 알파
+    const alphaEl = document.getElementById('bp-alpha');
+    const alpha = data.alpha_vs_spy;
+    if (alpha !== null && alpha !== undefined) {
+      alphaEl.textContent = (alpha >= 0 ? '+' : '') + alpha + '%';
+      alphaEl.className = 'bt-stat-val ' + (alpha >= 0 ? 'up' : 'dn');
+    } else {
+      alphaEl.textContent = '—';
+      alphaEl.className = 'bt-stat-val';
+    }
+
     document.getElementById('bp-winrate').textContent = data.overall_win_rate !== null ? data.overall_win_rate + '%' : '—';
     const history = data.history || [];
     document.getElementById('bp-period').textContent = history.length + '일치';
