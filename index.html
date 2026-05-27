@@ -928,17 +928,11 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
   <nav class="nav">
     <div class="nav-item nav-item-main active" id="nav-dashboard" onclick="showPage('dashboard')">
       <span class="nav-icon">📊</span>
-      <div>
-        <div class="nav-label" style="color:#fff;">주식 종합 현황</div>
-        
-      </div>
+      <div><div class="nav-label" style="color:#fff;">주식 종합 현황</div></div>
     </div>
-    <div class="nav-item nav-item-main" id="nav-agents" onclick="showPage('agents')" style="background:rgba(168,85,247,.18);border-left-color:#a855f7;">
-      <span class="nav-icon">🤖</span>
-      <div>
-        <div class="nav-label" style="color:#e9d5ff;">AI 종합 분석</div>
-        <div class="nav-sub" style="color:#c4b5fd;font-size:10px;">부장 + 4팀장</div>
-      </div>
+    <div class="nav-item" id="nav-momentum" onclick="showPage('momentum')">
+      <span class="nav-icon">⚡</span>
+      <div><div class="nav-label">모멘텀 스크리너</div></div>
     </div>
     <div class="nav-item" id="nav-liquidity" onclick="showPage('liquidity')">
       <span class="nav-icon">💧</span>
@@ -948,21 +942,28 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
       <span class="nav-icon">🏦</span>
       <div><div class="nav-label">섹터 모멘텀</div></div>
     </div>
-    <div class="nav-item" id="nav-momentum" onclick="showPage('momentum')">
-      <span class="nav-icon">⚡</span>
-      <div><div class="nav-label">모멘텀 스크리너</div></div>
+    <div class="nav-item nav-item-main" id="nav-agents" onclick="showPage('agents')" style="background:rgba(168,85,247,.18);border-left-color:#a855f7;">
+      <span class="nav-icon">🤖</span>
+      <div>
+        <div class="nav-label" style="color:#e9d5ff;">AI 종합 분석</div>
+        <div class="nav-sub" style="color:#c4b5fd;font-size:10px;">투자 인텔리전스</div>
+      </div>
     </div>
-    <div class="nav-item" id="nav-rebalance" onclick="showPage('rebalance')">
-      <span class="nav-icon">⚖️</span>
-      <div><div class="nav-label">리밸런싱</div></div>
+    <div class="nav-item" id="nav-calendar" onclick="showPage('calendar')">
+      <span class="nav-icon">📅</span>
+      <div><div class="nav-label">주요 일정</div></div>
     </div>
     <div class="nav-item" id="nav-portfolio" onclick="showPage('portfolio')">
       <span class="nav-icon">💼</span>
       <div><div class="nav-label">내 자산</div></div>
     </div>
-    <div class="nav-item" id="nav-calendar" onclick="showPage('calendar')">
-      <span class="nav-icon">📅</span>
-      <div><div class="nav-label">주요 일정</div></div>
+    <div class="nav-item" id="nav-rebalance" onclick="showPage('rebalance')">
+      <span class="nav-icon">⚖️</span>
+      <div><div class="nav-label">리밸런싱</div></div>
+    </div>
+    <div class="nav-item" id="nav-backtest" onclick="showPage('backtest')">
+      <span class="nav-icon">📌</span>
+      <div><div class="nav-label">베스트픽 트래커</div></div>
     </div>
     <div class="nav-item" id="nav-classic" onclick="showPage('classic')">
       <span class="nav-icon">🔎</span>
@@ -979,10 +980,6 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
     <div class="nav-item" id="nav-tenbagger" onclick="showPage('tenbagger')">
       <span class="nav-icon">🚀</span>
       <div><div class="nav-label">텐배거</div></div>
-    </div>
-    <div class="nav-item" id="nav-backtest" onclick="showPage('backtest')">
-      <span class="nav-icon">📌</span>
-      <div><div class="nav-label">베스트픽 트래커</div></div>
     </div>
   </nav>
   <div class="sidebar-footer">
