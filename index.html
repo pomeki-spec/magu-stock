@@ -117,10 +117,13 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
 .filter-btn{padding:5px 13px;border-radius:20px;border:1px solid var(--border);background:#fff;color:var(--sub);font-size:12px;font-weight:600;cursor:pointer;transition:all .15s;}
 .filter-btn.active{background:#eff6ff;color:#1d4ed8;border-color:#3b82f6;}
 .cond-step{border-radius:8px;padding:14px;flex:1;}
-.bt-summary-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:14px;}
-.bt-stat-card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px 18px;}
-.bt-stat-label{font-size:11px;color:var(--sub);margin-bottom:7px;font-weight:600;}
-.bt-stat-val{font-size:24px;font-weight:800;}
+.bt-summary-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:14px;}
+.bt-stat-card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:18px 20px;}
+.bt-stat-card.alpha-pos{border-color:rgba(34,197,94,.4);background:linear-gradient(135deg,rgba(34,197,94,.07),var(--card));}
+.bt-stat-card.alpha-neg{border-color:rgba(239,68,68,.35);background:linear-gradient(135deg,rgba(239,68,68,.06),var(--card));}
+.bt-stat-label{font-size:11px;color:var(--sub);margin-bottom:8px;font-weight:600;letter-spacing:.3px;}
+.bt-stat-val{font-size:26px;font-weight:800;letter-spacing:-.5px;}
+.bt-stat-meta{font-size:11px;color:var(--sub);margin-top:4px;font-weight:500;}
 .bt-select{padding:7px 12px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;border:1px solid var(--border);background:#fff;color:var(--text);outline:none;}
 /* ── 모바일 햄버거 버튼 ── */
 .hamburger{display:none;position:fixed;top:12px;left:12px;z-index:1000;background:var(--sidebar);border:none;border-radius:8px;padding:8px 10px;cursor:pointer;flex-direction:column;gap:5px;}
@@ -164,7 +167,7 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
   .picks-grid{grid-template-columns:1fr 1fr !important;}
   .model-grid{grid-template-columns:1fr !important;}
   .rb-grid{grid-template-columns:1fr 1fr !important;}
-  .bt-summary-grid{grid-template-columns:1fr 1fr !important;}
+  .bt-summary-grid{grid-template-columns:1fr 1fr !important;gap:8px !important;}
   .fred-chart-grid{grid-template-columns:1fr !important;}
   .sector-heatmap{grid-template-columns:repeat(3,1fr) !important;}
 
@@ -1344,14 +1347,40 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
       </div>
     </div>
 
-    <!-- 전체 통계 -->
+    <!-- 전체 통계 — 1행: 핵심 성과 / 2행: 보조 정보 -->
     <div class="bt-summary-grid" id="bp-stats-grid">
-      <div class="bt-stat-card"><div class="bt-stat-label">📊 총 기록 수</div><div class="bt-stat-val" id="bp-total">—</div></div>
-      <div class="bt-stat-card"><div class="bt-stat-label">📈 베스트픽 평균</div><div class="bt-stat-val" id="bp-avg-ret">—</div></div>
-      <div class="bt-stat-card"><div class="bt-stat-label">📉 SPY (30일)</div><div class="bt-stat-val" id="bp-spy-ret">—</div></div>
-      <div class="bt-stat-card"><div class="bt-stat-label">⚡ 초과수익 (알파)</div><div class="bt-stat-val" id="bp-alpha">—</div></div>
-      <div class="bt-stat-card"><div class="bt-stat-label">🏆 승률</div><div class="bt-stat-val" id="bp-winrate">—</div></div>
-      <div class="bt-stat-card"><div class="bt-stat-label">📅 추적 기간</div><div class="bt-stat-val" id="bp-period">—</div></div>
+      <!-- 1행: 성과 핵심 3개 -->
+      <div class="bt-stat-card">
+        <div class="bt-stat-label">📈 베스트픽 평균 수익률</div>
+        <div class="bt-stat-val" id="bp-avg-ret">—</div>
+        <div class="bt-stat-meta">현재까지 보유 기준</div>
+      </div>
+      <div class="bt-stat-card">
+        <div class="bt-stat-label">📉 SPY 수익률 (30일)</div>
+        <div class="bt-stat-val" id="bp-spy-ret">—</div>
+        <div class="bt-stat-meta">시장 벤치마크</div>
+      </div>
+      <div class="bt-stat-card" id="bp-alpha-card">
+        <div class="bt-stat-label">⚡ 초과수익 (알파)</div>
+        <div class="bt-stat-val" id="bp-alpha">—</div>
+        <div class="bt-stat-meta">베스트픽 − SPY</div>
+      </div>
+      <!-- 2행: 보조 정보 3개 -->
+      <div class="bt-stat-card">
+        <div class="bt-stat-label">📊 총 기록 수</div>
+        <div class="bt-stat-val" id="bp-total">—</div>
+        <div class="bt-stat-meta">최근 6개월</div>
+      </div>
+      <div class="bt-stat-card">
+        <div class="bt-stat-label">🏆 승률</div>
+        <div class="bt-stat-val" id="bp-winrate">—</div>
+        <div class="bt-stat-meta">수익 종목 비율</div>
+      </div>
+      <div class="bt-stat-card">
+        <div class="bt-stat-label">📅 추적 일수</div>
+        <div class="bt-stat-val" id="bp-period">—</div>
+        <div class="bt-stat-meta">스크리닝 기록일 수</div>
+      </div>
     </div>
 
     <!-- 안내 박스 -->
@@ -2799,10 +2828,12 @@ async function loadBestpickHistory() {
 
     // 알파
     const alphaEl = document.getElementById('bp-alpha');
+    const alphaCard = document.getElementById('bp-alpha-card');
     const alpha = data.alpha_vs_spy;
     if (alpha !== null && alpha !== undefined) {
       alphaEl.textContent = (alpha >= 0 ? '+' : '') + alpha + '%';
       alphaEl.className = 'bt-stat-val ' + (alpha >= 0 ? 'up' : 'dn');
+      alphaCard.className = 'bt-stat-card ' + (alpha >= 0 ? 'alpha-pos' : 'alpha-neg');
     } else {
       alphaEl.textContent = '—';
       alphaEl.className = 'bt-stat-val';
