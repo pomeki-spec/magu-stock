@@ -1434,12 +1434,18 @@ def save_screening_to_db(results: list):
     except Exception as e:
         logger.error(f"DB 저장 오류: {e}")
 
+def _cache_freshness_clause() -> str:
+    """KST 요일 기준 캐시 유효 기간 — 주말에는 금요일 데이터 그대로 사용"""
+    weekday = datetime.now(pytz.timezone("Asia/Seoul")).weekday()  # 0=월 … 6=일
+    if weekday == 6:   return "AND screened_at > NOW() - INTERVAL '72 hours'"  # 일요일
+    if weekday == 5:   return "AND screened_at > NOW() - INTERVAL '48 hours'"  # 토요일
+    return "AND screened_at > NOW() - INTERVAL '25 hours'"                     # 평일
+
 def load_screening_from_db(market: str):
     if not DATABASE_URL: return None
     try:
         conn = get_conn(); cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        # 25시간 이내 데이터만 사용 (새벽 스크리닝 실패 시 오래된 캐시 방지)
-        freshness = "AND screened_at > NOW() - INTERVAL '25 hours'"
+        freshness = _cache_freshness_clause()
         if market in ("nasdaq","sp500","kospi","kosdaq"):
             cur.execute(f"SELECT * FROM screening_cache WHERE market=%s {freshness} ORDER BY total_score DESC", (market,))
         elif market == "us":
@@ -1497,7 +1503,7 @@ def load_momentum_from_db(market: str):
     if not DATABASE_URL: return None
     try:
         conn = get_conn(); cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        freshness = "AND screened_at > NOW() - INTERVAL '25 hours'"
+        freshness = _cache_freshness_clause()
         if market in ("nasdaq","sp500","kospi","kosdaq"):
             cur.execute(f"SELECT * FROM momentum_cache WHERE market=%s {freshness} ORDER BY momentum_score DESC", (market,))
         elif market == "us":
