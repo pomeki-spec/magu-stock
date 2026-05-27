@@ -1248,9 +1248,9 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
           <thead><tr>
             <th>종목</th><th>현재가</th><th>등락률</th>
             <th>클래식 (30)</th><th>성장 (40)</th><th>모던 (30)</th>
-            <th>마구 스코어</th><th>추천</th><th>투자 비중</th>
+            <th>마구 스코어</th><th>추천</th><th>투자 비중</th><th>ARK</th>
           </tr></thead>
-          <tbody id="result-table"><tr><td colspan="9" class="empty">스크리닝 실행 전입니다</td></tr></tbody>
+          <tbody id="result-table"><tr><td colspan="10" class="empty">스크리닝 실행 전입니다</td></tr></tbody>
         </table>
       </div>
     </div>
@@ -1592,8 +1592,9 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
             <th style="text-align:right;">52주고점</th>
             <th style="text-align:center;">점수</th>
             <th style="text-align:center;">추천</th>
+            <th style="text-align:center;">ARK</th>
           </tr></thead>
-          <tbody id="mt-tbody"><tr><td colspan="11" class="empty">⚡ 모멘텀 스크리닝 버튼을 눌러주세요</td></tr></tbody>
+          <tbody id="mt-tbody"><tr><td colspan="12" class="empty">⚡ 모멘텀 스크리닝 버튼을 눌러주세요</td></tr></tbody>
         </table>
       </div>
     </div>
@@ -2438,6 +2439,9 @@ function showPage(page) {
   if(page === 'smartmoney') {
     loadShortVolume();
   }
+  if(page === 'dashboard' || page === 'momentum') {
+    if(!Object.keys(_arkData.holdings).length) loadArkData();
+  }
   if(page === 'portfolio') {
     loadPortfolio();
   }
@@ -2749,7 +2753,8 @@ function renderResults(data) {
       <td><strong>${s.classic_score}</strong></td><td><strong>${s.growth_score}</strong></td><td><strong>${s.modern_score}</strong></td>
       <td><div class="score-bar-wrap"><span class="score-bar-num">${s.total_score}</span><div class="score-bar-bg"><div class="score-bar-fill" style="width:${s.total_score}%;"></div></div></div></td>
       <td>${getBadge(s.recommendation)}</td>
-      <td>${s.weight>0?`<span class="weight-badge">${s.weight}%</span>`:'—'}</td></tr>`).join('');
+      <td>${s.weight>0?`<span class="weight-badge">${s.weight}%</span>`:'—'}</td>
+      <td>${getArkBadge(s.ticker)||'<span style="color:var(--sub);font-size:11px;">—</span>'}</td></tr>`).join('');
 }
 
 // updateInvestWeight 함수 삭제 — 리밸런싱 대시보드로 대체됨
@@ -3210,6 +3215,28 @@ async function loadShortVolume() {
 }
 
 // ── 모멘텀 스크리너 ──
+// ── ARK 데이터 ──────────────────────────────────────────────
+let _arkData = {holdings: {}, trades: {}};
+
+async function loadArkData() {
+  try {
+    const res = await fetch(`${API}/api/ark`);
+    if (!res.ok) return;
+    const data = await res.json();
+    if (!data.error) _arkData = data;
+  } catch(e) {}
+}
+
+function getArkBadge(ticker) {
+  const h = _arkData.holdings?.[ticker];
+  if (!h || h.weight == null) return '';
+  const t   = _arkData.trades?.[ticker];
+  const dir = (t?.direction || '').toLowerCase();
+  const arrow = dir === 'buy' ? '↑' : dir === 'sell' ? '↓' : '';
+  const color = dir === 'buy' ? '#16a34a' : dir === 'sell' ? '#dc2626' : '#7c3aed';
+  return `<div style="margin-top:3px;"><span style="padding:1px 5px;background:${color}18;border:1px solid ${color}44;border-radius:6px;font-size:10px;font-weight:700;color:${color};white-space:nowrap;">${h.fund} ${h.weight.toFixed(1)}%${arrow}</span></div>`;
+}
+
 let _mtMarket = 'nasdaq';
 let _mtAllResults = [];
 
@@ -3283,6 +3310,7 @@ function renderDoubleConfirm(dc) {
         <th style="text-align:center;">합산</th>
         <th style="text-align:right;">52주고점</th>
         <th style="text-align:right;">거래량비</th>
+        <th style="text-align:center;">ARK</th>
       </tr></thead>
       <tbody>
         ${items.map((r, i) => `<tr style="${i===0?'background:rgba(124,58,237,.06);':''}">
@@ -3299,6 +3327,7 @@ function renderDoubleConfirm(dc) {
           <td style="text-align:center;"><span style="font-weight:900;color:#059669;font-size:15px;">${r.combined_score}</span></td>
           <td style="text-align:right;${r.from_52w_high != null && r.from_52w_high >= -5 ? 'color:#7c3aed;font-weight:700;' : ''}">${r.from_52w_high != null ? (r.from_52w_high>=0?'+':'')+r.from_52w_high+'%' : '—'}</td>
           <td style="text-align:right;">${r.vol_ratio != null ? Math.round(r.vol_ratio)+'%' : '—'}</td>
+          <td style="text-align:center;">${getArkBadge(r.ticker)||'<span style="color:var(--sub);font-size:11px;">—</span>'}</td>
         </tr>`).join('')}
       </tbody>
     </table>
@@ -3317,7 +3346,7 @@ function filterMomentum(type, btn) {
 function renderMomentumTable(results) {
   const tbody = document.getElementById('mt-tbody');
   if (!results || results.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="11" class="empty">결과 없음</td></tr>'; return;
+    tbody.innerHTML = '<tr><td colspan="12" class="empty">결과 없음</td></tr>'; return;
   }
   const cur = _mtMarket.startsWith('kos') ? '₩' : '$';
   const recBadge = r => {
@@ -3343,6 +3372,7 @@ function renderMomentumTable(results) {
     <td style="text-align:right;${r.from_52w_high != null && r.from_52w_high >= -3 ? 'color:#7c3aed;font-weight:700;' : ''}">${r.from_52w_high != null ? (r.from_52w_high >= 0 ? '+' : '')+r.from_52w_high+'%' : '—'}</td>
     <td style="text-align:center;"><span style="font-size:16px;font-weight:800;color:#7c3aed;">${r.momentum_score}</span><span style="font-size:10px;color:var(--sub);"> /100</span></td>
     <td style="text-align:center;"><span class="badge ${recBadge(r.recommendation)}">${r.recommendation}</span></td>
+    <td style="text-align:center;">${getArkBadge(r.ticker)||'<span style="color:var(--sub);font-size:11px;">—</span>'}</td>
   </tr>`).join('');
 }
 

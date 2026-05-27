@@ -280,6 +280,35 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_svc_ticker ON short_volume_cache(ticker);
         CREATE INDEX IF NOT EXISTS idx_svc_date   ON short_volume_cache(trade_date DESC);
 
+        CREATE TABLE IF NOT EXISTS ark_holdings_cache (
+            id           SERIAL PRIMARY KEY,
+            fund         VARCHAR(10) NOT NULL,
+            ticker       VARCHAR(20) NOT NULL,
+            company      TEXT,
+            shares       BIGINT,
+            market_value FLOAT,
+            weight       FLOAT,
+            trade_date   DATE,
+            fetched_at   TIMESTAMP DEFAULT NOW(),
+            UNIQUE(fund, ticker)
+        );
+        CREATE INDEX IF NOT EXISTS idx_ark_h_ticker ON ark_holdings_cache(ticker);
+
+        CREATE TABLE IF NOT EXISTS ark_trades_cache (
+            id          SERIAL PRIMARY KEY,
+            fund        VARCHAR(10) NOT NULL,
+            ticker      VARCHAR(20) NOT NULL,
+            company     TEXT,
+            direction   VARCHAR(10),
+            shares      BIGINT,
+            etf_percent FLOAT,
+            trade_date  DATE,
+            fetched_at  TIMESTAMP DEFAULT NOW(),
+            UNIQUE(fund, ticker, trade_date, direction)
+        );
+        CREATE INDEX IF NOT EXISTS idx_ark_t_ticker ON ark_trades_cache(ticker);
+        CREATE INDEX IF NOT EXISTS idx_ark_t_date   ON ark_trades_cache(trade_date DESC);
+
         -- ──────────────────────────────────────────────
         -- 자산 관리: 보유 종목
         -- ──────────────────────────────────────────────
@@ -1730,6 +1759,105 @@ def fetch_short_interest_yf(tickers: list) -> dict:
             result[ticker] = {"short_pct_float": None, "short_ratio": None, "shares_short": None}
     return result
 
+# ══════════════════════════════════════════════════════════════
+# ARK Invest 보유/매매 수집
+# ══════════════════════════════════════════════════════════════
+
+ARK_FUNDS = ["ARKK", "ARKW", "ARKG", "ARKF", "ARKX"]
+
+def fetch_ark_holdings() -> dict:
+    """ARK 전 펀드 보유 현황 — ticker별 최고 비중 펀드 반환"""
+    holdings = {}
+    for fund in ARK_FUNDS:
+        try:
+            url = f"https://arkfunds.io/api/v2/etf/holdings?symbol={fund}"
+            resp = requests.get(url, timeout=15, headers={"User-Agent": "Mozilla/5.0"})
+            if resp.status_code != 200:
+                logger.warning(f"[ARK] {fund} HTTP {resp.status_code}")
+                continue
+            data = resp.json()
+            trade_date = data.get("date")
+            for h in data.get("holdings", []):
+                ticker = (h.get("ticker") or "").upper().strip()
+                if not ticker:
+                    continue
+                weight = float(h.get("weight") or 0)
+                if ticker not in holdings or weight > holdings[ticker]["weight"]:
+                    holdings[ticker] = {
+                        "fund": fund, "ticker": ticker,
+                        "company": h.get("company", ""),
+                        "shares": int(h.get("shares") or 0),
+                        "market_value": float(h.get("market_value") or 0),
+                        "weight": weight, "trade_date": trade_date,
+                    }
+        except Exception as e:
+            logger.warning(f"[ARK] {fund} holdings 실패: {e}")
+    logger.info(f"[ARK] holdings {len(holdings)}개")
+    return holdings
+
+def fetch_ark_trades() -> dict:
+    """ARK 전 펀드 최근 1일 매매 수집"""
+    trades = {}
+    for fund in ARK_FUNDS:
+        try:
+            url = f"https://arkfunds.io/api/v2/etf/trades?symbol={fund}&period=1d"
+            resp = requests.get(url, timeout=15, headers={"User-Agent": "Mozilla/5.0"})
+            if resp.status_code != 200:
+                continue
+            data = resp.json()
+            for t in data.get("trades", []):
+                ticker = (t.get("ticker") or "").upper().strip()
+                if not ticker or ticker in trades:
+                    continue
+                trades[ticker] = {
+                    "fund": fund, "ticker": ticker,
+                    "company": t.get("company", ""),
+                    "direction": t.get("direction", ""),
+                    "shares": int(t.get("shares") or 0),
+                    "etf_percent": float(t.get("etf_percent") or 0),
+                    "trade_date": t.get("date"),
+                }
+        except Exception as e:
+            logger.warning(f"[ARK] {fund} trades 실패: {e}")
+    logger.info(f"[ARK] trades {len(trades)}개")
+    return trades
+
+def save_ark_to_db(holdings: dict, trades: dict):
+    if not DATABASE_URL:
+        return
+    try:
+        conn = get_conn(); cur = conn.cursor()
+        for h in holdings.values():
+            cur.execute("""
+                INSERT INTO ark_holdings_cache (fund,ticker,company,shares,market_value,weight,trade_date)
+                VALUES (%s,%s,%s,%s,%s,%s,%s)
+                ON CONFLICT (fund,ticker) DO UPDATE SET
+                    company=EXCLUDED.company, shares=EXCLUDED.shares,
+                    market_value=EXCLUDED.market_value, weight=EXCLUDED.weight,
+                    trade_date=EXCLUDED.trade_date, fetched_at=NOW()
+            """, (h["fund"],h["ticker"],h["company"],h["shares"],h["market_value"],h["weight"],h["trade_date"]))
+        today = datetime.now().strftime("%Y-%m-%d")
+        cur.execute("DELETE FROM ark_trades_cache WHERE trade_date::text = %s", (today,))
+        for t in trades.values():
+            cur.execute("""
+                INSERT INTO ark_trades_cache (fund,ticker,company,direction,shares,etf_percent,trade_date)
+                VALUES (%s,%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING
+            """, (t["fund"],t["ticker"],t["company"],t["direction"],t["shares"],t["etf_percent"],t.get("trade_date") or today))
+        conn.commit(); cur.close(); conn.close()
+        logger.info(f"[ARK] 저장: holdings {len(holdings)}, trades {len(trades)}")
+    except Exception as e:
+        logger.error(f"[ARK] 저장 오류: {e}")
+
+def _run_ark_job():
+    """ARK 보유/매매 수집 (매일 KST 10:00 = UTC 01:00)"""
+    logger.info("[ARK] 수집 시작")
+    h = fetch_ark_holdings()
+    t = fetch_ark_trades()
+    if h:
+        save_ark_to_db(h, t)
+    else:
+        logger.warning("[ARK] holdings 없음")
+
 def _run_short_volume_job():
     """FINRA Short Volume + yfinance Short Interest → DB 저장 (매일 KST 08:00 job에서 호출)"""
     logger.info("[공매도] 수집 시작")
@@ -2749,6 +2877,56 @@ def get_short_volume(request: Request):
         logger.error(f"공매도 데이터 오류: {e}")
         return safe_json({"error": str(e), "data": {}, "prev": {},
                           "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M")})
+
+@app.get("/api/ark")
+@limiter.limit("10/minute")
+def get_ark_data(request: Request):
+    """ARK 보유 현황 + 최근 3일 매매 — ticker 기준 반환"""
+    result = {"holdings": {}, "trades": {}, "updated_at": None}
+    if DATABASE_URL:
+        try:
+            conn = get_conn(); cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            cur.execute("SELECT * FROM ark_holdings_cache ORDER BY weight DESC")
+            for r in cur.fetchall():
+                d = dict(r); tk = d["ticker"]
+                result["holdings"][tk] = {
+                    "fund":       d["fund"],
+                    "weight":     float(d["weight"]) if d.get("weight") is not None else None,
+                    "shares":     int(d["shares"]) if d.get("shares") else None,
+                    "trade_date": d["trade_date"].strftime("%Y-%m-%d") if d.get("trade_date") else None,
+                }
+            cur.execute("SELECT * FROM ark_trades_cache WHERE trade_date >= NOW()::DATE - 3 ORDER BY trade_date DESC")
+            seen = set()
+            for r in cur.fetchall():
+                d = dict(r); tk = d["ticker"]
+                if tk not in seen:
+                    seen.add(tk)
+                    result["trades"][tk] = {
+                        "fund":       d["fund"],
+                        "direction":  d["direction"],
+                        "shares":     int(d["shares"]) if d.get("shares") else None,
+                        "trade_date": d["trade_date"].strftime("%Y-%m-%d") if d.get("trade_date") else None,
+                    }
+            if result["holdings"]:
+                result["updated_at"] = next(iter(result["holdings"].values())).get("trade_date")
+            cur.close(); conn.close()
+            if result["holdings"]:
+                return safe_json(result)
+        except Exception as e:
+            logger.warning(f"[ARK] 캐시 조회 실패, fallback: {e}")
+    try:
+        h = fetch_ark_holdings(); t = fetch_ark_trades()
+        for tk, d in h.items():
+            result["holdings"][tk] = {"fund": d["fund"], "weight": d["weight"],
+                                      "shares": d["shares"], "trade_date": d["trade_date"]}
+        for tk, d in t.items():
+            result["trades"][tk]   = {"fund": d["fund"], "direction": d["direction"],
+                                      "shares": d["shares"], "trade_date": d["trade_date"]}
+        result["updated_at"] = datetime.now().strftime("%Y-%m-%d")
+        return safe_json(result)
+    except Exception as e:
+        logger.error(f"[ARK] API 오류: {e}")
+        return safe_json({"error": str(e), "holdings": {}, "trades": {}})
 
 @app.get("/api/tenbagger")
 @limiter.limit("5/minute")
@@ -3962,6 +4140,14 @@ scheduler.add_job(
     _run_short_volume_job,
     CronTrigger(hour=0, minute=0, timezone=pytz.utc),
     id="daily_short_volume",
+    replace_existing=True,
+    misfire_grace_time=3600
+)
+# 매일 KST 10:00 (UTC 01:00) — ARK 보유/매매 수집
+scheduler.add_job(
+    _run_ark_job,
+    CronTrigger(hour=1, minute=0, timezone=pytz.utc),
+    id="daily_ark",
     replace_existing=True,
     misfire_grace_time=3600
 )
