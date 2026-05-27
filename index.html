@@ -1525,6 +1525,20 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
       </div>
     </div>
 
+    <!-- 더블 컨펌 섹션 -->
+    <div class="card" id="dc-card" style="margin-bottom:14px;border-color:#7c3aed;border-width:1.5px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
+        <div>
+          <span class="section-title" style="margin-bottom:0;color:#7c3aed;">⚡ 더블 컨펌</span>
+          <span style="font-size:12px;color:var(--sub);margin-left:10px;">베스트픽 스크리너 + 모멘텀 스크리너 동시 통과 종목</span>
+        </div>
+        <span style="font-size:12px;color:#7c3aed;font-weight:700;" id="dc-count"></span>
+      </div>
+      <div id="dc-body">
+        <div class="empty" style="padding:20px 0;">⚡ 모멘텀 스크리닝 실행 시 자동으로 표시됩니다</div>
+      </div>
+    </div>
+
     <!-- 기준 설명 -->
     <div class="cond-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px;">
       <div class="cond-step" style="background:#fdf4ff;border:1px solid #e9d5ff;">
@@ -3227,7 +3241,10 @@ async function loadMomentum() {
   btn.disabled = true; btn.textContent = '⏳ 분석 중...';
   status.textContent = '분석 중...'; status.style.background = '#fef9c3'; status.style.color = '#92400e';
   try {
-    const res = await fetch(`/api/momentum/${_mtMarket}`);
+    const [res, dcRes] = await Promise.all([
+      fetch(`/api/momentum/${_mtMarket}`),
+      fetch(`/api/double_confirm?market=${_mtMarket}`)
+    ]);
     if (res.status === 401) { location.href = '/'; return; }
     const data = await res.json();
     _mtAllResults = data.results || [];
@@ -3241,11 +3258,69 @@ async function loadMomentum() {
     summaryEl.style.display = 'grid';
     status.textContent = data.from_cache ? `캐시 · ${data.updated_at}` : `방금 분석 · ${data.updated_at}`;
     status.style.background = '#f3e8ff'; status.style.color = '#7e22ce';
+
+    // 더블 컨펌 렌더링
+    if (dcRes.ok) {
+      const dc = await dcRes.json();
+      renderDoubleConfirm(dc);
+    }
   } catch(e) {
     status.textContent = '오류 발생'; status.style.background = '#fee2e2'; status.style.color = '#991b1b';
   } finally {
     btn.disabled = false; btn.textContent = '⚡ 모멘텀 스크리닝';
   }
+}
+
+function renderDoubleConfirm(dc) {
+  const body = document.getElementById('dc-body');
+  const countEl = document.getElementById('dc-count');
+  const items = dc.items || [];
+  countEl.textContent = items.length ? `${items.length}종목 해당` : '';
+
+  if (!items.length) {
+    body.innerHTML = '<div class="empty" style="padding:16px 0;color:var(--sub);">현재 두 스크리너를 동시 통과한 종목이 없습니다</div>';
+    return;
+  }
+
+  const cur = (dc.market || '').startsWith('kos') ? '₩' : '$';
+  const fmtPct = v => v == null ? '—' : `<span class="${v>0?'up':v<0?'dn':''}">${v>0?'+':''}${v}%</span>`;
+
+  body.innerHTML = `
+    <div class="table-wrap">
+    <table class="stbl" style="min-width:680px;">
+      <thead><tr>
+        <th style="width:28px;">#</th>
+        <th style="min-width:100px;">종목</th>
+        <th style="text-align:right;">현재가</th>
+        <th style="text-align:right;">1D</th>
+        <th style="text-align:right;">3M</th>
+        <th style="text-align:center;">베스트픽</th>
+        <th style="text-align:center;">모멘텀</th>
+        <th style="text-align:center;">합산</th>
+        <th style="text-align:right;">52주고점</th>
+        <th style="text-align:right;">거래량비</th>
+      </tr></thead>
+      <tbody>
+        ${items.map((r, i) => `<tr style="${i===0?'background:rgba(124,58,237,.06);':''}">
+          <td style="color:var(--sub);font-size:12px;">${i+1}</td>
+          <td>
+            <div class="sname" style="color:#7c3aed;">${r.ticker}</div>
+            <div style="font-size:11px;color:var(--sub);max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${r.name||''}</div>
+          </td>
+          <td style="text-align:right;font-weight:600;">${cur}${(r.price||0).toLocaleString()}</td>
+          <td style="text-align:right;">${fmtPct(r.change_pct)}</td>
+          <td style="text-align:right;">${fmtPct(r.ret_3m)}</td>
+          <td style="text-align:center;"><span style="font-weight:800;color:#1d4ed8;">${r.total_score}</span><span style="font-size:10px;color:var(--sub);"> /100</span></td>
+          <td style="text-align:center;"><span style="font-weight:800;color:#7c3aed;">${r.momentum_score}</span><span style="font-size:10px;color:var(--sub);"> /100</span></td>
+          <td style="text-align:center;"><span style="font-weight:900;color:#059669;font-size:15px;">${r.combined_score}</span></td>
+          <td style="text-align:right;${r.from_52w_high != null && r.from_52w_high >= -5 ? 'color:#7c3aed;font-weight:700;' : ''}">${r.from_52w_high != null ? (r.from_52w_high>=0?'+':'')+r.from_52w_high+'%' : '—'}</td>
+          <td style="text-align:right;">${r.vol_ratio != null ? Math.round(r.vol_ratio)+'%' : '—'}</td>
+        </tr>`).join('')}
+      </tbody>
+    </table>
+    </div>
+    <div style="font-size:11px;color:var(--sub);margin-top:8px;">기준: 베스트픽 ${dc.sc_min}점↑ + 모멘텀 ${dc.mt_min}점↑ 동시 충족 · 합산 점수 순</div>
+  `;
 }
 
 function filterMomentum(type, btn) {

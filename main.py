@@ -3093,6 +3093,84 @@ def get_bestpick_history(market: str = "nasdaq"):
         return {"error": str(e)}
 
 
+@app.get("/api/double_confirm")
+def get_double_confirm(market: str = "nasdaq", sc_min: int = 65, mt_min: int = 60):
+    """베스트픽 스크리너 + 모멘텀 스크리너 동시 통과 종목 반환"""
+    if not DATABASE_URL:
+        return {"error": "DATABASE_URL 없음"}
+    try:
+        conn = get_conn(); cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        freshness = "AND screened_at > NOW() - INTERVAL '25 hours'"
+
+        # 베스트픽 스크리너 — 조건 이상 종목
+        if market in ("nasdaq", "sp500", "kospi", "kosdaq"):
+            cur.execute(f"""
+                SELECT ticker, name, sector, total_score, classic_score, growth_score, modern_score,
+                       recommendation, price, change_pct, ma20_pct, from_52w_high, rsi
+                FROM screening_cache
+                WHERE market = %s AND total_score >= %s {freshness}
+            """, (market, sc_min))
+        else:
+            cur.execute(f"""
+                SELECT ticker, name, sector, total_score, classic_score, growth_score, modern_score,
+                       recommendation, price, change_pct, ma20_pct, from_52w_high, rsi
+                FROM screening_cache
+                WHERE market IN ('nasdaq','sp500') AND total_score >= %s {freshness}
+            """, (sc_min,))
+        sc_rows = {r["ticker"]: dict(r) for r in cur.fetchall()}
+
+        # 모멘텀 스크리너 — 조건 이상 종목
+        if market in ("nasdaq", "sp500", "kospi", "kosdaq"):
+            cur.execute(f"""
+                SELECT ticker, momentum_score, rs_score, ma_score, vol_score, high52_score,
+                       recommendation AS mt_rec, ret_1m, ret_3m, ret_6m, vol_ratio
+                FROM momentum_cache
+                WHERE market = %s AND momentum_score >= %s {freshness}
+            """, (market, mt_min))
+        else:
+            cur.execute(f"""
+                SELECT ticker, momentum_score, rs_score, ma_score, vol_score, high52_score,
+                       recommendation AS mt_rec, ret_1m, ret_3m, ret_6m, vol_ratio
+                FROM momentum_cache
+                WHERE market IN ('nasdaq','sp500') AND momentum_score >= %s {freshness}
+            """, (mt_min,))
+        mt_rows = {r["ticker"]: dict(r) for r in cur.fetchall()}
+        cur.close(); conn.close()
+
+        # 교집합
+        common = set(sc_rows.keys()) & set(mt_rows.keys())
+        results = []
+        for ticker in common:
+            sc = sc_rows[ticker]; mt = mt_rows[ticker]
+            combined = sc_rows[ticker].copy()
+            combined.update({
+                "momentum_score": mt["momentum_score"],
+                "rs_score":       mt["rs_score"],
+                "ma_score":       mt["ma_score"],
+                "vol_score":      mt["vol_score"],
+                "high52_score":   mt["high52_score"],
+                "mt_rec":         mt["mt_rec"],
+                "ret_1m":         mt["ret_1m"],
+                "ret_3m":         mt["ret_3m"],
+                "ret_6m":         mt["ret_6m"],
+                "vol_ratio":      mt["vol_ratio"],
+                "combined_score": sc["total_score"] + mt["momentum_score"],
+            })
+            results.append(combined)
+
+        results.sort(key=lambda x: x["combined_score"], reverse=True)
+        return sanitize({
+            "market": market,
+            "sc_min": sc_min,
+            "mt_min": mt_min,
+            "count": len(results),
+            "items": results
+        })
+    except Exception as e:
+        logger.error(f"double_confirm 오류: {e}")
+        return {"error": str(e)}
+
+
 # ══════════════════════════════════════════════════════════════
 # 자산 관리 (Portfolio) API
 # ══════════════════════════════════════════════════════════════
