@@ -3107,24 +3107,75 @@ function getSvRatioColor(ratio) {
   return          {bg:'#dcfce7', color:'#14532d', label:'매우 낮음'};
 }
 
+// FINRA REGSHO: 브라우저에서 직접 호출 (FINRA CDN은 CORS 허용)
+async function fetchFinraShortVolume2Days(tickers) {
+  const bizDays = [];
+  const now = new Date();
+  for (let delta = 0; delta < 10 && bizDays.length < 2; delta++) {
+    const d = new Date(now);
+    d.setDate(d.getDate() - delta);
+    if (d.getDay() === 0 || d.getDay() === 6) continue;
+    bizDays.push(d.toISOString().slice(0,10).replace(/-/g,''));
+  }
+
+  async function fetchOneDay(yyyymmdd) {
+    const url = `https://cdn.finra.org/equity/regsho/daily/CNMSshvol${yyyymmdd}.txt`;
+    try {
+      const res = await fetch(url);
+      if (!res.ok) return null;
+      const text = await res.text();
+      if (!text.includes('Symbol')) return null;
+      const dateStr = `${yyyymmdd.slice(0,4)}-${yyyymmdd.slice(4,6)}-${yyyymmdd.slice(6,8)}`;
+      const result = {};
+      for (const line of text.split('\n')) {
+        const parts = line.split('|');
+        if (parts.length < 5) continue;
+        const sym = parts[1].trim().toUpperCase();
+        if (tickers.includes(sym)) {
+          const sv = parseInt(parts[2]);
+          const tv = parseInt(parts[4]);
+          result[sym] = {
+            trade_date: dateStr,
+            short_volume: sv,
+            total_volume: tv,
+            short_vol_ratio: tv > 0 ? Math.round(sv/tv*10000)/10000 : null
+          };
+        }
+      }
+      return Object.keys(result).length > 0 ? result : null;
+    } catch(e) { return null; }
+  }
+
+  let [day0, day1] = await Promise.all(bizDays.map(fetchOneDay));
+
+  // 오늘 데이터 없으면(장 마감 전) 하루씩 소급
+  if (!day0) {
+    const extra = [];
+    for (let delta = 2; delta < 12 && extra.length < 2; delta++) {
+      const d = new Date(now);
+      d.setDate(d.getDate() - delta);
+      if (d.getDay() === 0 || d.getDay() === 6) continue;
+      extra.push(d.toISOString().slice(0,10).replace(/-/g,''));
+    }
+    [day0, day1] = await Promise.all(extra.map(fetchOneDay));
+  }
+  return { today: day0 || {}, prev: day1 || {} };
+}
+
 async function loadShortVolume() {
   document.getElementById('sv-cards').innerHTML = '<div class="empty" style="grid-column:1/-1;"><div class="spinner" style="margin:0 auto 8px;"></div>공매도 데이터 수집 중...</div>';
   const tickers = ['SPY','QQQ','IWM'];
   try {
-    const res  = await fetch(`${API}/api/short_volume`);
-    if (res.status === 401) { location.href = '/'; return; }
-    const json = await res.json();
+    const { today: svToday, prev: svPrev } = await fetchFinraShortVolume2Days(tickers);
 
-    if (json.error || !json.data || !Object.keys(json.data).length) {
-      document.getElementById('sv-cards').innerHTML = '<div class="empty" style="grid-column:1/-1;">데이터를 불러올 수 없습니다. 잠시 후 다시 시도해주세요.</div>';
-      return;
-    }
-
-    const svToday = json.data  || {};
-    const svPrev  = json.prev  || {};
     const tradeDate = Object.values(svToday)[0]?.trade_date || '—';
     const prevDate  = Object.values(svPrev)[0]?.trade_date  || '—';
     document.getElementById('sv-updated').textContent = `기준일: ${tradeDate} · 전일: ${prevDate}`;
+
+    if (!Object.keys(svToday).length) {
+      document.getElementById('sv-cards').innerHTML = '<div class="empty" style="grid-column:1/-1;">FINRA 데이터를 불러올 수 없습니다. 미국 장 마감 후(KST 06:00 이후) 데이터가 게시됩니다.</div>';
+      return;
+    }
 
     const cards = tickers.map(ticker => {
       const sv   = svToday[ticker] || {};
