@@ -1281,11 +1281,11 @@ def _get_spy_hist():
         return _spy_hist_cache["data"]
 
 def score_mt_rs(hist):
-    """상대강도 복합 (40점): 1M×15 + 3M×15 + 6M×10"""
+    """상대강도 복합 (40점): 1M×8 + 3M×17 + 6M×15 — 중기 모멘텀 중심"""
     try:
         spy = _get_spy_hist()
         score = 0
-        for days, pts in [(21, 15), (63, 15), (126, 10)]:
+        for days, pts in [(21, 8), (63, 17), (126, 15)]:
             if len(hist) < days: continue
             sr = float((hist['Close'].iloc[-1] / hist['Close'].iloc[-days] - 1) * 100)
             if spy is not None and len(spy) > days:
@@ -1301,32 +1301,34 @@ def score_mt_rs(hist):
     except: return 0
 
 def score_mt_ma(hist):
-    """이동평균 위치 (25점): MA20(8) + MA50(8) + MA200(9)"""
+    """이동평균 위치 (25점): MA200(12) + MA50(8) + MA20(5) — 장기 추세 우선"""
     try:
         if len(hist) < 50: return 0
         close = float(hist['Close'].iloc[-1]); score = 0
-        if close > float(hist['Close'].rolling(20).mean().iloc[-1]): score += 8
+        if close > float(hist['Close'].rolling(20).mean().iloc[-1]): score += 5
         if close > float(hist['Close'].rolling(50).mean().iloc[-1]): score += 8
-        if len(hist) >= 200 and close > float(hist['Close'].rolling(200).mean().iloc[-1]): score += 9
+        if len(hist) >= 200 and close > float(hist['Close'].rolling(200).mean().iloc[-1]): score += 12
         return score
     except: return 0
 
 def score_mt_vol(hist):
-    """거래량 모멘텀 (20점): 5일 vs 20일·50일 평균 비율"""
+    """거래량 모멘텀 (20점): 단기 급증(5d/20d) + 중기 증가 추세(20d/50d) 분리"""
     try:
         if len(hist) < 50: return 0
-        v5 = float(hist['Volume'].iloc[-5:].mean())
+        v5  = float(hist['Volume'].iloc[-5:].mean())
         v20 = float(hist['Volume'].iloc[-20:].mean())
         v50 = float(hist['Volume'].iloc[-50:].mean())
         if v20 == 0 or v50 == 0: return 0
-        r20 = v5 / v20; r50 = v5 / v50; score = 0
-        if r20 >= 2.0: score += 10
-        elif r20 >= 1.5: score += 8
-        elif r20 >= 1.2: score += 6
-        elif r20 >= 1.0: score += 4
-        if r50 >= 1.5: score += 10
-        elif r50 >= 1.2: score += 7
-        elif r50 >= 1.0: score += 4
+        r_surge = v5 / v20    # 단기 급증: 최근 5일 vs 20일
+        r_trend = v20 / v50   # 중기 추세: 20일 vs 50일
+        score = 0
+        if r_surge >= 2.0: score += 10
+        elif r_surge >= 1.5: score += 8
+        elif r_surge >= 1.2: score += 6
+        elif r_surge >= 1.0: score += 4
+        if r_trend >= 1.3: score += 10
+        elif r_trend >= 1.15: score += 7
+        elif r_trend >= 1.0: score += 4
         return min(score, 20)
     except: return 0
 
@@ -1627,8 +1629,10 @@ def _run_momentum_job():
     """KST 04:30 모멘텀 스크리닝 (펀더멘탈 무관)"""
     logger.info("=== 모멘텀 스크리닝 시작 ===")
     us_pool = list(dict.fromkeys(TICKERS_NASDAQ + TICKERS_MOMENTUM_EXTRA_US))
+    sp500_pool = get_tickers_sp500() or TICKERS_SP500_FALLBACK
     markets = {
         "nasdaq": us_pool,
+        "sp500":  sp500_pool,
         "kospi":  TICKERS_KOSPI,
         "kosdaq": TICKERS_KOSDAQ,
     }
@@ -2456,6 +2460,8 @@ def get_momentum(request: Request, market: str = "nasdaq"):
     # 캐시 없으면 실시간 계산
     if market in ("nasdaq", "us"):
         tickers = list(dict.fromkeys(TICKERS_NASDAQ + TICKERS_MOMENTUM_EXTRA_US))
+    elif market == "sp500":
+        tickers = get_tickers_sp500() or TICKERS_SP500_FALLBACK
     elif market == "kospi":
         tickers = TICKERS_KOSPI
     elif market == "kosdaq":
