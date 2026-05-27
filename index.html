@@ -945,6 +945,10 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
       <span class="nav-icon">🏦</span>
       <div><div class="nav-label">섹터 모멘텀</div></div>
     </div>
+    <div class="nav-item" id="nav-momentum" onclick="showPage('momentum')">
+      <span class="nav-icon">⚡</span>
+      <div><div class="nav-label">모멘텀 스크리너</div></div>
+    </div>
     <div class="nav-item" id="nav-rebalance" onclick="showPage('rebalance')">
       <span class="nav-icon">⚖️</span>
       <div><div class="nav-label">리밸런싱</div></div>
@@ -1463,6 +1467,90 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
             <th style="text-align:center;">52주 고점</th><th style="text-align:center;">트렌드</th><th style="text-align:center;">가산점</th>
           </tr></thead>
           <tbody id="sm-etf-tbody"><tr><td colspan="13" class="empty">🔄 섹터 트렌드 분석 버튼을 눌러주세요</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ───────── ⚡ 모멘텀 스크리너 ───────── -->
+  <div id="page-momentum" style="display:none;">
+    <div class="topbar">
+      <div>
+        <div class="page-title">⚡ 모멘텀 스크리너</div>
+        <div class="update-row">펀더멘탈 무관 — 가격 모멘텀·거래량·이동평균 순수 추세 포착
+          <span class="tag-status" id="mt-status" style="background:#fdf4ff;color:#7e22ce;">분석 전</span>
+        </div>
+      </div>
+      <div class="topbar-right topbar-actions">
+        <div class="topbar-group" id="mt-market-btns">
+          <button class="seg-btn active" id="mt-btn-nasdaq" onclick="setMomentumMarket('nasdaq',this)">🇺🇸 나스닥</button>
+          <button class="seg-btn" id="mt-btn-kospi" onclick="setMomentumMarket('kospi',this)">🇰🇷 코스피</button>
+          <button class="seg-btn" id="mt-btn-kosdaq" onclick="setMomentumMarket('kosdaq',this)">🇰🇷 코스닥</button>
+        </div>
+        <div class="topbar-group">
+          <button class="run-btn" id="mt-run-btn" onclick="loadMomentum()" style="background:#7c3aed;">⚡ 모멘텀 스크리닝</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 기준 설명 -->
+    <div class="cond-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px;">
+      <div class="cond-step" style="background:#fdf4ff;border:1px solid #e9d5ff;">
+        <div style="font-size:13px;font-weight:700;color:#7e22ce;margin-bottom:7px;">📈 상대강도 (40점)</div>
+        <div style="font-size:12px;color:#9333ea;line-height:1.7;">1M · 3M · 6M<br>S&P500 대비 초과수익률</div>
+      </div>
+      <div class="cond-step" style="background:#fdf4ff;border:1px solid #e9d5ff;">
+        <div style="font-size:13px;font-weight:700;color:#7e22ce;margin-bottom:7px;">📊 이동평균 위치 (25점)</div>
+        <div style="font-size:12px;color:#9333ea;line-height:1.7;">20일 · 50일 · 200일선<br>현재가 위치 확인</div>
+      </div>
+      <div class="cond-step" style="background:#fdf4ff;border:1px solid #e9d5ff;">
+        <div style="font-size:13px;font-weight:700;color:#7e22ce;margin-bottom:7px;">🔥 거래량 + 52주 고점 (35점)</div>
+        <div style="font-size:12px;color:#9333ea;line-height:1.7;">거래량 급증 감지<br>52주 신고점 근접도</div>
+      </div>
+    </div>
+
+    <!-- 요약 통계 -->
+    <div id="mt-summary" style="display:none;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px;">
+      <div class="card" style="text-align:center;">
+        <div style="font-size:11px;color:var(--sub);font-weight:600;margin-bottom:6px;">총 종목</div>
+        <div style="font-size:28px;font-weight:800;" id="mt-total-count">—</div>
+      </div>
+      <div class="card" style="text-align:center;">
+        <div style="font-size:11px;color:var(--sub);font-weight:600;margin-bottom:6px;">강한 모멘텀</div>
+        <div style="font-size:28px;font-weight:800;color:#7c3aed;" id="mt-strong-count">—</div>
+      </div>
+      <div class="card" style="text-align:center;">
+        <div style="font-size:11px;color:var(--sub);font-weight:600;margin-bottom:6px;">평균 점수</div>
+        <div style="font-size:28px;font-weight:800;" id="mt-avg-score">—</div>
+      </div>
+    </div>
+
+    <!-- 결과 테이블 -->
+    <div class="card" id="mt-result-card">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
+        <span class="section-title" style="margin-bottom:0;">⚡ 모멘텀 스크리닝 결과</span>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;">
+          <button class="filter-btn active" id="mt-filter-all" onclick="filterMomentum('all',this)">전체</button>
+          <button class="filter-btn" id="mt-filter-strong" onclick="filterMomentum('강한 모멘텀',this)">강한 모멘텀</button>
+          <button class="filter-btn" id="mt-filter-momentum" onclick="filterMomentum('모멘텀',this)">모멘텀</button>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table class="stbl" id="mt-table" style="min-width:700px;">
+          <thead><tr>
+            <th style="width:28px;">#</th>
+            <th style="min-width:90px;">종목</th>
+            <th style="text-align:right;">현재가</th>
+            <th style="text-align:right;">1D</th>
+            <th style="text-align:right;">1M</th>
+            <th style="text-align:right;">3M</th>
+            <th style="text-align:right;">6M</th>
+            <th style="text-align:right;">거래량비</th>
+            <th style="text-align:right;">52주고점</th>
+            <th style="text-align:center;">점수</th>
+            <th style="text-align:center;">추천</th>
+          </tr></thead>
+          <tbody id="mt-tbody"><tr><td colspan="11" class="empty">⚡ 모멘텀 스크리닝 버튼을 눌러주세요</td></tr></tbody>
         </table>
       </div>
     </div>
@@ -2286,7 +2374,7 @@ function closeSidebar() {
 }
 
 function showPage(page) {
-  ['dashboard','classic','growth','modern','tenbagger','backtest','smartmoney','liquidity','rebalance','portfolio','calendar','agents'].forEach(p => {
+  ['dashboard','classic','growth','modern','tenbagger','backtest','smartmoney','liquidity','momentum','rebalance','portfolio','calendar','agents'].forEach(p => {
     document.getElementById('page-'+p).style.display = p===page?'block':'none';
     const nav = document.getElementById('nav-'+p);
     if(nav) nav.classList.toggle('active', p===page);
@@ -3068,6 +3156,82 @@ async function loadShortVolume() {
   } catch(e) {
     document.getElementById('sv-cards').innerHTML = `<div class="empty" style="grid-column:1/-1;">❌ 오류: ${e.message}</div>`;
   }
+}
+
+// ── 모멘텀 스크리너 ──
+let _mtMarket = 'nasdaq';
+let _mtAllResults = [];
+
+function setMomentumMarket(market, btn) {
+  _mtMarket = market;
+  document.querySelectorAll('#mt-market-btns .seg-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+}
+
+async function loadMomentum() {
+  const btn = document.getElementById('mt-run-btn');
+  const status = document.getElementById('mt-status');
+  btn.disabled = true; btn.textContent = '⏳ 분석 중...';
+  status.textContent = '분석 중...'; status.style.background = '#fef9c3'; status.style.color = '#92400e';
+  try {
+    const res = await fetch(`/api/momentum/${_mtMarket}`);
+    if (res.status === 401) { location.href = '/'; return; }
+    const data = await res.json();
+    _mtAllResults = data.results || [];
+    renderMomentumTable(_mtAllResults);
+    const strong = _mtAllResults.filter(r => r.recommendation === '강한 모멘텀').length;
+    const avg = _mtAllResults.length ? Math.round(_mtAllResults.reduce((s,r) => s + (r.momentum_score||0), 0) / _mtAllResults.length) : 0;
+    document.getElementById('mt-total-count').textContent = _mtAllResults.length;
+    document.getElementById('mt-strong-count').textContent = strong;
+    document.getElementById('mt-avg-score').textContent = avg;
+    const summaryEl = document.getElementById('mt-summary');
+    summaryEl.style.display = 'grid';
+    status.textContent = data.from_cache ? `캐시 · ${data.updated_at}` : `방금 분석 · ${data.updated_at}`;
+    status.style.background = '#f3e8ff'; status.style.color = '#7e22ce';
+  } catch(e) {
+    status.textContent = '오류 발생'; status.style.background = '#fee2e2'; status.style.color = '#991b1b';
+  } finally {
+    btn.disabled = false; btn.textContent = '⚡ 모멘텀 스크리닝';
+  }
+}
+
+function filterMomentum(type, btn) {
+  document.querySelectorAll('#mt-result-card .filter-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  const filtered = type === 'all' ? _mtAllResults : _mtAllResults.filter(r => r.recommendation === type);
+  renderMomentumTable(filtered);
+}
+
+function renderMomentumTable(results) {
+  const tbody = document.getElementById('mt-tbody');
+  if (!results || results.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="11" class="empty">결과 없음</td></tr>'; return;
+  }
+  const cur = _mtMarket.startsWith('kos') ? '₩' : '$';
+  const recBadge = r => {
+    if (r === '강한 모멘텀') return 'badge-sb';
+    if (r === '모멘텀') return 'badge-b';
+    if (r === '약한 모멘텀') return 'badge-h';
+    return 'badge-w';
+  };
+  const fmtPct = v => {
+    if (v == null) return '<td style="text-align:right;color:var(--sub);">—</td>';
+    const c = v > 0 ? 'up' : v < 0 ? 'dn' : '';
+    return `<td style="text-align:right;" class="${c}">${v > 0 ? '+' : ''}${v}%</td>`;
+  };
+  tbody.innerHTML = results.map((r, i) => `<tr>
+    <td style="color:var(--sub);font-size:12px;">${i+1}</td>
+    <td><div class="sname">${r.ticker}</div><div style="font-size:11px;color:var(--sub);max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${r.name||''}</div></td>
+    <td style="text-align:right;font-weight:600;">${cur}${(r.price||0).toLocaleString()}</td>
+    ${fmtPct(r.change_pct)}
+    ${fmtPct(r.ret_1m)}
+    ${fmtPct(r.ret_3m)}
+    ${fmtPct(r.ret_6m)}
+    <td style="text-align:right;">${r.vol_ratio != null ? Math.round(r.vol_ratio)+'%' : '—'}</td>
+    <td style="text-align:right;${r.from_52w_high != null && r.from_52w_high >= -3 ? 'color:#7c3aed;font-weight:700;' : ''}">${r.from_52w_high != null ? (r.from_52w_high >= 0 ? '+' : '')+r.from_52w_high+'%' : '—'}</td>
+    <td style="text-align:center;"><span style="font-size:16px;font-weight:800;color:#7c3aed;">${r.momentum_score}</span><span style="font-size:10px;color:var(--sub);"> /100</span></td>
+    <td style="text-align:center;"><span class="badge ${recBadge(r.recommendation)}">${r.recommendation}</span></td>
+  </tr>`).join('');
 }
 
 async function loadSmartMoney() {

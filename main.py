@@ -347,6 +347,31 @@ def init_db():
             rate       NUMERIC(10,4),
             cached_at  TIMESTAMP DEFAULT NOW()
         );
+
+        CREATE TABLE IF NOT EXISTS momentum_cache (
+            ticker         TEXT NOT NULL,
+            market         TEXT NOT NULL,
+            name           TEXT,
+            sector         TEXT,
+            price          FLOAT,
+            change_pct     FLOAT,
+            rs_score       INT DEFAULT 0,
+            ma_score       INT DEFAULT 0,
+            vol_score      INT DEFAULT 0,
+            high52_score   INT DEFAULT 0,
+            momentum_score INT DEFAULT 0,
+            recommendation TEXT,
+            ret_1m         FLOAT,
+            ret_3m         FLOAT,
+            ret_6m         FLOAT,
+            ma20_pct       FLOAT,
+            from_52w_high  FLOAT,
+            vol_ratio      FLOAT,
+            screened_at    TIMESTAMP DEFAULT NOW(),
+            PRIMARY KEY (ticker, market)
+        );
+        CREATE INDEX IF NOT EXISTS idx_mc_market ON momentum_cache(market);
+        CREATE INDEX IF NOT EXISTS idx_mc_score  ON momentum_cache(momentum_score DESC);
     """)
     conn.commit()
     cur.close()
@@ -402,6 +427,17 @@ TICKERS_NASDAQ = list(dict.fromkeys([
     "CSCO","PEP","CMCSA","VRSN","SWKS","QRVO","MPWR","ENTG","FORM","UCTT",
     "CRUS","SLAB","DIOD","AAON","EXPO","PRGS","PCTY","NCNO","JAMF","APPF",
 ]))[:200]
+
+# 모멘텀 스크리너 전용 추가 풀 (기존 200에 없는 광통신·반도체·우주·성장주)
+TICKERS_MOMENTUM_EXTRA_US = [
+    "COHR","LITE","CIEN","VIAV","WDC","STX","PSTG","NTNX",
+    "PL","SPCE","LHX","NOC","GD","RTX","BA","HEI","TDG",
+    "TTD","SPOT","MDB","NET","SNOW","HUBS","VEEV","ZI","PCVX",
+    "VST","CEG","NRG","AES","ETR",
+    "IBKR","SCHW","ICE","MSCI","SPGI","MCO",
+    "HIMS","TDOC","ACAD","ALNY","NTRA","TMDX","AXON",
+    "ANET","SMTC","MTCH","BMBL","SWI","GTLB",
+]
 
 TICKERS_SP500_FALLBACK = list(dict.fromkeys([
     "BRK-B","JPM","V","UNH","XOM","JNJ","WMT","MA","PG","HD",
@@ -503,6 +539,7 @@ TICKERS_KOSDAQ = list(dict.fromkeys([
 
 _sp500_cache = []
 _gspc_ret_cache = {"ret": None, "updated": None}  # 상대강도 계산용 S&P500 수익률 캐시
+_spy_hist_cache = {"data": None, "updated": None}  # 모멘텀 RS 계산용 SPY 1y 히스토리
 
 def get_tickers_sp500():
     global _sp500_cache
@@ -1227,6 +1264,133 @@ def fetch_single_stock(ticker, market):
     except: return None
 
 # ══════════════════════════════════════════════════════════════
+# 모멘텀 스크리너 — 펀더멘탈 무관, 순수 가격·거래량·추세
+# ══════════════════════════════════════════════════════════════
+
+def _get_spy_hist():
+    today = datetime.now().strftime("%Y-%m-%d")
+    global _spy_hist_cache
+    if _spy_hist_cache["updated"] == today and _spy_hist_cache["data"] is not None:
+        return _spy_hist_cache["data"]
+    try:
+        spy = yf.Ticker("SPY").history(period="1y", timeout=10)
+        if not spy.empty:
+            _spy_hist_cache = {"data": spy, "updated": today}
+        return _spy_hist_cache["data"]
+    except:
+        return _spy_hist_cache["data"]
+
+def score_mt_rs(hist):
+    """상대강도 복합 (40점): 1M×15 + 3M×15 + 6M×10"""
+    try:
+        spy = _get_spy_hist()
+        score = 0
+        for days, pts in [(21, 15), (63, 15), (126, 10)]:
+            if len(hist) < days: continue
+            sr = float((hist['Close'].iloc[-1] / hist['Close'].iloc[-days] - 1) * 100)
+            if spy is not None and len(spy) > days:
+                mr = float((spy['Close'].iloc[-1] / spy['Close'].iloc[-days] - 1) * 100)
+            else:
+                mr = 7.0
+            ex = sr - mr
+            if ex >= 20: score += pts
+            elif ex >= 10: score += int(pts * 0.8)
+            elif ex >= 5: score += int(pts * 0.6)
+            elif ex >= 0: score += int(pts * 0.4)
+        return score
+    except: return 0
+
+def score_mt_ma(hist):
+    """이동평균 위치 (25점): MA20(8) + MA50(8) + MA200(9)"""
+    try:
+        if len(hist) < 50: return 0
+        close = float(hist['Close'].iloc[-1]); score = 0
+        if close > float(hist['Close'].rolling(20).mean().iloc[-1]): score += 8
+        if close > float(hist['Close'].rolling(50).mean().iloc[-1]): score += 8
+        if len(hist) >= 200 and close > float(hist['Close'].rolling(200).mean().iloc[-1]): score += 9
+        return score
+    except: return 0
+
+def score_mt_vol(hist):
+    """거래량 모멘텀 (20점): 5일 vs 20일·50일 평균 비율"""
+    try:
+        if len(hist) < 50: return 0
+        v5 = float(hist['Volume'].iloc[-5:].mean())
+        v20 = float(hist['Volume'].iloc[-20:].mean())
+        v50 = float(hist['Volume'].iloc[-50:].mean())
+        if v20 == 0 or v50 == 0: return 0
+        r20 = v5 / v20; r50 = v5 / v50; score = 0
+        if r20 >= 2.0: score += 10
+        elif r20 >= 1.5: score += 8
+        elif r20 >= 1.2: score += 6
+        elif r20 >= 1.0: score += 4
+        if r50 >= 1.5: score += 10
+        elif r50 >= 1.2: score += 7
+        elif r50 >= 1.0: score += 4
+        return min(score, 20)
+    except: return 0
+
+def score_mt_52w(hist):
+    """52주 고점 근접도 (15점)"""
+    try:
+        if len(hist) < 20: return 0
+        close = float(hist['Close'].iloc[-1])
+        h52 = float(hist['High'].rolling(min(252, len(hist))).max().iloc[-1])
+        if h52 == 0: return 0
+        pct = (close / h52 - 1) * 100
+        if pct >= -3: return 15
+        elif pct >= -7: return 12
+        elif pct >= -15: return 8
+        elif pct >= -25: return 4
+        else: return 0
+    except: return 0
+
+def fetch_momentum_stock(ticker, market):
+    try:
+        stock = yf.Ticker(ticker); info = stock.info
+        hist = stock.history(period="1y")
+        if hist.empty or len(hist) < 20: return None
+        rs = score_mt_rs(hist); ma = score_mt_ma(hist)
+        vol = score_mt_vol(hist); h52 = score_mt_52w(hist)
+        mtotal = rs + ma + vol + h52
+        if mtotal >= 75: rec = "강한 모멘텀"
+        elif mtotal >= 60: rec = "모멘텀"
+        elif mtotal >= 45: rec = "약한 모멘텀"
+        else: rec = "관망"
+        cp = float(hist['Close'].iloc[-1]); pp = float(hist['Close'].iloc[-2])
+        change_pct = round((cp/pp-1)*100, 2) if pp != 0 else 0.0
+        def safe_ret(days):
+            try: return round((cp/float(hist['Close'].iloc[-days])-1)*100, 1) if len(hist) >= days else None
+            except: return None
+        ret_1m = safe_ret(21); ret_3m = safe_ret(63); ret_6m = safe_ret(126)
+        ma20_pct = None
+        try:
+            ma20 = float(hist['Close'].rolling(20).mean().iloc[-1])
+            if ma20 > 0: ma20_pct = round((cp/ma20-1)*100, 1)
+        except: pass
+        from_52w_high = None
+        try:
+            h52v = float(hist['High'].rolling(min(252, len(hist))).max().iloc[-1])
+            if h52v > 0: from_52w_high = round((cp/h52v-1)*100, 1)
+        except: pass
+        vol_ratio = None
+        try:
+            avg_vol = float(hist['Volume'].iloc[-21:-1].mean())
+            if avg_vol > 0: vol_ratio = round(float(hist['Volume'].iloc[-1])/avg_vol*100, 0)
+        except: pass
+        name = KR_NAMES.get(ticker) or info.get('longName', ticker)
+        sector = info.get('sector') or 'Unknown'
+        return {
+            "ticker": ticker, "name": name, "sector": sector, "market": market,
+            "price": round(cp, 2), "change_pct": change_pct,
+            "rs_score": rs, "ma_score": ma, "vol_score": vol, "high52_score": h52,
+            "momentum_score": mtotal, "recommendation": rec,
+            "ret_1m": ret_1m, "ret_3m": ret_3m, "ret_6m": ret_6m,
+            "ma20_pct": ma20_pct, "from_52w_high": from_52w_high, "vol_ratio": vol_ratio,
+        }
+    except: return None
+
+# ══════════════════════════════════════════════════════════════
 # DB 저장 / 조회
 # ══════════════════════════════════════════════════════════════
 
@@ -1294,6 +1458,62 @@ def load_screening_from_db(market: str):
         return results
     except Exception as e:
         logger.error(f"DB 조회 오류: {e}")
+        return None
+
+def save_momentum_to_db(results: list):
+    if not results or not DATABASE_URL: return
+    try:
+        conn = get_conn(); cur = conn.cursor()
+        for r in results:
+            cur.execute("""
+                INSERT INTO momentum_cache
+                    (ticker,market,name,sector,price,change_pct,
+                     rs_score,ma_score,vol_score,high52_score,momentum_score,
+                     recommendation,ret_1m,ret_3m,ret_6m,ma20_pct,from_52w_high,vol_ratio,screened_at)
+                VALUES
+                    (%(ticker)s,%(market)s,%(name)s,%(sector)s,%(price)s,%(change_pct)s,
+                     %(rs_score)s,%(ma_score)s,%(vol_score)s,%(high52_score)s,%(momentum_score)s,
+                     %(recommendation)s,%(ret_1m)s,%(ret_3m)s,%(ret_6m)s,%(ma20_pct)s,%(from_52w_high)s,%(vol_ratio)s,NOW())
+                ON CONFLICT (ticker, market) DO UPDATE SET
+                    name=EXCLUDED.name, sector=EXCLUDED.sector,
+                    price=EXCLUDED.price, change_pct=EXCLUDED.change_pct,
+                    rs_score=EXCLUDED.rs_score, ma_score=EXCLUDED.ma_score,
+                    vol_score=EXCLUDED.vol_score, high52_score=EXCLUDED.high52_score,
+                    momentum_score=EXCLUDED.momentum_score, recommendation=EXCLUDED.recommendation,
+                    ret_1m=EXCLUDED.ret_1m, ret_3m=EXCLUDED.ret_3m, ret_6m=EXCLUDED.ret_6m,
+                    ma20_pct=EXCLUDED.ma20_pct, from_52w_high=EXCLUDED.from_52w_high,
+                    vol_ratio=EXCLUDED.vol_ratio, screened_at=NOW()
+            """, r)
+        conn.commit()
+        cur.close()
+        conn.close()
+        logger.info(f"모멘텀 DB 저장: {len(results)}건 [{results[0]['market']}]")
+    except Exception as e:
+        logger.error(f"모멘텀 DB 저장 오류: {e}")
+
+def load_momentum_from_db(market: str):
+    if not DATABASE_URL: return None
+    try:
+        conn = get_conn(); cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        freshness = "AND screened_at > NOW() - INTERVAL '25 hours'"
+        if market in ("nasdaq","sp500","kospi","kosdaq"):
+            cur.execute(f"SELECT * FROM momentum_cache WHERE market=%s {freshness} ORDER BY momentum_score DESC", (market,))
+        elif market == "us":
+            cur.execute(f"SELECT * FROM momentum_cache WHERE market IN ('nasdaq','sp500') {freshness} ORDER BY momentum_score DESC")
+        elif market == "kr":
+            cur.execute(f"SELECT * FROM momentum_cache WHERE market IN ('kospi','kosdaq') {freshness} ORDER BY momentum_score DESC")
+        else:
+            cur.execute(f"SELECT * FROM momentum_cache WHERE 1=1 {freshness} ORDER BY momentum_score DESC")
+        rows = cur.fetchall(); cur.close(); conn.close()
+        if not rows: return None
+        results = []
+        for r in rows:
+            d = dict(r)
+            if d.get("screened_at"): d["screened_at"] = d["screened_at"].strftime("%Y-%m-%d %H:%M")
+            results.append(d)
+        return results
+    except Exception as e:
+        logger.error(f"모멘텀 DB 조회 오류: {e}")
         return None
 
 def save_tenbagger_to_db(results: list):
@@ -1402,6 +1622,30 @@ def _run_tenbagger_job():
             except: continue
     results.sort(key=lambda x: x['total_score'], reverse=True)
     save_tenbagger_to_db(results)
+
+def _run_momentum_job():
+    """KST 04:30 모멘텀 스크리닝 (펀더멘탈 무관)"""
+    logger.info("=== 모멘텀 스크리닝 시작 ===")
+    us_pool = list(dict.fromkeys(TICKERS_NASDAQ + TICKERS_MOMENTUM_EXTRA_US))
+    markets = {
+        "nasdaq": us_pool,
+        "kospi":  TICKERS_KOSPI,
+        "kosdaq": TICKERS_KOSDAQ,
+    }
+    for market, tickers in markets.items():
+        logger.info(f"[모멘텀/{market}] {len(tickers)}개 스크리닝 중...")
+        results = []
+        with concurrent.futures.ThreadPoolExecutor(max_workers=15) as executor:
+            futures = {executor.submit(fetch_momentum_stock, t, market): t for t in tickers}
+            for f in concurrent.futures.as_completed(futures, timeout=300):
+                try:
+                    r = f.result(timeout=30)
+                    if r: results.append(r)
+                except: continue
+        results.sort(key=lambda x: x['momentum_score'], reverse=True)
+        save_momentum_to_db(results)
+        logger.info(f"[모멘텀/{market}] {len(results)}개 완료")
+    logger.info("=== 모멘텀 스크리닝 완료 ===")
 
 # ══════════════════════════════════════════════════════════════
 # 공매도 Short Volume (FINRA REGSHO) + Short Interest (yfinance)
@@ -2198,6 +2442,43 @@ def screening_status():
         rows=cur.fetchall(); cur.close(); conn.close()
         return {"status":[dict(r) for r in rows]}
     except Exception as e: return {"error":str(e)}
+
+# ══════════════════════════════════════════════════════════════
+# 모멘텀 스크리너 API
+# ══════════════════════════════════════════════════════════════
+
+@app.get("/api/momentum/{market}")
+@limiter.limit("10/minute")
+def get_momentum(request: Request, market: str = "nasdaq"):
+    cached = load_momentum_from_db(market)
+    if cached:
+        return safe_json({"results": cached, "from_cache": True, "updated_at": cached[0].get("screened_at", "")})
+    # 캐시 없으면 실시간 계산
+    if market in ("nasdaq", "us"):
+        tickers = list(dict.fromkeys(TICKERS_NASDAQ + TICKERS_MOMENTUM_EXTRA_US))
+    elif market == "kospi":
+        tickers = TICKERS_KOSPI
+    elif market == "kosdaq":
+        tickers = TICKERS_KOSDAQ
+    else:
+        tickers = list(dict.fromkeys(TICKERS_NASDAQ + TICKERS_MOMENTUM_EXTRA_US))
+    results = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=15) as executor:
+        futures = {executor.submit(fetch_momentum_stock, t, market): t for t in tickers}
+        for f in concurrent.futures.as_completed(futures, timeout=300):
+            try:
+                r = f.result(timeout=30)
+                if r: results.append(r)
+            except: continue
+    results.sort(key=lambda x: x['momentum_score'], reverse=True)
+    save_momentum_to_db(results)
+    return safe_json({"results": results, "from_cache": False, "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M")})
+
+@app.post("/api/momentum/run")
+@limiter.limit("3/minute")
+def trigger_momentum(request: Request, background_tasks: BackgroundTasks):
+    background_tasks.add_task(_run_momentum_job)
+    return {"message": "모멘텀 스크리닝 시작됨. 약 5~10분 소요."}
 
 @app.get("/api/stock/search")
 def search_stock_by_name(q: str = ""):
@@ -3531,6 +3812,13 @@ scheduler.add_job(
     run_full_screening_job,
     CronTrigger(hour=19, minute=0, timezone=pytz.utc),  # UTC 19:00 = KST 04:00
     id="daily_screening",
+    replace_existing=True,
+    misfire_grace_time=3600
+)
+scheduler.add_job(
+    _run_momentum_job,
+    CronTrigger(hour=19, minute=30, timezone=pytz.utc),  # UTC 19:30 = KST 04:30
+    id="momentum_screening",
     replace_existing=True,
     misfire_grace_time=3600
 )
