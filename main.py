@@ -2684,40 +2684,43 @@ def get_smart_money(request: Request):
         logger.error(f"섹터 모멘텀 오류: {e}")
         return safe_json({"error":str(e),"sectors":[],"total":0,"updated_at":datetime.now().strftime("%Y-%m-%d %H:%M")})
 
+def _format_sv_row(d: dict) -> dict:
+    return {
+        "ticker":          d["ticker"],
+        "trade_date":      d["trade_date"].strftime("%Y-%m-%d") if d.get("trade_date") else None,
+        "short_volume":    int(d["short_volume"]) if d.get("short_volume") else None,
+        "total_volume":    int(d["total_volume"]) if d.get("total_volume") else None,
+        "short_vol_ratio": float(d["short_vol_ratio"]) if d.get("short_vol_ratio") is not None else None,
+        "short_pct_float": float(d["short_pct_float"]) if d.get("short_pct_float") is not None else None,
+        "short_ratio":     float(d["short_ratio"]) if d.get("short_ratio") is not None else None,
+        "shares_short":    int(d["shares_short"]) if d.get("shares_short") else None,
+        "updated_at":      d["updated_at"].strftime("%Y-%m-%d %H:%M") if d.get("updated_at") else None,
+    }
+
 @app.get("/api/short_volume")
 @limiter.limit("10/minute")
 def get_short_volume(request: Request):
-    """SPY/QQQ/IWM 공매도 데이터 — DB 캐시 우선, 없으면 실시간 수집"""
-    # ── DB 캐시 우선 ──────────────────────────────────────────
+    """SPY/QQQ/IWM 공매도 데이터 — DB 캐시 우선(오늘+전일), 없으면 실시간 수집"""
+    # ── DB 캐시: ticker별 최근 2일치 반환 ──────────────────────
     if DATABASE_URL:
         try:
             conn = get_conn(); cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
             cur.execute("""
-                SELECT DISTINCT ON (ticker)
-                    ticker, trade_date, short_volume, total_volume,
-                    short_vol_ratio, short_pct_float, short_ratio, shares_short, updated_at
+                SELECT ticker, trade_date, short_volume, total_volume,
+                       short_vol_ratio, short_pct_float, short_ratio, shares_short, updated_at,
+                       ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY trade_date DESC) AS rn
                 FROM short_volume_cache
-                ORDER BY ticker, trade_date DESC
             """)
             rows = cur.fetchall(); cur.close(); conn.close()
-            if len(rows) >= len(SHORT_VOL_TICKERS):
-                result = {}
-                for r in rows:
-                    d = dict(r)
-                    ticker = d["ticker"]
-                    result[ticker] = {
-                        "ticker":          ticker,
-                        "trade_date":      d["trade_date"].strftime("%Y-%m-%d") if d.get("trade_date") else None,
-                        "short_volume":    int(d["short_volume"]) if d.get("short_volume") else None,
-                        "total_volume":    int(d["total_volume"]) if d.get("total_volume") else None,
-                        "short_vol_ratio": float(d["short_vol_ratio"]) if d.get("short_vol_ratio") is not None else None,
-                        "short_pct_float": float(d["short_pct_float"]) if d.get("short_pct_float") is not None else None,
-                        "short_ratio":     float(d["short_ratio"]) if d.get("short_ratio") is not None else None,
-                        "shares_short":    int(d["shares_short"]) if d.get("shares_short") else None,
-                        "updated_at":      d["updated_at"].strftime("%Y-%m-%d %H:%M") if d.get("updated_at") else None,
-                    }
-                return safe_json({"from_cache": True, "data": result,
-                                  "updated_at": list(result.values())[0]["updated_at"] if result else None})
+            today_map = {}; prev_map = {}
+            for r in rows:
+                d = dict(r); rn = d.pop("rn")
+                t = d["ticker"]
+                if rn == 1:   today_map[t] = _format_sv_row(d)
+                elif rn == 2: prev_map[t]  = _format_sv_row(d)
+            if len(today_map) >= len(SHORT_VOL_TICKERS):
+                updated = list(today_map.values())[0]["updated_at"] if today_map else None
+                return safe_json({"from_cache": True, "data": today_map, "prev": prev_map, "updated_at": updated})
         except Exception as e:
             logger.warning(f"공매도 캐시 조회 실패, 실시간 수집으로 fallback: {e}")
 
@@ -2740,11 +2743,12 @@ def get_short_volume(request: Request):
                 "shares_short":    si.get("shares_short"),
                 "updated_at":      datetime.now().strftime("%Y-%m-%d %H:%M"),
             }
-        return safe_json({"from_cache": False, "data": result,
+        return safe_json({"from_cache": False, "data": result, "prev": {},
                           "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M")})
     except Exception as e:
         logger.error(f"공매도 데이터 오류: {e}")
-        return safe_json({"error": str(e), "data": {}, "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M")})
+        return safe_json({"error": str(e), "data": {}, "prev": {},
+                          "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M")})
 
 @app.get("/api/tenbagger")
 @limiter.limit("5/minute")
