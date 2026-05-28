@@ -1796,7 +1796,7 @@ def fetch_short_interest_yf(tickers: list) -> dict:
 # ARK Invest 보유/매매 수집
 # ══════════════════════════════════════════════════════════════
 
-ARK_FUNDS = ["ARKK", "ARKW", "ARKG", "ARKF", "ARKX"]
+ARK_FUNDS = ["ARKK", "ARKW", "ARKG", "ARKF", "ARKX", "ARKQ"]
 
 def fetch_ark_holdings() -> dict:
     """ARK 전 펀드 보유 현황 — ticker별 최고 비중 펀드 반환"""
@@ -1860,6 +1860,11 @@ def save_ark_to_db(holdings: dict, trades: dict):
         return
     try:
         conn = get_conn(); cur = conn.cursor()
+        # 성공적으로 가져온 펀드의 기존 보유 내역 전체 삭제 후 재삽입
+        # (청산 종목이 DB에 영구 잔류하는 버그 방지)
+        fetched_funds = list({h["fund"] for h in holdings.values()})
+        if fetched_funds:
+            cur.execute("DELETE FROM ark_holdings_cache WHERE fund = ANY(%s)", (fetched_funds,))
         for h in holdings.values():
             cur.execute("""
                 INSERT INTO ark_holdings_cache (fund,ticker,company,shares,market_value,weight,trade_date)
@@ -2920,7 +2925,7 @@ def get_ark_data(request: Request):
     if DATABASE_URL:
         try:
             conn = get_conn(); cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-            cur.execute("SELECT * FROM ark_holdings_cache ORDER BY weight DESC")
+            cur.execute("SELECT * FROM ark_holdings_cache WHERE fetched_at >= NOW() - INTERVAL '3 days' ORDER BY weight DESC")
             for r in cur.fetchall():
                 d = dict(r); tk = d["ticker"]
                 result["holdings"][tk] = {
