@@ -1353,7 +1353,7 @@ def score_mt_rs(hist):
             if spy is not None and len(spy) > days:
                 mr = float((spy['Close'].iloc[-1] / spy['Close'].iloc[-days] - 1) * 100)
             else:
-                mr = 7.0
+                mr = round(7.0 * (days / 252), 2)  # 연 7% 기준 기간 비례 보정
             ex = sr - mr
             if ex >= 20: score += pts
             elif ex >= 10: score += int(pts * 0.8)
