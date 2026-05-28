@@ -2027,7 +2027,8 @@ def score_minervini(info, hist_daily):
                 r=ma150/ma200
                 if r>=1.05: cond2=7
                 elif r>=1.02: cond2=5
-                else: cond2=3
+                elif r>=1.005: cond2=3
+                else: cond2=0
             else: cond2=0
         else: cond2=0
         score+=cond2; detail['ma_cross_score']=cond2
@@ -2227,7 +2228,7 @@ def score_net_liquidity(walcl_data, rrp_data, tga_data):
     walcl=walcl_data[0]["value"]/1e6; rrp=rrp_data[0]["value"]/1e6; tga=tga_data[0]["value"]/1e6
     net=round(walcl-rrp-tga,2)
     walcl_4w=(walcl_data[4]["value"] if len(walcl_data)>4 else walcl_data[-1]["value"])/1e6
-    rrp_4w=(rrp_data[4]["value"] if len(rrp_data)>4 else rrp_data[-1]["value"])/1e6
+    rrp_4w=(rrp_data[20]["value"] if len(rrp_data)>20 else rrp_data[-1]["value"])/1e6
     tga_4w=(tga_data[4]["value"] if len(tga_data)>4 else tga_data[-1]["value"])/1e6
     net_4w=round(walcl_4w-rrp_4w-tga_4w,2)
     change_t=round(net-net_4w,2); change_pct=round((net-net_4w)/abs(net_4w)*100,2) if net_4w!=0 else 0
@@ -2828,11 +2829,6 @@ def get_smart_money(request: Request):
                     if r: results.append(r)
                 except: pass
         results.sort(key=lambda x:x.get("momentum_score",0),reverse=True)
-        if results:
-            valid_rets=[r["ret_1m"] for r in results if r.get("ret_1m") is not None and not (isinstance(r["ret_1m"],float) and math.isnan(r["ret_1m"]))]
-            avg=sum(valid_rets)/len(valid_rets) if valid_rets else 0
-            for r in results:
-                r["rel_strength"]=round(r["ret_1m"]-avg,2) if r.get("ret_1m") is not None else None
         try:
             spy=yf.Ticker("SPY").history(period="2y")
             spy_1m=round(float((spy['Close'].iloc[-1]/spy['Close'].iloc[-22]-1)*100),2) if len(spy)>=22 else 0
@@ -2840,6 +2836,9 @@ def get_smart_money(request: Request):
             spy_6m=round(float((spy['Close'].iloc[-1]/spy['Close'].iloc[-132]-1)*100),2) if len(spy)>=132 else 0
             spy_1y=round(float((spy['Close'].iloc[-1]/spy['Close'].iloc[-252]-1)*100),2) if len(spy)>=252 else 0
         except: spy_1m=spy_3m=spy_6m=spy_1y=0
+        if results:
+            for r in results:
+                r["rel_strength"]=round(r["ret_1m"]-spy_1m,2) if r.get("ret_1m") is not None else None
         return safe_json({"updated_at":datetime.now().strftime("%Y-%m-%d %H:%M"),
                 "spy_ret_1m":spy_1m,"spy_ret_3m":spy_3m,"spy_ret_6m":spy_6m,"spy_ret_1y":spy_1y,
                 "sectors":results,"total":len(results)})
@@ -3076,8 +3075,11 @@ def save_bestpick_to_db(picks: list, market: str = "nasdaq") -> dict:
                 continue
             cur.execute("""
                 SELECT consecutive_count FROM bestpick_records
-                WHERE ticker=%s AND picked_at = %s - INTERVAL '1 day' AND market=%s
-            """, (ticker, today, market))
+                WHERE ticker=%s AND market=%s
+                  AND picked_at >= %s - INTERVAL '4 days'
+                  AND picked_at < %s
+                ORDER BY picked_at DESC LIMIT 1
+            """, (ticker, market, today, today))
             row = cur.fetchone()
             consecutive = (row[0] + 1) if row else 1
             cur.execute("""
@@ -3168,8 +3170,11 @@ def save_double_confirm_to_db(picks: list, market: str = "nasdaq") -> dict:
                 skipped += 1; continue
             cur.execute("""
                 SELECT consecutive_count FROM double_confirm_records
-                WHERE ticker=%s AND picked_at = %s - INTERVAL '1 day' AND market=%s
-            """, (ticker, today, market))
+                WHERE ticker=%s AND market=%s
+                  AND picked_at >= %s - INTERVAL '4 days'
+                  AND picked_at < %s
+                ORDER BY picked_at DESC LIMIT 1
+            """, (ticker, market, today, today))
             row = cur.fetchone()
             consecutive = (row[0] + 1) if row else 1
             cur.execute("""
@@ -3846,8 +3851,12 @@ def get_holdings(request: Request, account: str = "all"):
             avg       = float(r.get('avg_price') or 0)
             cur_val_local = (cur_price * qty) if cur_price else 0
             cost_local    = avg * qty
-            pnl_local     = cur_val_local - cost_local
-            pnl_pct       = (pnl_local / cost_local * 100) if cost_local > 0 else 0
+            if cur_price is None:
+                pnl_local = None
+                pnl_pct   = None
+            else:
+                pnl_local = cur_val_local - cost_local
+                pnl_pct   = (pnl_local / cost_local * 100) if cost_local > 0 else 0
             # KRW 환산
             if currency == 'USD':
                 cur_val_krw = cur_val_local * usd_krw
@@ -3866,14 +3875,10 @@ def get_holdings(request: Request, account: str = "all"):
                 "cost_local": round(cost_local, 2),
                 "current_value_local": round(cur_val_local, 2),
                 "current_value_krw": round(cur_val_krw, 0),
-                "pnl_local": round(pnl_local, 2),
-                "pnl_pct": round(pnl_pct, 2),
+                "pnl_local": round(pnl_local, 2) if pnl_local is not None else None,
+                "pnl_pct": round(pnl_pct, 2) if pnl_pct is not None else None,
                 "memo": r.get('memo') or '',
             })
-
-        # 비중 계산 (KRW 기준)
-        for h in holdings_out:
-            h['weight_pct'] = round(h['current_value_krw'] / total_stock_krw * 100, 2) if total_stock_krw > 0 else 0
 
         # 현금 합계
         cur2 = None
@@ -3889,6 +3894,10 @@ def get_holdings(request: Request, account: str = "all"):
 
         total_cash_krw = sum(c['cash_krw'] + c['cash_usd'] * usd_krw for c in cash_map.values())
         total_assets_krw = total_stock_krw + total_cash_krw
+
+        # 비중 계산 — 전체 자산(주식+현금) 기준
+        for h in holdings_out:
+            h['weight_pct'] = round(h['current_value_krw'] / total_assets_krw * 100, 2) if total_assets_krw > 0 else 0
 
         summary = {
             "total_stock_krw": round(total_stock_krw, 0),
