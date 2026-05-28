@@ -3429,17 +3429,23 @@ def get_bestpick_history(market: str = "nasdaq"):
         win_rate = round(win_count / len(all_returns) * 100, 1) if all_returns else None
 
         # 픽별 개별 알파 계산 (각 픽의 진입 시점 SPY 대비)
-        spy_now = spy_rets.get("spy_current", 0)
+        spy_now = spy_rets.get("spy_current") or 0
+        spy_data_ok = spy_now > 0
         per_pick_alphas = []
         for r in rows:
             if r.get("return_latest") is None: continue
             spy_entry = r.get("spy_entry_price")
-            if spy_entry and spy_entry > 0 and spy_now > 0:
+            if spy_entry and spy_entry > 0 and spy_data_ok:
                 spy_ret_since_entry = round((spy_now / spy_entry - 1) * 100, 2)
                 per_pick_alphas.append(r["return_latest"] - spy_ret_since_entry)
-        alpha = round(sum(per_pick_alphas) / len(per_pick_alphas), 2) if per_pick_alphas else (
-            round(overall_avg - spy_rets.get("spy_30d", 0), 2) if overall_avg is not None and spy_rets.get("spy_30d") is not None else None
-        )
+        if per_pick_alphas:
+            alpha = round(sum(per_pick_alphas) / len(per_pick_alphas), 2)
+        elif overall_avg is not None and spy_rets.get("spy_30d") is not None:
+            alpha = round(overall_avg - spy_rets["spy_30d"], 2)
+        else:
+            alpha = None
+        if not spy_data_ok:
+            logger.warning("SPY 현재가 조회 실패 — 알파 계산 불가")
 
         return {
             "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
@@ -3447,6 +3453,7 @@ def get_bestpick_history(market: str = "nasdaq"):
             "overall_avg_return": overall_avg,
             "overall_win_rate": win_rate,
             "spy_benchmark": spy_rets,
+            "spy_data_ok": spy_data_ok,
             "alpha_vs_spy": alpha,
             "history": summary_by_date
         }
@@ -3593,18 +3600,42 @@ def get_double_confirm_history(market: str = "nasdaq"):
         overall_avg = round(sum(all_returns) / len(all_returns), 2) if all_returns else None
         win_rate = round(sum(1 for r in all_returns if r > 0) / len(all_returns) * 100, 1) if all_returns else None
 
-        spy_now = spy_rets.get("spy_current", 0)
+        spy_now = spy_rets.get("spy_current") or 0
+        spy_data_ok = spy_now > 0
         per_pick_alphas = []
         for r in rows:
             if r.get("return_latest") is None: continue
             spy_entry = r.get("spy_entry_price")
-            if spy_entry and spy_entry > 0 and spy_now > 0:
+            if spy_entry and spy_entry > 0 and spy_data_ok:
                 spy_ret = round((spy_now / spy_entry - 1) * 100, 2)
                 per_pick_alphas.append(r["return_latest"] - spy_ret)
-        alpha = round(sum(per_pick_alphas) / len(per_pick_alphas), 2) if per_pick_alphas else (
-            round(overall_avg - spy_rets.get("spy_30d", 0), 2)
-            if overall_avg is not None and spy_rets.get("spy_30d") is not None else None
-        )
+        if per_pick_alphas:
+            alpha = round(sum(per_pick_alphas) / len(per_pick_alphas), 2)
+        elif overall_avg is not None and spy_rets.get("spy_30d") is not None:
+            alpha = round(overall_avg - spy_rets["spy_30d"], 2)
+        else:
+            alpha = None
+
+        # 스크리너 데이터 존재 여부 (history 없을 때 원인 안내용)
+        screener_status = None
+        if not rows:
+            try:
+                conn2 = get_conn(); cur2 = conn2.cursor()
+                freshness = "screened_at > NOW() - INTERVAL '25 hours'"
+                cur2.execute(f"SELECT COUNT(*) FROM screening_cache WHERE market=%s AND {freshness}", (market,))
+                sc_cnt = cur2.fetchone()[0]
+                cur2.execute(f"SELECT COUNT(*) FROM momentum_cache WHERE market=%s AND {freshness}", (market,))
+                mt_cnt = cur2.fetchone()[0]
+                cur2.close(); conn2.close()
+                if sc_cnt == 0 and mt_cnt == 0:
+                    screener_status = "스크리닝/모멘텀 데이터 없음 — KST 04:00~04:30 이후 자동 기록"
+                elif sc_cnt == 0:
+                    screener_status = "베스트픽 스크리너 데이터 없음"
+                elif mt_cnt == 0:
+                    screener_status = "모멘텀 스크리너 데이터 없음"
+                else:
+                    screener_status = f"교집합 없음 — 베스트픽 {sc_cnt}종목, 모멘텀 {mt_cnt}종목이지만 동시 통과 없음"
+            except: pass
 
         return {
             "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
@@ -3612,7 +3643,9 @@ def get_double_confirm_history(market: str = "nasdaq"):
             "overall_avg_return": overall_avg,
             "overall_win_rate": win_rate,
             "spy_benchmark": spy_rets,
+            "spy_data_ok": spy_data_ok,
             "alpha_vs_spy": alpha,
+            "screener_status": screener_status,
             "history": summary_by_date
         }
     except Exception as e:

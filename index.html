@@ -2908,9 +2908,11 @@ async function loadBestpickHistory() {
       alphaEl.textContent = (alpha >= 0 ? '+' : '') + alpha + '%';
       alphaEl.className = 'bt-stat-val ' + (alpha >= 0 ? 'up' : 'dn');
       alphaCard.className = 'bt-stat-card ' + (alpha >= 0 ? 'alpha-pos' : 'alpha-neg');
+      alphaCard.querySelector('.bt-stat-meta').textContent = data.spy_data_ok ? '베스트픽 − SPY' : '베스트픽 − SPY (30일 근사값)';
     } else {
       alphaEl.textContent = '—';
       alphaEl.className = 'bt-stat-val';
+      alphaCard.querySelector('.bt-stat-meta').textContent = data.spy_data_ok === false ? 'SPY 데이터 조회 실패' : '베스트픽 − SPY';
     }
 
     document.getElementById('bp-winrate').textContent = data.overall_win_rate !== null ? data.overall_win_rate + '%' : '—';
@@ -3046,7 +3048,11 @@ async function loadDoubleConfirmHistory() {
       alphaEl.textContent = (alpha>=0?'+':'') + alpha + '%';
       alphaEl.className = 'bt-stat-val ' + (alpha >= 0 ? 'up' : 'dn');
       alphaCard.className = 'bt-stat-card ' + (alpha >= 0 ? 'alpha-pos' : 'alpha-neg');
-    } else { alphaEl.textContent = '—'; alphaEl.className = 'bt-stat-val'; }
+      alphaCard.querySelector('.bt-stat-meta').textContent = data.spy_data_ok ? '더블컨펌 − SPY' : '더블컨펌 − SPY (30일 근사값)';
+    } else {
+      alphaEl.textContent = '—'; alphaEl.className = 'bt-stat-val';
+      alphaCard.querySelector('.bt-stat-meta').textContent = data.spy_data_ok === false ? 'SPY 데이터 조회 실패' : '더블컨펌 − SPY';
+    }
 
     document.getElementById('dc-winrate').textContent = data.overall_win_rate !== null ? data.overall_win_rate + '%' : '—';
     const history = data.history || [];
@@ -3054,7 +3060,9 @@ async function loadDoubleConfirmHistory() {
     document.getElementById('dc-updated').textContent = data.updated_at || '';
 
     if (!history.length) {
-      document.getElementById('dc-history-wrap').innerHTML = '<div style="text-align:center;padding:40px;color:var(--sub);">아직 기록된 더블 컨펌이 없습니다.<br>매일 KST 05:00 자동 기록되거나 <b>더블 컨펌 기록</b>을 눌러주세요.</div>';
+      const reason = data.screener_status || '매일 KST 05:00 자동 기록됩니다';
+      document.getElementById('dc-history-wrap').innerHTML =
+        `<div style="text-align:center;padding:40px;color:var(--sub);">아직 기록된 더블 컨펌이 없습니다.<br><span style="font-size:12px;margin-top:6px;display:block;">${reason}</span></div>`;
       return;
     }
 
