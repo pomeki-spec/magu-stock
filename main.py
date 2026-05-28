@@ -1191,7 +1191,7 @@ def calculate_growth_score(info, hist_daily):
 
 def score_analyst(rec):
     if not rec: return 2  # 커버리지 없음 → 중립 2점 (한국 소형주 불이익 방지)
-    return {'strong_buy':10,'buy':7,'hold':4,'underperform':1,'sell':0}.get(rec.lower(),2)
+    return {'strong_buy':10,'buy':7,'hold':4,'underperform':1,'sell':0,'strong_sell':0}.get(rec.lower(),2)
 
 def score_relative_strength(hist_daily):
     try:
@@ -1238,7 +1238,7 @@ def score_obv_momentum(hist_daily):
         if ratio>=1.3 and rising: return 10
         elif ratio>=1.1 and rising: return 8
         elif ratio>=1.0 and rising: return 6
-        elif ratio>=1.0: return 4
+        elif ratio>=1.0 and obv_ma20>0: return 4  # OBV 양수 확인 (음수 역전 방지)
         elif ratio>=0.9: return 2
         else: return 0
     except: return 0
@@ -1249,7 +1249,7 @@ def calculate_modern_score(info, hist_daily):
 
 def get_recommendation(total_score, classic=None, growth=None, modern=None):
     if classic is not None and growth is not None and modern is not None:
-        if classic<10 or growth<15 or modern<8:
+        if classic<10 or growth<15 or modern<10:
             return "Hold" if total_score>=70 else "Watch"
     if total_score>=70: return "Strong Buy"
     elif total_score>=55: return "Buy"
