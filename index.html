@@ -1329,68 +1329,126 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
   <div id="page-backtest" style="display:none;">
     <div class="topbar">
       <div>
-        <div class="page-title">📌 베스트픽 트래커</div>
-        <div class="update-row">스크리닝 결과에서 매일 5종목을 선정하고 실제 수익률을 추적합니다</div>
+        <div class="page-title" id="bt-page-title">📌 베스트픽 트래커</div>
+        <div class="update-row" id="bt-page-sub">스크리닝 결과에서 매일 5종목을 선정하고 실제 수익률을 추적합니다</div>
       </div>
       <div class="topbar-right">
-        <select id="bp-market" class="bt-select" onchange="loadBestpickHistory()">
+        <select id="bp-market" class="bt-select" onchange="onBtMarketChange()">
           <option value="nasdaq">🇺🇸 나스닥</option>
           <option value="sp500">🇺🇸 S&amp;P500</option>
         </select>
-        <div style="display:flex;gap:6px;flex-wrap:nowrap;overflow-x:auto;">
-        <button class="run-btn" id="bp-save-btn" onclick="saveBestpick()">📌 오늘 베스트픽 기록</button>
-        <button class="run-btn" style="background:#6366f1;white-space:nowrap;" onclick="loadBestpickHistory()">🔄 이력 새로고침</button>
+        <div id="bt-btn-bp" style="display:flex;gap:6px;flex-wrap:nowrap;overflow-x:auto;">
+          <button class="run-btn" id="bp-save-btn" onclick="saveBestpick()">📌 오늘 베스트픽 기록</button>
+          <button class="run-btn" style="background:#6366f1;white-space:nowrap;" onclick="loadBestpickHistory()">🔄 이력 새로고침</button>
+        </div>
+        <div id="bt-btn-dc" style="display:none;gap:6px;flex-wrap:nowrap;overflow-x:auto;">
+          <button class="run-btn" id="dc-save-btn" onclick="saveDoubleConfirm()">⚡ 더블 컨펌 기록</button>
+          <button class="run-btn" style="background:#6366f1;white-space:nowrap;" onclick="loadDoubleConfirmHistory()">🔄 이력 새로고침</button>
         </div>
       </div>
     </div>
 
-    <!-- 전체 통계 — 1행: 핵심 성과 / 2행: 보조 정보 -->
-    <div class="bt-summary-grid" id="bp-stats-grid">
-      <!-- 1행: 성과 핵심 3개 -->
-      <div class="bt-stat-card">
-        <div class="bt-stat-label">📈 베스트픽 평균 수익률</div>
-        <div class="bt-stat-val" id="bp-avg-ret">—</div>
-        <div class="bt-stat-meta">현재까지 보유 기준</div>
+    <!-- 탭 -->
+    <div style="display:flex;gap:0;margin-bottom:16px;border-bottom:2px solid var(--border);">
+      <button id="bt-tab-bp" onclick="switchBtTab('bp')"
+        style="padding:8px 20px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;border-bottom:3px solid #1d4ed8;color:#1d4ed8;margin-bottom:-2px;">
+        📌 베스트픽
+      </button>
+      <button id="bt-tab-dc" onclick="switchBtTab('dc')"
+        style="padding:8px 20px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;border-bottom:3px solid transparent;color:var(--sub);margin-bottom:-2px;">
+        ⚡ 더블 컨펌
+      </button>
+    </div>
+
+    <!-- ── 베스트픽 섹션 ── -->
+    <div id="bt-section-bp">
+      <div class="bt-summary-grid" id="bp-stats-grid">
+        <div class="bt-stat-card">
+          <div class="bt-stat-label">📈 베스트픽 평균 수익률</div>
+          <div class="bt-stat-val" id="bp-avg-ret">—</div>
+          <div class="bt-stat-meta">현재까지 보유 기준</div>
+        </div>
+        <div class="bt-stat-card">
+          <div class="bt-stat-label">📉 SPY 수익률 (30일)</div>
+          <div class="bt-stat-val" id="bp-spy-ret">—</div>
+          <div class="bt-stat-meta">시장 벤치마크</div>
+        </div>
+        <div class="bt-stat-card" id="bp-alpha-card">
+          <div class="bt-stat-label">⚡ 초과수익 (알파)</div>
+          <div class="bt-stat-val" id="bp-alpha">—</div>
+          <div class="bt-stat-meta">베스트픽 − SPY</div>
+        </div>
+        <div class="bt-stat-card">
+          <div class="bt-stat-label">📊 총 기록 수</div>
+          <div class="bt-stat-val" id="bp-total">—</div>
+          <div class="bt-stat-meta">최근 6개월</div>
+        </div>
+        <div class="bt-stat-card">
+          <div class="bt-stat-label">🏆 승률</div>
+          <div class="bt-stat-val" id="bp-winrate">—</div>
+          <div class="bt-stat-meta">수익 종목 비율</div>
+        </div>
+        <div class="bt-stat-card">
+          <div class="bt-stat-label">📅 추적 일수</div>
+          <div class="bt-stat-val" id="bp-period">—</div>
+          <div class="bt-stat-meta">스크리닝 기록일 수</div>
+        </div>
       </div>
-      <div class="bt-stat-card">
-        <div class="bt-stat-label">📉 SPY 수익률 (30일)</div>
-        <div class="bt-stat-val" id="bp-spy-ret">—</div>
-        <div class="bt-stat-meta">시장 벤치마크</div>
+      <div class="inv-note" style="margin-bottom:14px;">
+        💡 매일 KST 04:00 스크리닝 완료 후 <b>자동으로 베스트픽이 기록</b>됩니다. 수동으로도 저장 가능합니다.<br>
+        <b>초과수익(알파)</b> = 베스트픽 평균 수익률 − SPY 30일 수익률. 양수면 시장 대비 아웃퍼폼.
       </div>
-      <div class="bt-stat-card" id="bp-alpha-card">
-        <div class="bt-stat-label">⚡ 초과수익 (알파)</div>
-        <div class="bt-stat-val" id="bp-alpha">—</div>
-        <div class="bt-stat-meta">베스트픽 − SPY</div>
-      </div>
-      <!-- 2행: 보조 정보 3개 -->
-      <div class="bt-stat-card">
-        <div class="bt-stat-label">📊 총 기록 수</div>
-        <div class="bt-stat-val" id="bp-total">—</div>
-        <div class="bt-stat-meta">최근 6개월</div>
-      </div>
-      <div class="bt-stat-card">
-        <div class="bt-stat-label">🏆 승률</div>
-        <div class="bt-stat-val" id="bp-winrate">—</div>
-        <div class="bt-stat-meta">수익 종목 비율</div>
-      </div>
-      <div class="bt-stat-card">
-        <div class="bt-stat-label">📅 추적 일수</div>
-        <div class="bt-stat-val" id="bp-period">—</div>
-        <div class="bt-stat-meta">스크리닝 기록일 수</div>
+      <div class="card">
+        <div class="section-title">베스트픽 이력 <span class="section-right" id="bp-updated"></span></div>
+        <div id="bp-history-wrap">
+          <div style="text-align:center;padding:40px;color:var(--sub);">🔄 이력 새로고침 버튼을 눌러주세요</div>
+        </div>
       </div>
     </div>
 
-    <!-- 안내 박스 -->
-    <div class="inv-note" style="margin-bottom:14px;">
-      💡 매일 KST 04:00 스크리닝 완료 후 <b>자동으로 베스트픽이 기록</b>됩니다. 수동으로도 저장 가능합니다.<br>
-      <b>초과수익(알파)</b> = 베스트픽 평균 수익률 − SPY 30일 수익률. 양수면 시장 대비 아웃퍼폼.
-    </div>
-
-    <!-- 이력 테이블 -->
-    <div class="card">
-      <div class="section-title">베스트픽 이력 <span class="section-right" id="bp-updated"></span></div>
-      <div id="bp-history-wrap">
-        <div style="text-align:center;padding:40px;color:var(--sub);">🔄 이력 새로고침 버튼을 눌러주세요</div>
+    <!-- ── 더블 컨펌 섹션 ── -->
+    <div id="bt-section-dc" style="display:none;">
+      <div class="bt-summary-grid">
+        <div class="bt-stat-card">
+          <div class="bt-stat-label">📈 더블 컨펌 평균 수익률</div>
+          <div class="bt-stat-val" id="dc-avg-ret">—</div>
+          <div class="bt-stat-meta">현재까지 보유 기준</div>
+        </div>
+        <div class="bt-stat-card">
+          <div class="bt-stat-label">📉 SPY 수익률 (30일)</div>
+          <div class="bt-stat-val" id="dc-spy-ret">—</div>
+          <div class="bt-stat-meta">시장 벤치마크</div>
+        </div>
+        <div class="bt-stat-card" id="dc-alpha-card">
+          <div class="bt-stat-label">⚡ 초과수익 (알파)</div>
+          <div class="bt-stat-val" id="dc-alpha">—</div>
+          <div class="bt-stat-meta">더블컨펌 − SPY</div>
+        </div>
+        <div class="bt-stat-card">
+          <div class="bt-stat-label">📊 총 기록 수</div>
+          <div class="bt-stat-val" id="dc-total">—</div>
+          <div class="bt-stat-meta">최근 6개월</div>
+        </div>
+        <div class="bt-stat-card">
+          <div class="bt-stat-label">🏆 승률</div>
+          <div class="bt-stat-val" id="dc-winrate">—</div>
+          <div class="bt-stat-meta">수익 종목 비율</div>
+        </div>
+        <div class="bt-stat-card">
+          <div class="bt-stat-label">📅 추적 일수</div>
+          <div class="bt-stat-val" id="dc-period">—</div>
+          <div class="bt-stat-meta">스크리닝 기록일 수</div>
+        </div>
+      </div>
+      <div class="inv-note" style="margin-bottom:14px;">
+        💡 <b>더블 컨펌</b> = 베스트픽 스크리너(65점 이상) + 모멘텀 스크리너(60점 이상) <b>동시 통과</b> 종목.<br>
+        매일 KST 05:00 자동 기록. 합산 점수 상위 5종목 선정.
+      </div>
+      <div class="card">
+        <div class="section-title">더블 컨펌 이력 <span class="section-right" id="dc-updated"></span></div>
+        <div id="dc-history-wrap">
+          <div style="text-align:center;padding:40px;color:var(--sub);">🔄 이력 새로고침 버튼을 눌러주세요</div>
+        </div>
       </div>
     </div>
   </div>
@@ -2912,6 +2970,137 @@ async function loadBestpickHistory() {
     document.getElementById('bp-history-wrap').innerHTML = html;
   } catch(e) {
     document.getElementById('bp-history-wrap').innerHTML = `<div style="padding:20px;color:var(--red);">❌ 서버 연결 실패: ${e.message}</div>`;
+  }
+}
+
+// ── 더블 컨펌 트래커 ────────────────────────────────────────
+let _btActiveTab = 'bp';
+
+function switchBtTab(tab) {
+  _btActiveTab = tab;
+  const isBp = tab === 'bp';
+  document.getElementById('bt-section-bp').style.display = isBp ? '' : 'none';
+  document.getElementById('bt-section-dc').style.display = isBp ? 'none' : '';
+  document.getElementById('bt-btn-bp').style.display = isBp ? 'flex' : 'none';
+  document.getElementById('bt-btn-dc').style.display = isBp ? 'none' : 'flex';
+  const tabBp = document.getElementById('bt-tab-bp');
+  const tabDc = document.getElementById('bt-tab-dc');
+  tabBp.style.borderBottomColor = isBp ? '#1d4ed8' : 'transparent';
+  tabBp.style.color = isBp ? '#1d4ed8' : 'var(--sub)';
+  tabDc.style.borderBottomColor = isBp ? 'transparent' : '#7c3aed';
+  tabDc.style.color = isBp ? 'var(--sub)' : '#7c3aed';
+  if (!isBp) loadDoubleConfirmHistory();
+}
+
+function onBtMarketChange() {
+  if (_btActiveTab === 'bp') loadBestpickHistory();
+  else loadDoubleConfirmHistory();
+}
+
+async function saveDoubleConfirm() {
+  const btn = document.getElementById('dc-save-btn');
+  btn.disabled = true; btn.textContent = '⏳ 저장 중...';
+  try {
+    const res = await fetch(`${API}/api/double_confirm/save`, {method:'POST'});
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    document.getElementById('dc-history-wrap').innerHTML =
+      `<div style="padding:16px;background:#f0fdf4;border:1px solid #86efac;border-radius:10px;">${data.message || '완료'}</div>`;
+    setTimeout(loadDoubleConfirmHistory, 3000);
+  } catch(e) {
+    document.getElementById('dc-history-wrap').innerHTML = `<div style="padding:20px;color:var(--red);">❌ ${e.message}</div>`;
+  }
+  btn.disabled = false; btn.textContent = '⚡ 더블 컨펌 기록';
+}
+
+async function loadDoubleConfirmHistory() {
+  document.getElementById('dc-history-wrap').innerHTML = '<div style="text-align:center;padding:30px;color:var(--sub);"><div class="spinner" style="margin:0 auto 8px;"></div>이력 불러오는 중...</div>';
+  try {
+    const market = document.getElementById('bp-market').value;
+    const res = await fetch(`${API}/api/double_confirm/history?market=${market}`);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    if (data.error) {
+      document.getElementById('dc-history-wrap').innerHTML = `<div style="padding:20px;color:var(--red);">❌ ${data.error}</div>`;
+      return;
+    }
+
+    const fmt = (v) => v !== null && v !== undefined ? `<span class="${v>=0?'up':'dn'}">${v>=0?'+':''}${v}%</span>` : '<span style="color:var(--sub)">추적중</span>';
+
+    document.getElementById('dc-total').textContent = (data.total_records || 0) + '건';
+    const avg = data.overall_avg_return;
+    const avgEl = document.getElementById('dc-avg-ret');
+    avgEl.textContent = avg !== null && avg !== undefined ? (avg>=0?'+':'') + avg + '%' : '—';
+    avgEl.className = 'bt-stat-val ' + (avg >= 0 ? 'up' : 'dn');
+
+    const spy = data.spy_benchmark || {};
+    const spy30 = spy.spy_30d;
+    const spyEl = document.getElementById('dc-spy-ret');
+    spyEl.textContent = spy30 !== null && spy30 !== undefined ? (spy30>=0?'+':'') + spy30 + '%' : '—';
+    spyEl.className = 'bt-stat-val ' + (spy30 >= 0 ? 'up' : 'dn');
+
+    const alpha = data.alpha_vs_spy;
+    const alphaEl = document.getElementById('dc-alpha');
+    const alphaCard = document.getElementById('dc-alpha-card');
+    if (alpha !== null && alpha !== undefined) {
+      alphaEl.textContent = (alpha>=0?'+':'') + alpha + '%';
+      alphaEl.className = 'bt-stat-val ' + (alpha >= 0 ? 'up' : 'dn');
+      alphaCard.className = 'bt-stat-card ' + (alpha >= 0 ? 'alpha-pos' : 'alpha-neg');
+    } else { alphaEl.textContent = '—'; alphaEl.className = 'bt-stat-val'; }
+
+    document.getElementById('dc-winrate').textContent = data.overall_win_rate !== null ? data.overall_win_rate + '%' : '—';
+    const history = data.history || [];
+    document.getElementById('dc-period').textContent = history.length + '일치';
+    document.getElementById('dc-updated').textContent = data.updated_at || '';
+
+    if (!history.length) {
+      document.getElementById('dc-history-wrap').innerHTML = '<div style="text-align:center;padding:40px;color:var(--sub);">아직 기록된 더블 컨펌이 없습니다.<br>매일 KST 05:00 자동 기록되거나 <b>더블 컨펌 기록</b>을 눌러주세요.</div>';
+      return;
+    }
+
+    let html = '';
+    history.forEach(day => {
+      const avgR = day.avg_return_latest;
+      const avgStr = avgR !== null && avgR !== undefined ? (avgR>=0?'+':'') + avgR + '%' : '추적중';
+      const avgClass = avgR >= 0 ? 'up' : (avgR < 0 ? 'dn' : '');
+      html += `<div style="margin-bottom:18px;">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;padding-bottom:6px;border-bottom:2px solid var(--border);">
+          <span style="font-size:14px;font-weight:800;">📅 ${day.date}</span>
+          <span style="font-size:12px;color:var(--sub);">${day.count}종목</span>
+          <span style="font-size:13px;font-weight:700;" class="${avgClass}">현재 평균 ${avgStr}</span>
+        </div>
+        <div class="table-wrap"><table class="stbl" style="table-layout:fixed;width:100%;">
+          <colgroup>
+            <col style="width:20%;"><col style="width:14%;"><col style="width:8%;">
+            <col style="width:8%;"><col style="width:9%;"><col style="width:9%;">
+            <col style="width:9%;"><col style="width:9%;"><col style="width:14%;">
+          </colgroup>
+          <thead><tr>
+            <th>종목</th><th>섹터</th><th>스크리닝</th><th>모멘텀</th>
+            <th>+7일</th><th>+30일</th><th>+3개월</th><th>현재</th><th>연속선정</th>
+          </tr></thead><tbody>`;
+      day.picks.forEach(p => {
+        const consec = p.consecutive_count > 1
+          ? `<span style="background:#ede9fe;color:#5b21b6;padding:2px 7px;border-radius:4px;font-size:11px;font-weight:700;">🔥 ${p.consecutive_count}일 연속</span>`
+          : '—';
+        html += `<tr>
+          <td><div class="tname" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${p.name||p.ticker}</div>
+              <div style="font-size:11px;color:var(--sub);">${p.ticker}</div></td>
+          <td style="font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${p.sector||'—'}</td>
+          <td><span style="font-weight:700;color:#1d4ed8;">${p.total_score||0}</span></td>
+          <td><span style="font-weight:700;color:#7c3aed;">${p.momentum_score||0}</span></td>
+          <td>${fmt(p.return_7d)}</td>
+          <td>${fmt(p.return_30d)}</td>
+          <td>${fmt(p.return_90d)}</td>
+          <td>${fmt(p.return_latest)}</td>
+          <td style="white-space:nowrap;">${consec}</td>
+        </tr>`;
+      });
+      html += `</tbody></table></div></div>`;
+    });
+    document.getElementById('dc-history-wrap').innerHTML = html;
+  } catch(e) {
+    document.getElementById('dc-history-wrap').innerHTML = `<div style="padding:20px;color:var(--red);">❌ 서버 연결 실패: ${e.message}</div>`;
   }
 }
 

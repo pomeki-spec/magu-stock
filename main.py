@@ -402,6 +402,35 @@ def init_db():
         );
         CREATE INDEX IF NOT EXISTS idx_mc_market ON momentum_cache(market);
         CREATE INDEX IF NOT EXISTS idx_mc_score  ON momentum_cache(momentum_score DESC);
+
+        CREATE TABLE IF NOT EXISTS double_confirm_records (
+            id                SERIAL PRIMARY KEY,
+            ticker            TEXT NOT NULL,
+            name              TEXT,
+            sector            TEXT,
+            entry_price       FLOAT NOT NULL,
+            total_score       INT,
+            momentum_score    INT,
+            combined_score    INT,
+            spy_entry_price   FLOAT,
+            consecutive_count INT DEFAULT 1,
+            picked_at         DATE NOT NULL DEFAULT CURRENT_DATE,
+            market            TEXT DEFAULT 'nasdaq',
+            UNIQUE (ticker, picked_at, market)
+        );
+        CREATE INDEX IF NOT EXISTS idx_dc_picked_at ON double_confirm_records(picked_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_dc_market    ON double_confirm_records(market);
+
+        CREATE TABLE IF NOT EXISTS double_confirm_prices (
+            id         SERIAL PRIMARY KEY,
+            record_id  INT NOT NULL REFERENCES double_confirm_records(id) ON DELETE CASCADE,
+            ticker     TEXT NOT NULL,
+            price_date DATE NOT NULL,
+            price      FLOAT NOT NULL,
+            return_pct FLOAT,
+            UNIQUE (record_id, price_date)
+        );
+        CREATE INDEX IF NOT EXISTS idx_dcp_record ON double_confirm_prices(record_id);
     """)
     conn.commit()
     cur.close()
@@ -414,6 +443,7 @@ def cleanup_old_data():
         cur.execute("DELETE FROM screening_cache WHERE screened_at < NOW() - INTERVAL '30 days'")
         cur.execute("DELETE FROM tenbagger_cache WHERE screened_at < NOW() - INTERVAL '30 days'")
         cur.execute("DELETE FROM bestpick_records WHERE picked_at < CURRENT_DATE - INTERVAL '3 years'")
+        cur.execute("DELETE FROM double_confirm_records WHERE picked_at < CURRENT_DATE - INTERVAL '3 years'")
         conn.commit(); cur.close(); conn.close()
         logger.info("cleanup 완료")
     except Exception as e:
@@ -3117,6 +3147,131 @@ def update_bestpick_prices_job():
         logger.error(f"베스트픽 가격 업데이트 오류: {e}")
 
 
+def save_double_confirm_to_db(picks: list, market: str = "nasdaq") -> dict:
+    """더블 컨펌 상위 5종목 DB 저장. 중복은 consecutive_count 증가."""
+    if not picks or not DATABASE_URL:
+        return {"saved": 0, "skipped": 0, "error": "DB 없음"}
+    today = datetime.now(pytz.timezone("Asia/Seoul")).date()
+    spy_entry = _fetch_spy_price_now()
+    saved = 0; skipped = 0
+    try:
+        conn = get_conn(); cur = conn.cursor()
+        for p in picks:
+            ticker = p["ticker"]
+            cur.execute("SELECT id FROM double_confirm_records WHERE ticker=%s AND picked_at=%s AND market=%s",
+                        (ticker, today, market))
+            if cur.fetchone():
+                skipped += 1; continue
+            cur.execute("""
+                SELECT consecutive_count FROM double_confirm_records
+                WHERE ticker=%s AND picked_at = %s - INTERVAL '1 day' AND market=%s
+            """, (ticker, today, market))
+            row = cur.fetchone()
+            consecutive = (row[0] + 1) if row else 1
+            cur.execute("""
+                INSERT INTO double_confirm_records
+                    (ticker, name, sector, entry_price, total_score, momentum_score,
+                     combined_score, spy_entry_price, consecutive_count, picked_at, market)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                RETURNING id
+            """, (
+                ticker, p.get("name", ticker), p.get("sector", "Unknown"),
+                p.get("price", 0), p.get("total_score", 0),
+                p.get("momentum_score", 0), p.get("combined_score", 0),
+                spy_entry or None, consecutive, today, market
+            ))
+            record_id = cur.fetchone()[0]
+            cur.execute("""
+                INSERT INTO double_confirm_prices (record_id, ticker, price_date, price, return_pct)
+                VALUES (%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING
+            """, (record_id, ticker, today, p.get("price", 0), 0.0))
+            saved += 1
+        conn.commit(); cur.close(); conn.close()
+        logger.info(f"더블컨펌 저장 [{market}]: {saved}개 신규, {skipped}개 중복 스킵")
+        return {"saved": saved, "skipped": skipped}
+    except Exception as e:
+        logger.error(f"더블컨펌 저장 오류: {e}")
+        return {"saved": 0, "skipped": 0, "error": str(e)}
+
+
+def _run_double_confirm_job():
+    """KST 05:00 — 베스트픽+모멘텀 동시 통과 상위 5종목 자동 기록"""
+    if not DATABASE_URL: return
+    logger.info("=== 더블 컨펌 스크리닝 시작 ===")
+    for market in ("nasdaq", "sp500"):
+        try:
+            conn = get_conn(); cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            freshness = "AND screened_at > NOW() - INTERVAL '25 hours'"
+            cur.execute(f"""
+                SELECT ticker, name, sector, total_score, price
+                FROM screening_cache WHERE market=%s AND total_score >= 65 {freshness}
+            """, (market,))
+            sc = {r["ticker"]: dict(r) for r in cur.fetchall()}
+            cur.execute(f"""
+                SELECT ticker, momentum_score
+                FROM momentum_cache WHERE market=%s AND momentum_score >= 60 {freshness}
+            """, (market,))
+            mt = {r["ticker"]: dict(r) for r in cur.fetchall()}
+            cur.close(); conn.close()
+
+            picks = []
+            for ticker in set(sc.keys()) & set(mt.keys()):
+                s = sc[ticker]; m = mt[ticker]
+                picks.append({
+                    "ticker": ticker,
+                    "name": s.get("name", ticker),
+                    "sector": s.get("sector", "Unknown"),
+                    "price": s.get("price", 0),
+                    "total_score": s.get("total_score", 0),
+                    "momentum_score": m.get("momentum_score", 0),
+                    "combined_score": s.get("total_score", 0) + m.get("momentum_score", 0),
+                })
+            picks.sort(key=lambda x: x["combined_score"], reverse=True)
+            top5 = picks[:5]
+            if top5:
+                save_double_confirm_to_db(top5, market=market)
+                logger.info(f"더블컨펌 [{market}] {len(top5)}개 저장")
+            else:
+                logger.info(f"더블컨펌 [{market}] 교집합 없음 (조건 미충족)")
+        except Exception as e:
+            logger.error(f"더블컨펌 스크리닝 오류 [{market}]: {e}")
+
+
+def update_double_confirm_prices_job():
+    """장 마감 후 더블 컨펌 종목 현재가 업데이트"""
+    if not DATABASE_URL: return
+    try:
+        conn = get_conn(); cur = conn.cursor()
+        cur.execute("SELECT id, ticker, entry_price FROM double_confirm_records WHERE picked_at >= CURRENT_DATE - INTERVAL '3 years'")
+        records = cur.fetchall()
+        cur.close(); conn.close()
+        if not records: return
+
+        today = datetime.now(pytz.timezone("Asia/Seoul")).date()
+        prices = {}
+        for ticker in list({r[1] for r in records}):
+            try:
+                hist = yf.Ticker(ticker).history(period="2d")
+                if not hist.empty:
+                    prices[ticker] = float(hist["Close"].iloc[-1])
+            except: pass
+
+        conn = get_conn(); cur = conn.cursor()
+        for record_id, ticker, entry_price in records:
+            current = prices.get(ticker)
+            if current is None: continue
+            ret = round((current / entry_price - 1) * 100, 2) if entry_price else 0
+            cur.execute("""
+                INSERT INTO double_confirm_prices (record_id, ticker, price_date, price, return_pct)
+                VALUES (%s,%s,%s,%s,%s)
+                ON CONFLICT (record_id, price_date) DO UPDATE SET price=EXCLUDED.price, return_pct=EXCLUDED.return_pct
+            """, (record_id, ticker, today, current, ret))
+        conn.commit(); cur.close(); conn.close()
+        logger.info(f"더블컨펌 가격 업데이트 완료: {len(records)}건")
+    except Exception as e:
+        logger.error(f"더블컨펌 가격 업데이트 오류: {e}")
+
+
 @app.post("/api/bestpick/save_picks")
 def save_bestpick_direct(payload: dict):
     """프론트에서 선정된 top5 종목을 직접 받아 DB 저장 — 화면과 트래커 종목 일치 보장"""
@@ -3376,6 +3531,101 @@ def get_double_confirm(market: str = "nasdaq", sc_min: int = 65, mt_min: int = 6
     except Exception as e:
         logger.error(f"double_confirm 오류: {e}")
         return {"error": str(e)}
+
+
+@app.get("/api/double_confirm/history")
+def get_double_confirm_history(market: str = "nasdaq"):
+    """더블 컨펌 이력 + 수익률 추적 + SPY 벤치마크"""
+    if not DATABASE_URL:
+        return {"error": "DATABASE_URL 없음"}
+    try:
+        conn = get_conn(); cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("""
+            SELECT
+                r.id, r.ticker, r.name, r.sector,
+                r.entry_price, r.total_score, r.momentum_score, r.combined_score,
+                r.spy_entry_price, r.consecutive_count,
+                r.picked_at::text AS picked_at,
+                p7.return_pct   AS return_7d,
+                p30.return_pct  AS return_30d,
+                p90.return_pct  AS return_90d,
+                pl.return_pct   AS return_latest,
+                pl.price_date::text AS latest_date
+            FROM double_confirm_records r
+            LEFT JOIN double_confirm_prices p7
+                ON p7.record_id = r.id
+                AND p7.price_date = r.picked_at + INTERVAL '7 days'
+            LEFT JOIN double_confirm_prices p30
+                ON p30.record_id = r.id
+                AND p30.price_date = r.picked_at + INTERVAL '30 days'
+            LEFT JOIN double_confirm_prices p90
+                ON p90.record_id = r.id
+                AND p90.price_date = r.picked_at + INTERVAL '90 days'
+            LEFT JOIN LATERAL (
+                SELECT return_pct, price_date FROM double_confirm_prices
+                WHERE record_id = r.id ORDER BY price_date DESC LIMIT 1
+            ) pl ON TRUE
+            WHERE r.picked_at >= CURRENT_DATE - INTERVAL '180 days'
+              AND r.market = %s
+            ORDER BY r.picked_at DESC, r.combined_score DESC
+        """, (market,))
+        rows = [dict(r) for r in cur.fetchall()]
+        cur.close(); conn.close()
+
+        spy_rets = _fetch_spy_returns()
+
+        from collections import defaultdict
+        grouped = defaultdict(list)
+        for row in rows:
+            grouped[row["picked_at"]].append(row)
+
+        summary_by_date = []
+        for date, items in sorted(grouped.items(), reverse=True):
+            valid = [i["return_latest"] for i in items if i["return_latest"] is not None]
+            summary_by_date.append({
+                "date": date,
+                "count": len(items),
+                "avg_return_latest": round(sum(valid) / len(valid), 2) if valid else None,
+                "picks": items
+            })
+
+        all_returns = [r["return_latest"] for r in rows if r["return_latest"] is not None]
+        overall_avg = round(sum(all_returns) / len(all_returns), 2) if all_returns else None
+        win_rate = round(sum(1 for r in all_returns if r > 0) / len(all_returns) * 100, 1) if all_returns else None
+
+        spy_now = spy_rets.get("spy_current", 0)
+        per_pick_alphas = []
+        for r in rows:
+            if r.get("return_latest") is None: continue
+            spy_entry = r.get("spy_entry_price")
+            if spy_entry and spy_entry > 0 and spy_now > 0:
+                spy_ret = round((spy_now / spy_entry - 1) * 100, 2)
+                per_pick_alphas.append(r["return_latest"] - spy_ret)
+        alpha = round(sum(per_pick_alphas) / len(per_pick_alphas), 2) if per_pick_alphas else (
+            round(overall_avg - spy_rets.get("spy_30d", 0), 2)
+            if overall_avg is not None and spy_rets.get("spy_30d") is not None else None
+        )
+
+        return {
+            "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+            "total_records": len(rows),
+            "overall_avg_return": overall_avg,
+            "overall_win_rate": win_rate,
+            "spy_benchmark": spy_rets,
+            "alpha_vs_spy": alpha,
+            "history": summary_by_date
+        }
+    except Exception as e:
+        logger.error(f"더블컨펌 이력 조회 오류: {e}")
+        return {"error": str(e)}
+
+
+@app.post("/api/double_confirm/save")
+@limiter.limit("3/minute")
+def save_double_confirm_manual(request: Request, background_tasks: BackgroundTasks):
+    """수동 더블 컨펌 기록 트리거"""
+    background_tasks.add_task(_run_double_confirm_job)
+    return {"message": "더블 컨펌 스크리닝 시작됨. 잠시 후 이력을 새로고침하세요."}
 
 
 # ══════════════════════════════════════════════════════════════
@@ -4167,6 +4417,22 @@ scheduler.add_job(
     _run_ark_job,
     CronTrigger(hour=1, minute=0, timezone=pytz.utc),
     id="daily_ark",
+    replace_existing=True,
+    misfire_grace_time=3600
+)
+# 매일 KST 05:00 (UTC 20:00) — 더블 컨펌 자동 기록 (스크리닝 04:00 + 모멘텀 04:30 완료 후)
+scheduler.add_job(
+    _run_double_confirm_job,
+    CronTrigger(hour=20, minute=0, timezone=pytz.utc),
+    id="double_confirm_screening",
+    replace_existing=True,
+    misfire_grace_time=3600
+)
+# 매일 KST 08:30 (UTC 23:30) — 더블 컨펌 가격 업데이트
+scheduler.add_job(
+    update_double_confirm_prices_job,
+    CronTrigger(hour=23, minute=30, timezone=pytz.utc),
+    id="daily_dc_price",
     replace_existing=True,
     misfire_grace_time=3600
 )
