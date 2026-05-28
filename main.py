@@ -217,6 +217,7 @@ def init_db():
         );
         -- 기존 테이블에 market 컬럼이 없으면 추가
         ALTER TABLE bestpick_records ADD COLUMN IF NOT EXISTS market TEXT DEFAULT 'nasdaq';
+        ALTER TABLE bestpick_records ADD COLUMN IF NOT EXISTS spy_entry_price FLOAT;
         UPDATE bestpick_records SET market = 'nasdaq' WHERE market IS NULL;
         -- 기존 (ticker, picked_at) 제약 삭제 후 (ticker, picked_at, market)으로 교체
         ALTER TABLE bestpick_records DROP CONSTRAINT IF EXISTS bestpick_records_ticker_picked_at_key;
@@ -412,7 +413,7 @@ def cleanup_old_data():
         conn = get_conn(); cur = conn.cursor()
         cur.execute("DELETE FROM screening_cache WHERE screened_at < NOW() - INTERVAL '30 days'")
         cur.execute("DELETE FROM tenbagger_cache WHERE screened_at < NOW() - INTERVAL '30 days'")
-        cur.execute("DELETE FROM bestpick_records WHERE picked_at < CURRENT_DATE - INTERVAL '180 days'")
+        cur.execute("DELETE FROM bestpick_records WHERE picked_at < CURRENT_DATE - INTERVAL '3 years'")
         conn.commit(); cur.close(); conn.close()
         logger.info("cleanup 완료")
     except Exception as e:
@@ -3015,42 +3016,49 @@ def select_bestpick_5(screening_results: list) -> list:
     return candidates[:5]
 
 
+def _fetch_spy_price_now() -> float:
+    """SPY 현재가 조회 (베스트픽 저장 시 진입가 기록용)"""
+    try:
+        hist = yf.Ticker("SPY").history(period="2d")
+        if not hist.empty:
+            return float(hist["Close"].iloc[-1])
+    except: pass
+    return 0.0
+
 def save_bestpick_to_db(picks: list, market: str = "nasdaq") -> dict:
     """베스트픽 5종목을 DB에 저장. 중복 종목은 consecutive_count만 증가."""
     if not picks or not DATABASE_URL:
         return {"saved": 0, "skipped": 0, "error": "DB 없음"}
     today = datetime.now(pytz.timezone("Asia/Seoul")).date()
+    spy_entry = _fetch_spy_price_now()
     saved = 0; skipped = 0
     try:
         conn = get_conn(); cur = conn.cursor()
         for p in picks:
             ticker = p["ticker"]
-            # 오늘 이미 기록됐는지 확인 (market 포함)
             cur.execute("SELECT id FROM bestpick_records WHERE ticker=%s AND picked_at=%s AND market=%s", (ticker, today, market))
             if cur.fetchone():
                 skipped += 1
                 continue
-            # 연속 선정 횟수 계산 (어제 같은 마켓 기록이 있으면 +1)
             cur.execute("""
                 SELECT consecutive_count FROM bestpick_records
                 WHERE ticker=%s AND picked_at = %s - INTERVAL '1 day' AND market=%s
             """, (ticker, today, market))
             row = cur.fetchone()
             consecutive = (row[0] + 1) if row else 1
-
             cur.execute("""
                 INSERT INTO bestpick_records
                     (ticker, name, sector, entry_price, total_score,
                      classic_score, growth_score, modern_score,
-                     recommendation, consecutive_count, picked_at, market)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                     recommendation, consecutive_count, picked_at, market, spy_entry_price)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 RETURNING id
             """, (
                 ticker, p.get("name", ticker), p.get("sector", "Unknown"),
                 p.get("price", 0), p.get("total_score", 0),
                 p.get("classic_score", 0), p.get("growth_score", 0),
                 p.get("modern_score", 0), p.get("recommendation", ""),
-                consecutive, today, market
+                consecutive, today, market, spy_entry or None
             ))
             record_id = cur.fetchone()[0]
             cur.execute("""
@@ -3180,10 +3188,11 @@ def _fetch_spy_returns() -> dict:
             base = float(spy["Close"].iloc[-days])
             return round((latest / base - 1) * 100, 2) if base else None
         return {
-            "spy_7d":  ret(5),
-            "spy_30d": ret(21),
-            "spy_90d": ret(63),
+            "spy_7d":   ret(5),
+            "spy_30d":  ret(21),
+            "spy_90d":  ret(63),
             "spy_180d": ret(126),
+            "spy_current": latest,
         }
     except Exception as e:
         logger.warning(f"SPY 수익률 조회 실패: {e}")
@@ -3264,8 +3273,18 @@ def get_bestpick_history(market: str = "nasdaq"):
         win_count = sum(1 for r in all_returns if r > 0)
         win_rate = round(win_count / len(all_returns) * 100, 1) if all_returns else None
 
-        # SPY 대비 초과수익 (현재 추적 기간 기준)
-        alpha = round(overall_avg - spy_rets.get("spy_30d", 0), 2) if overall_avg is not None and spy_rets.get("spy_30d") is not None else None
+        # 픽별 개별 알파 계산 (각 픽의 진입 시점 SPY 대비)
+        spy_now = spy_rets.get("spy_current", 0)
+        per_pick_alphas = []
+        for r in rows:
+            if r.get("return_latest") is None: continue
+            spy_entry = r.get("spy_entry_price")
+            if spy_entry and spy_entry > 0 and spy_now > 0:
+                spy_ret_since_entry = round((spy_now / spy_entry - 1) * 100, 2)
+                per_pick_alphas.append(r["return_latest"] - spy_ret_since_entry)
+        alpha = round(sum(per_pick_alphas) / len(per_pick_alphas), 2) if per_pick_alphas else (
+            round(overall_avg - spy_rets.get("spy_30d", 0), 2) if overall_avg is not None and spy_rets.get("spy_30d") is not None else None
+        )
 
         return {
             "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
