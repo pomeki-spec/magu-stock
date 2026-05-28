@@ -1270,8 +1270,10 @@ def fetch_single_stock(ticker, market):
         stock=yf.Ticker(ticker); info=stock.info
         hist_daily=stock.history(period="1y"); hist_weekly=stock.history(period="2y",interval="1wk")
         if hist_daily.empty or len(hist_daily)<20: return None
-        c_ema=score_ema_slope(hist_weekly); c_stoch=score_stochastic(hist_daily); c_break=score_breakout(hist_daily)
-        classic=c_ema+(c_stoch//2 if c_ema==0 else c_stoch)+(c_break//2 if c_ema==0 else c_break)
+        c_ema=score_ema_slope(hist_weekly)
+        c_stoch=score_stochastic(hist_daily)//(2 if c_ema==0 else 1)
+        c_break=score_breakout(hist_daily)//(2 if c_ema==0 else 1)
+        classic=c_ema+c_stoch+c_break
         g_roe=score_roe(info.get('returnOnEquity',0) or 0); g_debt=score_debt(info.get('debtToEquity',None))
         g_eps=score_eps_growth(info); g_peg=score_peg(info.get('pegRatio',None))
         g_ma200=score_ma200(hist_daily); g_rsi=score_rsi(hist_daily)
@@ -2683,8 +2685,10 @@ def get_stock_score(ticker: str):
         if not info or not price_check: return {"error":f"종목을 찾을 수 없습니다: {ticker}"}
         hist_daily=stock.history(period="1y"); hist_weekly=stock.history(period="2y",interval="1wk")
         if hist_daily.empty or len(hist_daily)<20: return {"error":"데이터가 부족합니다"}
-        c_ema=score_ema_slope(hist_weekly); c_stoch=score_stochastic(hist_daily); c_break=score_breakout(hist_daily)
-        classic=c_ema+(c_stoch//2 if c_ema==0 else c_stoch)+(c_break//2 if c_ema==0 else c_break)
+        c_ema=score_ema_slope(hist_weekly)
+        c_stoch=score_stochastic(hist_daily)//(2 if c_ema==0 else 1)
+        c_break=score_breakout(hist_daily)//(2 if c_ema==0 else 1)
+        classic=c_ema+c_stoch+c_break
         g_roe=score_roe(info.get('returnOnEquity',0) or 0); g_debt=score_debt(info.get('debtToEquity',None))
         g_eps=score_eps_growth(info); g_peg=score_peg(info.get('pegRatio',None))
         g_ma200=score_ma200(hist_daily); g_rsi=score_rsi(hist_daily)
