@@ -5161,21 +5161,36 @@ GOOGL +8.2%, AAPL +15.4%, ... (한 줄 나열)
 # ═══════════════════════════════════════════════════════════════════════
 
 def _internal_base() -> str:
+    """매크로/시장 API용 base URL. Render에서는 RENDER_EXTERNAL_URL fallback"""
+    external = os.environ.get("RENDER_EXTERNAL_URL")
+    if external:
+        return external.rstrip("/")
     port = os.environ.get("PORT", "8080")
     return f"http://localhost:{port}"
 
-def _collect_market_data():
-    """Agent 1 입력: 매크로/플로우 핵심 결과 (다른 탭에서 받음)"""
+def _safe_get(url: str, label: str, timeout: int = 30):
+    """API 호출 + 개별 에러 처리 + 상세 로깅"""
     import requests as req
-    base = _internal_base()
     try:
-        liq = req.get(f"{base}/api/liquidity", timeout=30).json()
-        mkt = req.get(f"{base}/api/market", timeout=30).json()
-        fg  = req.get(f"{base}/api/fear_greed", timeout=30).json()
-        sm  = req.get(f"{base}/api/smartmoney", timeout=30).json()
+        r = req.get(url, timeout=timeout)
+        if r.status_code != 200:
+            logger.warning(f"[데이터수집] {label}: HTTP {r.status_code}")
+            return {}
+        data = r.json()
+        logger.info(f"[데이터수집] {label}: OK")
+        return data
     except Exception as e:
-        logger.warning(f"시장 데이터 호출 실패: {e}")
-        liq = mkt = fg = sm = {}
+        logger.warning(f"[데이터수집] {label} 실패: {type(e).__name__}: {e}")
+        return {}
+
+def _collect_market_data():
+    """Agent 1 입력: 매크로/플로우 (다른 탭의 결과 활용)"""
+    base = _internal_base()
+    logger.info(f"[데이터수집] market base URL: {base}")
+    liq = _safe_get(f"{base}/api/liquidity",   "liquidity")
+    mkt = _safe_get(f"{base}/api/market",      "market")
+    fg  = _safe_get(f"{base}/api/fear_greed",  "fear_greed")
+    sm  = _safe_get(f"{base}/api/smartmoney",  "smartmoney")
 
     macro_score = liq.get("total_score")
     macro_stage_num, macro_signal_name = _score_to_stage(macro_score)
@@ -5201,19 +5216,73 @@ def _collect_market_data():
     }
 
 def _collect_holdings_data(market: str = "nasdaq"):
-    """Agent 1 입력: 보유 종목 + 더블컨펌"""
-    import requests as req
-    base = _internal_base()
-    try:
-        port = req.get(f"{base}/api/portfolio/holdings?account=all", timeout=30).json()
-        dc   = req.get(f"{base}/api/double_confirm?market={market}", timeout=30).json()
-    except Exception as e:
-        logger.warning(f"보유/더블컨펌 호출 실패: {e}")
-        port = {"holdings": [], "summary": {}, "cash": {}}
-        dc = {"results": []}
+    """Agent 1 입력: 보유 + 더블컨펌 — DB 직접 조회 (localhost 의존 X)"""
+    if not DATABASE_URL:
+        logger.warning("[데이터수집] DATABASE_URL 없음")
+        return {"holdings": [], "double_confirm": [], "portfolio_summary": {}, "cash": {}}
 
-    holdings = port.get("holdings", [])
-    double_confirm = dc.get("results", [])[:20]
+    raw_holdings = []
+    raw_dc = []
+    try:
+        conn = get_conn()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+        # 1. 보유 종목
+        cur.execute("SELECT * FROM holdings ORDER BY id")
+        raw_holdings = [dict(r) for r in cur.fetchall()]
+        logger.info(f"[데이터수집] holdings DB: {len(raw_holdings)}개")
+
+        # 2. 더블컨펌: screening_cache ∩ momentum_cache (이미 캐시된 데이터)
+        cur.execute("""
+            SELECT s.ticker, s.name, s.sector,
+                   s.total_score, m.momentum_score,
+                   (s.total_score + m.momentum_score) AS combined_score,
+                   s.from_52w_high, m.vol_ratio
+            FROM screening_cache s
+            INNER JOIN momentum_cache m
+                ON s.ticker = m.ticker AND s.market = m.market
+            WHERE s.market = %s
+              AND s.total_score >= 65
+              AND m.momentum_score >= 60
+              AND s.screened_at > NOW() - INTERVAL '25 hours'
+              AND m.screened_at > NOW() - INTERVAL '25 hours'
+            ORDER BY combined_score DESC
+            LIMIT 20
+        """, (market,))
+        raw_dc = [dict(r) for r in cur.fetchall()]
+        logger.info(f"[데이터수집] double_confirm DB: {len(raw_dc)}개 (market={market})")
+
+        cur.close(); conn.close()
+    except Exception as e:
+        logger.error(f"[데이터수집] DB 조회 실패: {type(e).__name__}: {e}")
+
+    # 3. 보유 종목 PnL/비중 계산 (현재가 fetch — 캐시 활용)
+    usd_krw = _get_usd_krw() or 1300
+    for h in raw_holdings:
+        ticker = h.get("ticker")
+        try:
+            cur_price = _fetch_live_price(ticker)
+            avg = float(h.get("avg_price") or 0)
+            qty = float(h.get("quantity") or 0)
+            if cur_price and avg > 0:
+                h["pnl_pct"] = round((cur_price / avg - 1) * 100, 2)
+            else:
+                h["pnl_pct"] = None
+            if cur_price:
+                value = cur_price * qty
+                if h.get("currency") == "USD":
+                    value *= usd_krw
+                h["_value_krw"] = value
+            else:
+                h["_value_krw"] = 0
+        except Exception as e:
+            logger.warning(f"[데이터수집] {ticker} 가격 계산 실패: {e}")
+            h["pnl_pct"] = None
+            h["_value_krw"] = 0
+
+    total_value_krw = sum(h.get("_value_krw", 0) for h in raw_holdings)
+    for h in raw_holdings:
+        h["weight_pct"] = round(h["_value_krw"] / total_value_krw * 100, 2) if total_value_krw > 0 else 0
 
     return {
         "holdings": [
@@ -5225,7 +5294,7 @@ def _collect_holdings_data(market: str = "nasdaq"):
                 "pnl_pct":    h.get("pnl_pct"),
                 "weight_pct": h.get("weight_pct"),
             }
-            for h in holdings
+            for h in raw_holdings
         ],
         "double_confirm": [
             {
@@ -5238,10 +5307,13 @@ def _collect_holdings_data(market: str = "nasdaq"):
                 "from_52w_high":  d.get("from_52w_high"),
                 "vol_ratio":      d.get("vol_ratio"),
             }
-            for d in double_confirm
+            for d in raw_dc
         ],
-        "portfolio_summary": port.get("summary", {}),
-        "cash": port.get("cash", {}),
+        "portfolio_summary": {
+            "total_holdings": len(raw_holdings),
+            "total_value_krw": int(total_value_krw),
+        },
+        "cash": {},
     }
 
 # ═══════════════════════════════════════════════════════════════════════
