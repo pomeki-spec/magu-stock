@@ -5160,37 +5160,28 @@ GOOGL +8.2%, AAPL +15.4%, ... (한 줄 나열)
 # 데이터 수집 (PORT 환경변수 사용)
 # ═══════════════════════════════════════════════════════════════════════
 
-def _internal_base() -> str:
-    """매크로/시장 API용 base URL. Render에서는 RENDER_EXTERNAL_URL fallback"""
-    external = os.environ.get("RENDER_EXTERNAL_URL")
-    if external:
-        return external.rstrip("/")
-    port = os.environ.get("PORT", "8080")
-    return f"http://localhost:{port}"
-
-def _safe_get(url: str, label: str, timeout: int = 30):
-    """API 호출 + 개별 에러 처리 + 상세 로깅"""
-    import requests as req
+def _safe_call(fn, label: str):
+    """endpoint 함수 직접 호출 + 개별 에러 처리 (localhost HTTP 우회)"""
+    from types import SimpleNamespace
+    mock_req = SimpleNamespace(client=SimpleNamespace(host="127.0.0.1"),
+                                cookies={}, headers={})
     try:
-        r = req.get(url, timeout=timeout)
-        if r.status_code != 200:
-            logger.warning(f"[데이터수집] {label}: HTTP {r.status_code}")
+        result = fn(mock_req)
+        if isinstance(result, dict) and result.get("error"):
+            logger.warning(f"[데이터수집] {label}: {result.get('error')}")
             return {}
-        data = r.json()
         logger.info(f"[데이터수집] {label}: OK")
-        return data
+        return result if isinstance(result, dict) else {}
     except Exception as e:
         logger.warning(f"[데이터수집] {label} 실패: {type(e).__name__}: {e}")
         return {}
 
 def _collect_market_data():
-    """Agent 1 입력: 매크로/플로우 (다른 탭의 결과 활용)"""
-    base = _internal_base()
-    logger.info(f"[데이터수집] market base URL: {base}")
-    liq = _safe_get(f"{base}/api/liquidity",   "liquidity")
-    mkt = _safe_get(f"{base}/api/market",      "market")
-    fg  = _safe_get(f"{base}/api/fear_greed",  "fear_greed")
-    sm  = _safe_get(f"{base}/api/smartmoney",  "smartmoney")
+    """Agent 1 입력: 매크로/플로우 — endpoint 함수 직접 호출 (HTTP 우회)"""
+    liq = _safe_call(get_liquidity,     "liquidity")
+    mkt = _safe_call(get_market_data,   "market")
+    fg  = _safe_call(get_fear_greed,    "fear_greed")
+    sm  = _safe_call(get_smart_money,   "smartmoney")
 
     macro_score = liq.get("total_score")
     macro_stage_num, macro_signal_name = _score_to_stage(macro_score)
@@ -5256,12 +5247,13 @@ def _collect_holdings_data(market: str = "nasdaq"):
     except Exception as e:
         logger.error(f"[데이터수집] DB 조회 실패: {type(e).__name__}: {e}")
 
-    # 3. 보유 종목 PnL/비중 계산 (현재가 fetch — 캐시 활용)
+    # 3. 보유 종목 PnL/비중 계산 (_fetch_live_price는 dict 반환 — price 키 추출)
     usd_krw = _get_usd_krw() or 1300
     for h in raw_holdings:
         ticker = h.get("ticker")
         try:
-            cur_price = _fetch_live_price(ticker)
+            price_info = _fetch_live_price(ticker) or {}
+            cur_price = price_info.get("price") if isinstance(price_info, dict) else None
             avg = float(h.get("avg_price") or 0)
             qty = float(h.get("quantity") or 0)
             if cur_price and avg > 0:
@@ -5406,16 +5398,94 @@ def _call_agent(system_prompt, user_data, model=None, parse_json=True,
 # ═══════════════════════════════════════════════════════════════════════
 
 def run_classification_agent(market_data, holdings_data):
-    """Agent 1: 분류 + 시장 컨텍스트 (검색 없음)"""
-    data = {
-        "macro":          market_data.get("macro"),
-        "flow":           market_data.get("flow"),
-        "holdings":       holdings_data.get("holdings"),
-        "double_confirm": holdings_data.get("double_confirm"),
-        "rules":          {"stop_loss_pct": -15, "take_profit_pct": 50}
+    """Agent 1 (코드 함수): 룰 기반 분류 + 시장 컨텍스트 한 줄.
+    LLM 비결정성 제거 + 호출 비용 0원 + 100% 일관성."""
+    holdings = holdings_data.get("holdings") or []
+    dc       = holdings_data.get("double_confirm") or []
+    macro    = market_data.get("macro") or {}
+    flow     = market_data.get("flow") or {}
+
+    # 1. 매수 후보: 더블컨펌 combined_score 상위 3개
+    dc_sorted = sorted(dc, key=lambda x: x.get("combined_score") or 0, reverse=True)
+    buy_candidates = [
+        {"ticker": d.get("ticker"),
+         "reason": f"더블컨펌 {d.get('combined_score', '?')}점"}
+        for d in dc_sorted[:3]
+        if d.get("ticker")
+    ]
+
+    # 2. 보유 종목 분류 (룰 기반)
+    sell_review     = []
+    holding_caution = []
+    holding_normal  = []
+
+    for h in holdings:
+        ticker = h.get("ticker")
+        if not ticker: continue
+        pnl = h.get("pnl_pct")
+
+        if pnl is None:
+            holding_normal.append({
+                "ticker": ticker, "pnl_pct": None, "note": "가격 조회 실패"
+            })
+            continue
+
+        if pnl <= -12 or pnl >= 45:
+            sell_review.append({
+                "ticker": ticker,
+                "reason": f"PnL {pnl:+.1f}% — 룰 위반 임박"
+            })
+        elif -12 < pnl <= -5:
+            holding_caution.append({
+                "ticker": ticker,
+                "reason": f"PnL {pnl:+.1f}% — 주의 구간"
+            })
+        else:
+            holding_normal.append({
+                "ticker": ticker, "pnl_pct": pnl, "note": "정상 보유"
+            })
+
+    # 보유 주의는 최대 2개 (보수적)
+    holding_caution = holding_caution[:2]
+
+    # 3. 시장 컨텍스트 한 줄 (템플릿)
+    stage  = macro.get("stage")
+    signal = macro.get("signal_name") or "—"
+    leading = flow.get("leading_sectors") or []
+
+    parts = []
+    if stage and signal != "—":
+        parts.append(f"Stage {stage} {signal}")
+    else:
+        parts.append("매크로 데이터 부분 누락")
+    if leading:
+        parts.append(f"주도 섹터: {', '.join(leading[:2])}")
+    parts.append(f"보유 {len(holdings)}종목 / 더블컨펌 {len(dc)}종목")
+    market_context = " · ".join(parts)
+
+    # 4. market_color (stage 기반)
+    if stage in (1, 2):
+        color = "blue"
+    elif stage in (4, 5):
+        color = "red"
+    else:
+        color = "yellow"
+
+    logger.info(f"[Agent 1] 코드 분류: buy={len(buy_candidates)}, sell={len(sell_review)}, "
+                f"caution={len(holding_caution)}, normal={len(holding_normal)}")
+
+    return {
+        "market_context": market_context,
+        "market_color":   color,
+        "deep_analysis": {
+            "buy_candidates":  buy_candidates,
+            "sell_review":     sell_review,
+            "holding_caution": holding_caution,
+        },
+        "shallow_check": {
+            "holding_normal": holding_normal
+        }
     }
-    return _call_agent(CLASSIFICATION_PROMPT, data, parse_json=True,
-                       web_search_max_uses=0, max_tokens=AGENT_MAX_TOKENS_CLASS)
 
 def run_deep_analysis_agent(classification, holdings_data):
     """Agent 2: 깊은 분석 (그룹별, 웹 검색)"""
@@ -5516,7 +5586,7 @@ def _run_full_analysis_impl():
         logger.error(f"데이터 수집 실패: {e}")
         raise
 
-    # 1. Agent 1: 분류
+    # 1. Agent 1: 코드 함수 (LLM 호출 없음, 즉시 실행)
     try:
         classification = run_classification_agent(market_data, holdings_data)
         deep_cnt = sum(len(v) for v in (classification.get("deep_analysis", {}) or {}).values()) if isinstance(classification, dict) else 0
@@ -5526,8 +5596,6 @@ def _run_full_analysis_impl():
         logger.error(f"[Agent 1] 실패: {e}")
         classification = {"error": str(e)}
         errors.append(f"classification: {e}")
-    logger.info("⏸ 분당 토큰 한도 분산 — 8초 대기")
-    _time.sleep(8)
 
     # 2. Agent 2: 깊은 분석
     try:
