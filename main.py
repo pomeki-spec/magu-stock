@@ -5583,17 +5583,47 @@ COHR (+6.5%), ASTS (+21.7%), 233740.KS 코덱스 코스닥150 레버리지 (+7.0
 # 데이터 수집 헬퍼 (내부 API 호출)
 # ═══════════════════════════════════════════════════════════════════════
 
-def _collect_macro_data():
-    """매크로팀장 입력 데이터 수집"""
-    import requests as req
-    base = "http://localhost:8080"
+# ── 내부 호출 헬퍼: localhost HTTP 대신 endpoint 함수를 직접 호출 ──────────
+# (Render 동적 PORT 환경에서 localhost:8080 호출이 실패하던 문제 해결)
+def _mock_request():
+    """slowapi limiter를 통과하는 내부용 가짜 Request (실제 starlette Request)"""
+    from starlette.requests import Request as _SReq
+    scope = {
+        "type": "http", "method": "GET", "path": "/", "raw_path": b"/",
+        "query_string": b"", "headers": [], "client": ("127.0.0.1", 0),
+        "server": ("localhost", 80), "scheme": "http", "app": app,
+    }
+    return _SReq(scope)
+
+def _unwrap(resp):
+    """endpoint 함수 반환값을 dict로 정규화 — JSONResponse면 body 파싱"""
     try:
-        liq = req.get(f"{base}/api/liquidity", timeout=30).json()
-        mkt = req.get(f"{base}/api/market", timeout=30).json()
-        fg  = req.get(f"{base}/api/fear_greed", timeout=30).json()
+        if isinstance(resp, JSONResponse):
+            return json.loads(resp.body)
+        if isinstance(resp, dict):
+            return resp
     except Exception as e:
-        logger.warning(f"매크로 데이터 내부 호출 실패, 직접 함수 호출 시도: {e}")
-        liq = mkt = fg = {}
+        logger.warning(f"[수집] _unwrap 실패: {e}")
+    return {}
+
+def _call_endpoint(fn, label, *args, **kwargs):
+    """endpoint 함수 직접 호출 + dict 정규화 + 에러 격리"""
+    try:
+        result = _unwrap(fn(*args, **kwargs))
+        if isinstance(result, dict) and result.get("error"):
+            logger.warning(f"[수집] {label}: {result.get('error')}")
+        else:
+            logger.info(f"[수집] {label}: OK")
+        return result
+    except Exception as e:
+        logger.warning(f"[수집] {label} 실패: {type(e).__name__}: {e}")
+        return {}
+
+def _collect_macro_data():
+    """매크로팀장 입력 데이터 수집 — endpoint 함수 직접 호출 (HTTP 우회)"""
+    liq = _call_endpoint(get_liquidity,   "liquidity",  _mock_request())
+    mkt = _call_endpoint(get_market_data, "market",     _mock_request())
+    fg  = _call_endpoint(get_fear_greed,  "fear_greed", _mock_request())
 
     # liquidity_fed: MMF 제외
     liq_fed = {
@@ -5618,18 +5648,12 @@ def _collect_macro_data():
     }
 
 def _collect_money_flow_data():
-    """자금흐름팀장 입력 데이터 수집"""
-    import requests as req
-    base = "http://localhost:8080"
-    try:
-        liq = req.get(f"{base}/api/liquidity", timeout=30).json()
-        mkt = req.get(f"{base}/api/market", timeout=30).json()
-        sm  = req.get(f"{base}/api/smartmoney", timeout=30).json()
-        br  = req.get(f"{base}/api/breadth", timeout=30).json()
-        sv  = req.get(f"{base}/api/short_volume", timeout=30).json()
-    except Exception as e:
-        logger.warning(f"자금흐름 데이터 호출 실패: {e}")
-        liq = mkt = sm = br = sv = {}
+    """자금흐름팀장 입력 데이터 수집 — endpoint 함수 직접 호출 (HTTP 우회)"""
+    liq = _call_endpoint(get_liquidity,     "liquidity",    _mock_request())
+    mkt = _call_endpoint(get_market_data,   "market",       _mock_request())
+    sm  = _call_endpoint(get_smart_money,   "smartmoney",   _mock_request())
+    br  = _call_endpoint(get_market_breadth,"breadth",      _mock_request())
+    sv  = _call_endpoint(get_short_volume,  "short_volume", _mock_request())
 
     return {
         "mmf_flow": liq.get("mmf", {}),
@@ -5667,13 +5691,9 @@ def _collect_offensive_data(macro_summary, flow_summary):
         return {"candidates": [], "macro_context": macro_summary, "flow_context": flow_summary}
 
 def _collect_defensive_data(macro_summary, flow_summary, macro_stage):
-    """수비팀장 입력: 보유 종목 + 룰 + 매크로 stage"""
-    import requests as req
-    base = "http://localhost:8080"
-    try:
-        port = req.get(f"{base}/api/portfolio/holdings?account=all", timeout=30).json()
-    except Exception as e:
-        logger.warning(f"포트폴리오 호출 실패: {e}")
+    """수비팀장 입력: 보유 종목 + 룰 + 매크로 stage — get_holdings 직접 호출"""
+    port = _call_endpoint(get_holdings, "holdings", _mock_request(), account="all")
+    if not port:
         port = {"holdings": [], "summary": {}}
 
     holdings = port.get("holdings", [])
@@ -5946,11 +5966,8 @@ def _slim_holdings(holdings):
 
 def run_manager_agent(macro_result, flow_result, offensive_result, defensive_result):
     # 부장은 마크다운 반환
-    import requests as req
-    base = "http://localhost:8080"
-    try:
-        port = req.get(f"{base}/api/portfolio/holdings?account=all", timeout=30).json()
-    except:
+    port = _call_endpoint(get_holdings, "holdings(manager)", _mock_request(), account="all")
+    if not port:
         port = {"holdings": [], "summary": {}, "cash": {}, "usd_krw": 0}
 
     # 매크로 점수 → stage 명시적 계산 (부장이 헷갈리지 않도록)
@@ -6266,6 +6283,65 @@ def get_analysis_history(request: Request, limit: int = 10):
         return {"history": rows, "total": len(rows)}
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
+
+@app.get("/api/agents/debug_collect")
+@limiter.limit("10/minute")
+def debug_collect(request: Request):
+    """[1단계 검증용] AI에 보내기 직전의 수집 데이터를 그대로 반환.
+    LLM 호출 없음 — 데이터 수집이 정상인지 눈으로 확인하는 용도."""
+    out = {}
+    # 1. 매크로
+    try:
+        macro = _collect_macro_data()
+        out["macro"] = {
+            "liquidity_total_score": (macro.get("liquidity_fed") or {}).get("total_score"),
+            "vix": (macro.get("sentiment") or {}).get("vix"),
+            "fx_rates_keys": list((macro.get("fx_rates") or {}).keys()),
+            "_ok": bool((macro.get("liquidity_fed") or {}).get("total_score") is not None),
+        }
+    except Exception as e:
+        out["macro"] = {"_error": f"{type(e).__name__}: {e}"}
+    # 2. 자금흐름
+    try:
+        flow = _collect_money_flow_data()
+        sm = flow.get("sector_momentum") or {}
+        out["flow"] = {
+            "sector_count": len(sm.get("results", []) if isinstance(sm, dict) else []),
+            "has_credit_flow": bool(flow.get("credit_flow")),
+            "has_breadth": bool(flow.get("market_breadth")),
+            "short_volume_count": len(flow.get("short_volume", {}) or {}),
+        }
+    except Exception as e:
+        out["flow"] = {"_error": f"{type(e).__name__}: {e}"}
+    # 3. 보유 종목 (수비)
+    try:
+        defn = _collect_defensive_data({}, {}, 3)
+        holds = defn.get("holdings", [])
+        out["holdings"] = {
+            "count": len(holds),
+            "sample": [
+                {"ticker": h.get("ticker"), "pnl_pct": h.get("pnl_pct"),
+                 "weight_pct": h.get("weight_pct")}
+                for h in holds[:5]
+            ],
+            "_ok": len(holds) > 0,
+        }
+    except Exception as e:
+        out["holdings"] = {"_error": f"{type(e).__name__}: {e}"}
+    # 4. 더블컨펌 (신규 후보)
+    try:
+        off = _collect_offensive_data({}, {})
+        cands = off.get("candidates", [])
+        out["double_confirm"] = {
+            "count": len(cands),
+            "sample": [
+                {"ticker": c.get("ticker"), "total_score": c.get("total_score")}
+                for c in cands[:5]
+            ],
+        }
+    except Exception as e:
+        out["double_confirm"] = {"_error": f"{type(e).__name__}: {e}"}
+    return safe_json(out)
 
 @app.on_event("shutdown")
 def on_shutdown():
