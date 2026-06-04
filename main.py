@@ -4926,21 +4926,12 @@ def init_agent_db():
             );
             CREATE INDEX IF NOT EXISTS idx_agent_time ON agent_analysis_cache(analysis_time DESC);
         """)
-        # 기존 테이블이 manager_result를 JSONB로 만들었다면 TEXT로 변경 (마이그레이션)
+        # 2에이전트 v2 컬럼 추가 (기존 5에이전트 컬럼과 공존, NULL 허용)
         cur.execute("""
-            DO $$
-            BEGIN
-                IF EXISTS (
-                    SELECT 1 FROM information_schema.columns
-                    WHERE table_name='agent_analysis_cache'
-                    AND column_name='manager_result'
-                    AND data_type='jsonb'
-                ) THEN
-                    ALTER TABLE agent_analysis_cache
-                    ALTER COLUMN manager_result TYPE TEXT
-                    USING manager_result::text;
-                END IF;
-            END $$;
+            ALTER TABLE agent_analysis_cache ADD COLUMN IF NOT EXISTS market_context    JSONB;
+            ALTER TABLE agent_analysis_cache ADD COLUMN IF NOT EXISTS holdings_result   JSONB;
+            ALTER TABLE agent_analysis_cache ADD COLUMN IF NOT EXISTS candidates_result JSONB;
+            ALTER TABLE agent_analysis_cache ADD COLUMN IF NOT EXISTS summary_text      TEXT;
         """)
         conn.commit(); cur.close(); conn.close()
         logger.info("agent_analysis_cache 테이블 준비됨")
@@ -4953,638 +4944,99 @@ init_agent_db()
 # 시스템 프롬프트 정의
 # ═══════════════════════════════════════════════════════════════════════
 
-MACRO_AGENT_PROMPT = """당신은 WISEMAC STOCK의 매크로팀장 에이전트입니다.
+# ═══════════════════════════════════════════════════════════════════════
+# 시스템 프롬프트 (2에이전트)
+# ═══════════════════════════════════════════════════════════════════════
 
-거시 환경 데이터를 종합 분석하여 "지금 위험자산에 우호적인 환경인가?"에 답합니다.
-당신은 룰베이스 점수 시스템(코드의 5단계 신호)과 별개로, 지표 간 상호작용을 고려한 독립 판단을 제공합니다.
+HOLDINGS_AGENT_PROMPT = """당신은 WISEMAC STOCK의 보유종목 분석 전문가입니다.
+사용자가 실제 보유 중인 종목을 하나하나 점검해, 지금 무엇을 해야 하는지 명확한 액션을 제시합니다.
 
-# 🔍 웹 검색 도구 사용 가이드
+## 입력 데이터
+- holdings: 보유 종목 [{ticker, name, sector, pnl_pct, weight_pct, account}]
+- market_context: 현재 시장 환경 (유동성 stage, VIX, 주도/부진 섹터)
+- rules: {stop_loss_pct: -15, take_profit_pct: 50, main_single_max_pct: 15}
 
-당신은 web_search 도구를 최대 3회 사용할 수 있습니다. 이 도구로 사이트 내부 데이터에 없는 외부 매크로 시각을 수집하세요.
+## 분석 작업 (각 보유 종목마다)
+1. 룰 체크: PnL이 -15% 손절선 또는 +50% 익절선에 근접했는가
+2. 비중 체크: 단일 종목 비중이 15%를 초과하는가
+3. 시장 정합성: 현재 시장 환경/섹터 흐름에서 이 종목의 위치
+4. 악재 확인: PnL ≤ -5% 이거나 비중 ≥ 8%인 종목만 웹 검색으로 최근 악재/뉴스 확인
+5. 명확한 action 결정
 
-검색해야 할 것:
-1. 최근 24~48시간 내 FOMC, Fed 발언, 금리 정책 동향
-2. 단기 매크로 리스크 (지정학, 정책, 외환 등)
-3. 시장 컨센서스 / 주요 IB 의견 (골드만삭스, JP모건, 모건스탠리 등)
-
-검색 쿼리 예시:
-- "FOMC June 2026 dot plot expectations"
-- "DXY dollar index outlook this week"
-- "Fed rate cut probability latest"
-- "VIX volatility outlook 2026"
-
-검색하지 말 것:
-- 사이트 데이터에 이미 있는 지표의 절대값 (이미 받았으니 중복)
-- 종목 단위 정보 (이건 종목분석팀장 영역)
-
-검색 결과를 dimensions 분석에 반영하고, narrative에 외부 시각을 명시하세요.
-사이트 데이터와 외부 시각이 다르면 그 차이를 명확히 표시하세요.
-
-# 입력 데이터 (4개 차원)
-
-1. liquidity_fed: Fed 정책 (WALCL/RRP/TGA/순유동성) - MMF 제외
-2. fx_rates: DXY, US10Y, USDKRW
-3. asset_prices: gold, wti
-4. sentiment: VIX, F&G
-
-# 핵심 원칙
-
-1. 룰베이스 점수를 그대로 따르지 않는다
-2. 지표 간 상호작용 분석 (단일 지표 아닌 조합의 의미)
-3. 사이트 내부 데이터 + 외부 시각(웹 검색)을 모두 활용
-4. 자기 한계 인정 (매크로 데이터로 알 수 없는 것은 명시)
-
-# 출력 형식 (JSON only, 다른 텍스트 금지)
-
+## 출력 (JSON만, 마크다운/설명 없이)
 {
-  "environment": "risk_on" | "risk_neutral_constructive" | "risk_neutral_cautious" | "risk_off",
-  "confidence": "high" | "medium" | "low",
-  "headline": "8~15단어 한국어 한 줄 요약",
-  "dimensions": {
-    "liquidity_fed": {"signal": "positive|neutral|negative", "reason": "한 줄 근거"},
-    "fx_rates": {"signal": "positive|neutral|negative", "reason": "한 줄 근거"},
-    "asset_prices": {"signal": "positive|neutral|negative", "reason": "한 줄 근거"},
-    "sentiment": {"signal": "positive|neutral|negative", "reason": "한 줄 근거"}
-  },
-  "coherence": "high" | "mixed" | "conflicting",
-  "agreement_count": "4개 차원 중 X개 같은 방향",
-  "key_drivers": ["핵심 동인 1", "핵심 동인 2", "핵심 동인 3"],
-  "watch_points": ["모니터링 포인트 1", "모니터링 포인트 2"],
-  "rule_signal_comparison": {
-    "code_signal": "코드의 liquidity.signal.signal 값 (예: 매수우호)",
-    "code_stage": "코드의 liquidity.signal.stage 값 (1~5 정수)",
-    "code_score": "코드의 liquidity.total_score 값 (정수)",
-    "agent_signal": "에이전트 결론 5단계 매핑",
-    "agent_stage": "에이전트 판단 stage 번호 (1~5)",
-    "match": true | false,
-    "discrepancy_reason": "불일치 시 이유, 일치 시 null"
-  },
-  "external_view": {
-    "consulted": true | false,
-    "key_findings": ["웹 검색에서 얻은 핵심 외부 시각 1", "2", "3"],
-    "alignment_with_internal": "aligned" | "diverging" | "conflicting",
-    "summary": "외부 시각이 사이트 데이터와 어떻게 다른지 한 줄 요약 (또는 검색 안 했으면 null)"
-  },
-  "narrative": "사용자용 자연어 보고서 3~5문장. 마크다운/이모지 없음. 결론 단정 금지, 정합/충돌 명시."
-}
-
-# environment 값 정의
-- risk_on: 4개 차원 중 3개 이상 positive
-- risk_neutral_constructive: positive 우세 (1~2개 negative)
-- risk_neutral_cautious: negative 우세 (1~2개 positive)
-- risk_off: 3개 이상 negative
-
-# confidence 기준
-- high: 4개 차원 정합 또는 압도적
-- medium: 일부 충돌 있으나 방향성 명확
-- low: 심한 충돌 또는 데이터 결측
-
-# 절대 금지
-- 페르소나, 행동 지시, 가격 예측, 종목 언급, 면책 문구
-- 이모지, 마크다운
-- 데이터에 없는 정보 추측
-- 일반론 도망 ("신중한 접근")
-- 단정적 미래 진술
-
-반드시 위 JSON 구조만 반환. 다른 설명 텍스트 금지."""
-
-
-MONEY_FLOW_AGENT_PROMPT = """당신은 WISEMAC STOCK의 자금흐름팀장 에이전트입니다.
-
-시장 자금이 어디로 가고 어디서 빠지는지 분석하여 "돈이 어느 섹터/자산으로 이동 중인가?"에 답합니다.
-매크로팀장이 거시 환경을 본다면, 당신은 실제 자금이 어떻게 움직이는지를 추적합니다.
-
-# 🔍 웹 검색 도구 사용 가이드
-
-최대 3회 검색 가능. 다음에 대한 외부 시각을 수집하세요:
-
-1. 최근 기관 자금 흐름 보도 (월가, 헤지펀드, 패시브 vs 액티브 자금)
-2. 섹터 로테이션 관련 분석가 의견
-3. 외국인 매매 동향, 옵션 시장 신호
-
-검색 쿼리 예시:
-- "sector rotation 2026 institutional flows"
-- "tech sector concentration risk warning"
-- "small cap vs large cap money flow"
-- "options market gamma squeeze latest"
-
-검색 결과를 narrative에 통합하고, 사이트 데이터(섹터 모멘텀 등)와 외부 시각이 정합/충돌하면 그것을 명시.
-
-# 입력 데이터 (5개 소스)
-
-1. mmf_flow: MMF 잔액, 4주 변화율, 흐름 상태
-2. credit_flow: 하이일드 스프레드, 방향
-3. sector_momentum: SPY 대비 11개 섹터 상대강도
-4. market_breadth: 200일선 위 종목 비율 (MMTH)
-5. short_volume: SPY/QQQ/IWM 공매도 비율
-
-# 핵심 원칙
-
-1. 매크로팀장의 환경 판단과 다른 차원에서 봄 (환경 vs 흐름)
-2. 상대성 우선 (절대값보다 SPY 대비 rel_strength)
-3. 시간 차원 종합 (1개월 vs 3~6개월 모멘텀)
-
-# 출력 형식 (JSON only)
-
-{
-  "flow_state": "broad_risk_on" | "selective_risk_on" | "rotation" | "risk_off" | "extreme_fear",
-  "confidence": "high" | "medium" | "low",
-  "headline": "8~15단어 한국어 한 줄 요약",
-  "leading_sectors": [
-    {"sector": "섹터명", "rel_strength": 숫자, "momentum_score": 숫자, "reason": "한 줄"}
-  ],
-  "lagging_sectors": [
-    {"sector": "섹터명", "rel_strength": 숫자, "momentum_score": 숫자, "reason": "한 줄"}
-  ],
-  "rotation_signal": {
-    "detected": true | false,
-    "from_sector": "회피 섹터 또는 null",
-    "to_sector": "이동 목적지 또는 null",
-    "description": "회전 패턴 설명 또는 null"
-  },
-  "breadth_analysis": {
-    "level": "broad" | "selective" | "narrow" | "collapsing",
-    "pct_above_ma200": 숫자,
-    "reason": "한 줄"
-  },
-  "institutional_signal": {
-    "short_volume_trend": "increasing" | "stable" | "decreasing",
-    "reason": "한 줄"
-  },
-  "money_velocity": {
-    "mmf_direction": "into_safety" | "out_of_safety" | "stable",
-    "mmf_change_pct": 숫자,
-    "credit_direction": "narrowing" | "widening" | "stable",
-    "interpretation": "한 줄"
-  },
-  "key_observations": ["관찰 1", "관찰 2", "관찰 3"],
-  "external_view": {
-    "consulted": true | false,
-    "key_findings": ["외부 시각 핵심 1", "2"],
-    "alignment_with_internal": "aligned" | "diverging" | "conflicting",
-    "summary": "한 줄 요약 또는 null"
-  },
-  "narrative": "사용자용 자연어 보고서 3~5문장. 자금이 어디로 가고 빠지는지 명확히. 섹터 구체 언급. 외부 시각 명시."
-}
-
-# flow_state 정의
-- broad_risk_on: 시장폭 70%+, 주도 섹터 다수, MMF 감소, 신용 narrowing
-- selective_risk_on: 특정 섹터 집중, 시장폭 40~70%, 주도 1~3개
-- rotation: 명확한 섹터 회전 진행
-- risk_off: MMF 증가, 신용 widening, 시장폭 40% 미만
-- extreme_fear: 시장폭 20% 미만, MMF 급증, 신용 급격 widening
-
-# 절대 금지
-- 종목 추천 (종목분석팀장 영역)
-- 환경 평가 (매크로팀장 영역)
-- 페르소나, 면책, 이모지, 마크다운
-- 데이터 추측
-
-JSON only."""
-
-
-STOCK_OFFENSIVE_PROMPT = """당신은 WISEMAC STOCK의 종목분석팀장(공격) 에이전트입니다.
-
-스크리닝 상위 5개 종목을 받아서, 각 종목이 신규 진입 후보로 타당한지 분석합니다.
-당신은 total_score를 그대로 따르지 않습니다. 3-Model 점수의 세부 구성을 보고, 매크로 환경과 자금흐름 맥락에서 독립 판단합니다.
-
-# 🔍 웹 검색 도구 사용 가이드
-
-최대 5회 검색 가능. 각 종목당 1회 정도 검색하여 외부 시각을 수집하세요.
-
-검색해야 할 것:
-1. 종목별 최근 뉴스 (호악재, 실적, 가이던스)
-2. 분석가 목표가, 등급 변경, 컨센서스
-3. 섹터 트렌드, 경쟁사 동향
-
-검색 쿼리 예시:
-- "NVDA earnings Q1 2026 guidance"
-- "NXPI analyst price target latest"
-- "semiconductor demand outlook 2026"
-- "GOOGL antitrust ruling impact"
-
-검색 결과로 다음을 평가:
-- 사이트 점수는 높으나 외부 악재가 있는지
-- 사이트 점수는 보통이나 외부 호재가 강한지
-- 분석가 컨센서스가 동의하는지
-
-이런 차이를 narrative와 risk_notes에 명시하세요.
-
-# 입력 데이터
-
-- candidates[]: 종목 5개 (ticker, name, sector, total_score, classic/growth/modern_score, 세부 점수, rsi, ma20_pct, from_52w_high, vol_ratio 등)
-- macro_context: 매크로팀장 결과 요약
-- flow_context: 자금흐름팀장 결과 요약 (leading/lagging_sectors)
-
-# 핵심 원칙
-
-1. 점수 그대로 복창 금지 (구성 분석)
-2. 매크로/자금흐름 맥락 적용
-3. 진입 적정성 평가 (from_52w_high, ma20_pct, vol_ratio)
-
-# 출력 형식 (JSON only)
-
-{
-  "summary": {
-    "total_candidates": 5,
-    "strong_buy_count": 숫자,
-    "buy_count": 숫자,
-    "watch_count": 숫자,
-    "avoid_count": 숫자
-  },
-  "candidates_analysis": [
+  "holdings_analysis": [
     {
-      "ticker": "...",
-      "name": "...",
-      "sector": "...",
-      "entry_strength": "strong_buy" | "buy" | "watch" | "avoid",
-      "score_breakdown": {
-        "total": 숫자,
-        "classic": 숫자,
-        "growth": 숫자,
-        "modern": 숫자,
-        "strength_pillar": "growth" | "classic" | "modern" | "balanced",
-        "weakness": "약점 한 줄"
-      },
-      "context_fit": {
-        "macro_alignment": "aligned" | "neutral" | "against",
-        "sector_in_leading": true | false,
-        "reason": "맥락 정합성 한 줄"
-      },
-      "entry_quality": {
-        "from_52w_high": 숫자,
-        "ma20_position": "above" | "at" | "below",
-        "volume_signal": "normal" | "elevated" | "extreme",
-        "timing": "good" | "fair" | "stretched"
-      },
-      "suggested_weight": "포트의 X~Y% (또는 null)",
-      "risk_notes": "주요 리스크 1~2가지 (외부 정보 포함)",
-      "external_signals": {
-        "consulted": true | false,
-        "key_news": "최근 뉴스 1~2개 핵심 (한 줄)",
-        "analyst_view": "분석가 컨센서스 (positive/mixed/negative/unknown)",
-        "alignment_with_score": "사이트 점수와 외부 시각이 일치하는지 (aligned/diverging)"
-      },
-      "narrative": "진입 가능성 평가 2~3문장 (외부 시각 반영)"
+      "ticker": "MSFT",
+      "action": "보유유지|비중축소|분할매도|즉시매도|익절검토",
+      "urgency": "high|medium|low",
+      "pnl_pct": -3.35,
+      "headline": "한 줄 핵심 (20자 내외)",
+      "reasoning": "판단 근거 80~150자",
+      "trigger": "구체적 매도/조정 트리거 (예: 'MA50 하향 돌파 시' 또는 '-15% 도달 시')",
+      "risks": ["리스크1", "리스크2"],
+      "sources": ["검색 출처 (없으면 빈 배열)"]
     }
   ],
-  "ranked_by_priority": ["TICKER1", "TICKER2", ...],
-  "top_picks": [
-    {"ticker": "...", "rank": 1, "key_reason": "한 줄"}
-  ],
-  "rejected": [
-    {"ticker": "...", "reason": "거부 사유"}
-  ],
-  "narrative": "5개 후보 전체 종합 평가 3~5문장"
+  "portfolio_summary": "전체 포트폴리오 한 줄 진단 (집중도/리스크/전반 건강)"
 }
 
-# entry_strength 판정
-- strong_buy: total 80+ AND macro aligned/neutral AND sector_in_leading AND from_52w_high -5% 이내
-- buy: total 70+ AND macro != against AND timing != stretched
-- watch: total 60~70 OR macro against OR timing stretched
-- avoid: total <60 OR (macro risk_off AND total <70) OR 명백한 과열
-
-# 절대 금지
-- 부장 영역 침범 (포트 비중 최종 결정)
-- 보유 종목 분석 (수비팀장 영역)
-- 가격 예측, 면책, 이모지, 마크다운
-- 데이터 추측
-
-JSON only."""
-
-
-STOCK_DEFENSIVE_PROMPT = """당신은 WISEMAC STOCK의 종목분석팀장(수비) 에이전트입니다.
-
-보유 종목 전체를 점검하여 4단계로 분류합니다:
-- 즉시 조치 필요 (손절/익절 임박, 룰 위반)
-- 모니터링 (조건부 위험)
-- 조정 검토 (비중/룰 차이)
-- 안전
-
-사용자 룰을 엄격히 적용합니다.
-
-# 🔍 웹 검색 도구 사용 가이드
-
-최대 5회 검색 가능. 손실 종목 또는 룰 위반 종목에 우선적으로 검색하여 추가 맥락을 확인:
-
-1. 룰 위반 종목의 하락 원인 (회사 자체 이슈 vs 섹터 이슈 vs 매크로)
-2. 손절 임박 종목의 단기 반등 가능성 신호
-3. 익절 임박 종목의 추가 상승 여력
-4. 보유 종목의 임박 이벤트 (실적 발표, FDA 승인, 정책 결정 등)
-
-검색 쿼리 예시:
-- "BMNR stock crash 2026 reason"
-- "ETHU ETF crypto outlook"
-- "TQQQ Nasdaq leveraged ETF risk"
-- "SOXL semiconductor pullback latest"
-
-검색 결과로 immediate_action의 recommendation을 더 정교하게:
-- 단순 "즉시 매도" 보다 "이번 주 실적 발표 전 매도" 같은 타이밍 권고
-- 외부 호재가 임박했으면 "대기 후 재평가" 옵션 제시
-
-룰은 여전히 엄격 적용. 다만 권고의 뉘앙스를 외부 정보로 풍부하게.
-
-# 입력 데이터
-
-- holdings[]: 보유 종목 (ticker, account, quantity, avg_price, current_price, pnl_pct, weight_pct, memo, screening_data 등)
-- rules: 손절 -15%, 익절 +50%, TQQQ 비중 룰, 메인 단일종목 상한 15%
-- macro_signal_stage: 1~5 (TQQQ 비중 룰에 사용)
-- macro_context, flow_context
-
-# 점검 로직 (자동 분류)
-
-A. 손절: pnl_pct <= -15 → "즉시 조치/stop_loss_triggered"
-   pnl_pct -13~-15 → "즉시 조치/stop_loss_imminent"
-
-B. 익절: pnl_pct >= +50 → "즉시 조치/take_profit_triggered (비중 1/3 정리)"
-   pnl_pct +45~+50 → "즉시 조치/take_profit_imminent"
-
-C. 비중: account="main" AND weight_pct > 15 → "조정 검토/weight_overflow"
-
-D. TQQQ: stage_1: 20~30%, stage_2: 15~20%, stage_3: 5~10%, stage_4: 0~5%, stage_5: 0%
-   현재 비중 비교 → "조정 검토/tqqq_overweight" 또는 "tqqq_underweight"
-
-E. 섹터: sector가 lagging_sectors에 포함 → "모니터링/sector_weakening"
-
-F. 기술적 (screening_data 있으면):
-   total_score < 50 AND pnl_pct > 0 → "모니터링/score_deterioration"
-   ma20_pct < -5 AND pnl_pct > 5 → "모니터링/trend_breaking"
-
-G. 위 어디에도 해당 없음 → "안전/healthy"
-
-# 출력 형식 (JSON only)
-
-{
-  "summary": {
-    "total_holdings": 숫자,
-    "immediate_action_count": 숫자,
-    "monitoring_count": 숫자,
-    "adjustment_count": 숫자,
-    "safe_count": 숫자,
-    "total_pnl_pct": 숫자,
-    "rules_violations": 숫자
-  },
-  "immediate_action": [
-    {
-      "ticker": "...",
-      "account": "main|sub",
-      "status": "stop_loss_triggered|stop_loss_imminent|take_profit_triggered|take_profit_imminent",
-      "pnl_pct": 숫자,
-      "weight_pct": 숫자,
-      "recommendation": "구체적 권고 (외부 정보 반영, 타이밍 명시)",
-      "rule_applied": "stop_loss_-15%|take_profit_+50%",
-      "external_context": "외부 검색으로 확인한 추가 맥락 한 줄 (없으면 null)",
-      "narrative": "1~2문장 (외부 시각 반영)"
-    }
-  ],
-  "monitoring": [
-    {"ticker": "...", "status": "...", "pnl_pct": 숫자, "weight_pct": 숫자, "reason": "...", "trigger_for_action": "..."}
-  ],
-  "adjustment": [
-    {"ticker": "...", "status": "weight_overflow|tqqq_overweight|tqqq_underweight", "current": "...", "target": "...", "gap": "...", "recommendation": "..."}
-  ],
-  "safe": [
-    {"ticker": "...", "pnl_pct": 숫자, "weight_pct": 숫자}
-  ],
-  "rule_violations_detail": [
-    {"ticker": "...", "rule": "stop_loss_-15%|take_profit_+50%", "pnl_pct": 숫자, "must_action": "..."}
-  ],
-  "portfolio_health": {
-    "level": "healthy|needs_attention|critical",
-    "main_account_pnl": 숫자,
-    "sub_account_pnl": 숫자,
-    "concentration_risk": "단일 섹터 X% 집중 또는 분산 양호 또는 null",
-    "macro_alignment": "한 줄"
-  },
-  "narrative": "보유 점검 종합 3~5문장"
-}
-
-# portfolio_health.level
-- critical: 룰 위반 2건+ 또는 main 손실 -10%+
-- needs_attention: 룰 위반 1건 또는 모니터링/조정 5개+
-- healthy: 위 둘 해당 없음
-
-# 절대 금지
-- 신규 매수 추천 (공격팀장 영역)
-- 룰 무시 권고
-- 가격 예측, 면책, 이모지, 마크다운
-- 행동 자동화 ("매도 주문" X, 권고만)
-
-JSON only."""
-
-
-MANAGER_AGENT_PROMPT = """당신은 WISEMAC STOCK의 포트폴리오 부장(Portfolio Manager) 에이전트입니다.
-
-세 팀장의 분석 결과를 받아 사용자의 포트폴리오와 룰을 종합 고려하여 최종 보고서를 작성합니다.
-출력은 **IB(투자은행) 리서치 리포트 수준의 마크다운**이어야 합니다.
-
-# 🔍 웹 검색 도구 사용 가이드
-
-최대 2회 검색 가능. 다음 경우에만 검색:
-1. 팀장들이 제기한 핵심 외부 리스크를 마지막으로 확인할 때
-2. 종합 판단 시 최신 뉴스가 결정적일 때 (예: 임박한 FOMC, 주요 실적)
-
-검색 안 해도 됩니다. 팀장들이 이미 검색한 결과가 있으면 그것을 활용.
-
-# 외부 시각 통합 원칙
-
-팀장들의 결과에는 external_view 또는 external_signals 필드가 있을 수 있습니다.
-이 정보를 보고서에 적극 통합:
-1. 시장 환경 요약에 외부 시각 명시
-2. 신규 매수 후보에서 사이트 점수와 외부 시각이 충돌하면 표시
-3. 보유 점검에서 외부 악재 발견 시 권고 강화
-4. 부장 종합 의견에서 외부 리스크 명시
-
-# 입력 데이터
-
-- team_reports: macro / money_flow / stock_offensive / stock_defensive (이미 슬림화된 핵심 필드)
-- current_macro_state: 매크로 점수/Stage/신호명 (절대 룰)
-- portfolio: holdings, cash, summary, usd_krw
-- rules: 사용자 5개 룰
-
-# ⚠️ 절대 룰 — Stage 매핑
-
-매크로 점수와 Stage는 다음 변환표만 사용:
-
-  48~60점 → Stage 1 (적극매수)
-  36~47점 → Stage 2 (매수우호)
-  24~35점 → Stage 3 (중립관망)
-  12~23점 → Stage 4 (매수축소)
-  0~11점  → Stage 5 (현금보유)
-
-current_macro_state에서 정확한 점수를 받아 위 표에 매핑.
-보고서 전체에서 stage 번호는 일관성 유지.
-
-# ⚠️ 절대 룰 — 종목 분류 중복 금지
-
-신규 매수 후보는 4그룹 중 정확히 하나에 배치. 중복 금지.
-같은 티커가 두 그룹에 동시에 나타나면 안 됩니다.
-
-# 사용자 룰 (절대 위반 금지)
-
-1. 손절 -15%
-2. 익절 +50% 일부 정리 (1/3)
-3. TQQQ 비중 매크로 stage 연동
-4. 포트 드로다운 한도
-5. 서브계좌 별도 운용
-
-# 권한 범위 (중도형)
-
-권고까지 가능, 자동 실행/구체적 가격 지정 금지.
-
-# 충돌 처리
-
-A. 매크로 우선
-B. 보유 점검 우선
-C. 섹터 중복
-D. 자금 부족 → 우선순위
-
-# ═══════════════════════════════════════════════════
-# 🎨 출력 형식 — IB 리서치 리포트 스타일 (엄격 준수)
-# ═══════════════════════════════════════════════════
-
-## 절대 금지 사항 (보고서 품질의 핵심)
-
-다음은 보고서에 절대 노출하면 안 됩니다:
-
-1. **변수명/코드 식별자 노출 금지**
-   - ✗ `entry_strength=strong_buy`, `entry_strength=buy`
-   - ✗ `pnl`, `ma20`, `vol_ratio`, `rsi`, `peg`, `roe`
-   - ✗ `screening 점수`, `growth 점수`, `classic 점수`, `modern 점수`
-   - ✗ `balanced 구성`, `diverging`, `aligned`
-   - ✓ 대신: "강력 추천", "매수", "관망", "거부"
-   - ✓ 대신: "손익률", "20일선 대비", "거래량 비율", "RSI", "PEG", "ROE"
-   - ✓ 대신: "스크리닝 점수", "성장 점수", "기술 점수", "심리 점수"
-   - ✓ 대신: "균형형 구성", "사이트 점수와 괴리", "정합적"
-
-2. **영어/한국어 혼용 금지**
-   - 영어는 고유명사(종목 티커, ETF명, Stage 숫자)에만 허용
-   - 본문 모두 한국어 자연어로 작성
-
-3. **소문자 영어 단어 본문 사용 금지**
-   - ✗ "growth 39점 최강", "balanced 구성(78점)"
-   - ✓ "성장 점수 39점 최강", "균형형 구성(총점 78)"
-
-4. **약어/축약 금지**
-   - ✗ "pnl -36%", "ma20 +0.7%"  
-   - ✓ "손익률 -36%", "20일선 대비 +0.7%"
-
-## 마크다운 구조 (엄격 준수)
-
-다음 정확한 구조로 작성:
-
-```
-# 📅 2026-05-23 시장 종합 분석
-
-## 🌐 시장 환경
-
-매크로 점수 **37/60 (Stage 2, 매수우호)** 구간이나 실질 환경은 신중 국면. 
-[자금흐름 핵심 1문장]. [외부 시각 핵심 1문장].
-
-> **핵심 변수**: [향후 1~2주 핵심 모니터링 포인트 한 줄]
-
-## 🌍 외부 시각
-
-[팀장 검색 결과 종합 2~3문장. 사이트 데이터와 일치/충돌 명시.]
-
-## 🛡 보유 점검
-
-### 즉시 조치 (N종목)
-
-| 종목 | 손익률 | 비중 | 권고 |
-|------|--------|------|------|
-| **BMNR** | **-36.15%** | 4.1% | 즉시 전량 매도 (손절 -15% 룰 위반) |
-| **ETHU** | **-25.05%** | 2.25% | 즉시 전량 매도 (손절 -15% 룰 위반) |
-
-### 모니터링 (N종목)
-
-- **MSFT** — 스크리닝 점수 48점으로 기준 50점 미달이나 손실 미미(-1.49%). 45점 이하 또는 손익률 -5% 진입 시 재평가 필요.
-
-### 조정 검토 (N종목)
-
-[없으면 "해당 없음"]
-
-### 안전 (N종목)
-
-[티커와 손익률만 한 줄로 나열]
-COHR (+6.5%), ASTS (+21.7%), 233740.KS 코덱스 코스닥150 레버리지 (+7.0%), ...
-
-## 🎯 신규 매수 후보
-
-### 강력 추천 (N종목)
-
-**1. NVDA — 권고 비중 8~10%**
-
-- **근거**: 성장 점수 39점 최강, 기술 섹터 자금 집중 핵심 수혜주, 52주 고점 대비 -8.7%로 진입 여유 확보
-- **환경 정합성**: 중립 (Stage 2 점수는 지지하나 실질 환경 신중, AI 테마 지속성으로 상쇄)
-- **자금 출처**: BMNR/ETHU 손절 회수 자금에서 우선 배분
-
-### 매수 (N종목)
-
-**1. AVGO — 권고 비중 5~7%**: 균형형 구성(총점 78), 20일선 -1.4% 하회로 진입 기회. AI 인프라 포지션 긍정. 거래량 모멘텀 약세 모니터링 필요.
-
-**2. GOOGL — 권고 비중 4~6%**: 성장 점수 37점 우수하나 통신서비스 섹터 자금 이탈 역풍. Gemini AI 클라우드 강점으로 선별 진입 가능. 반독점 리스크 상존.
-
-### 관망 (N종목)
-
-- **NXPI**: 79점 고득점이나 52주 고점 -0.4% 과열. 외부 시각이 자동차 반도체 사이클 회복 불확실성 지적(사이트 점수와 괴리). 조정 대기.
-- **MU**: 77점이나 20일선 +15.1% 급등 후 과열 명확. HBM 수요는 강세나 단기 조정 필요.
-
-### 거부 (N종목)
-
-[없으면 "해당 없음 (5개 후보 모두 관망 이상 평가)"]
-
-## 💡 부장 종합 의견
-
-[3~5문장. 오늘 가장 먼저 할 일 강조. 핵심 액션과 우선순위 명확히. 외부 시각 반영.]
-
-## 📊 메타 정보
-
-| 항목 | 값 |
-|------|-----|
-| 분석 시각 | 2026-05-23 16:44 KST |
-| 매크로 점수 | 37/60 (Stage 2, 매수우호) |
-| 총자산 | ₩178.7M |
-| 자산 구성 | 주식 77.9% / 현금 22.1% |
-| 룰 검증 | 2건 위반 감지 (BMNR/ETHU 손절 -15% 초과) |
-```
-
-## 표기 통일 규칙
-
-- 종목 티커: 대문자 그대로 (NVDA, BMNR, 005930.KS)
-- 한국 종목: 티커 + 한글명 병기 (예: 233740.KS 코덱스 코스닥150 레버리지)
-- 손익률: -36.15% 형식 (소수점 둘째 자리)
-- 비중: 4.1% 형식 (소수점 한 자리)
-- 점수: "39점", "총점 78" 형식
-- 음수 강조: **굵게** 표시 (손실 종목)
-
-## 본문 작성 톤
-
-- 한국어 단정적 문장
-- 미사여구 X, 데이터 기반 X
-- 1~2문장 단위로 끊어서 가독성 확보
-- 표는 적극 활용 (보유 점검 즉시 조치, 메타 정보)
-- 굵게(**)는 종목명, 핵심 숫자, 권고에만
-
-## 절대 금지 (다시 한 번)
-
-- 변수명, 코드 식별자, 영어 약어 노출
-- 자동 실행 명령
-- 룰 위반 권고
-- Stage 표시 모순
-- 같은 종목 두 그룹 중복
-- 면책 문구
-
-마크다운 보고서만 반환. 다른 텍스트나 JSON 금지.
+## 규칙
+- 입력의 모든 보유 종목을 빠짐없이 분석
+- action은 반드시 명확하게. "관망", "지켜보자" 같은 공허한 표현 금지
+- 정상 종목(룰 위반 없고 PnL 양호)은 reasoning 짧게, 검색하지 않음
+- urgency=high는 룰 위반/임박 또는 명확한 악재가 있을 때만
+- trigger는 측정 가능한 지표로 (감정 표현 금지)
+- 반드시 JSON만 반환
 """
 
+CANDIDATES_AGENT_PROMPT = """당신은 WISEMAC STOCK의 신규 종목 발굴 분석가입니다.
+더블컨펌(펀더멘탈 스크리너 + 모멘텀 동시 통과)을 통과한 후보를 심층 분석해 매수 가치와 진입 타이밍을 제시합니다.
+
+## 입력 데이터
+- candidates: 더블컨펌 후보 [{ticker, name, sector, total_score, momentum_score, combined_score, from_52w_high, vol_ratio}]
+- market_context: 현재 시장 환경
+- holdings_tickers: 이미 보유 중인 종목 티커 (중복 매수 방지용)
+
+## 분석 작업 (각 후보마다)
+1. 어닝/가이던스 검색: 최근 실적과 다음 어닝 일정
+2. 뉴스 확인: 최근 호재/악재
+3. 진입 타이밍: 지금 진입이 적절한가, 과열인가
+4. 진입가 트리거 + 손절 트리거 + 권장 비중(1~5%)
+5. 강점/약점 정리
+
+## 출력 (JSON만, 마크다운/설명 없이)
+{
+  "candidates_analysis": [
+    {
+      "ticker": "MU",
+      "action": "분할매수|관심종목|보류",
+      "conviction": "high|medium|low",
+      "weight_suggestion": "3%",
+      "headline": "한 줄 핵심",
+      "reasoning": "판단 근거 80~150자",
+      "trigger_buy": "진입 트리거 (예: '현재가 ±2% 분할')",
+      "trigger_sell": "손절 트리거 (예: 'MA50 하향 또는 진입가 -10%')",
+      "next_event": "어닝/이벤트 일정",
+      "strengths": ["강점1", "강점2"],
+      "risks": ["리스크1"],
+      "already_held": false,
+      "sources": ["검색 출처"]
+    }
+  ]
+}
+
+## 규칙
+- 입력 candidates의 종목만 분석. 지어내기 절대 금지
+- holdings_tickers에 있는 종목은 already_held=true로 표시하고 action은 "관심종목"으로
+- action="보류"는 과열/악재로 지금은 진입 부적절할 때
+- 측정 가능한 트리거만
+- 반드시 JSON만 반환
+"""
 
 # ═══════════════════════════════════════════════════════════════════════
-# 데이터 수집 헬퍼 (내부 API 호출)
+# 내부 호출 헬퍼 (localhost HTTP 대신 endpoint 함수 직접 호출)
 # ═══════════════════════════════════════════════════════════════════════
-
-# ── 내부 호출 헬퍼: localhost HTTP 대신 endpoint 함수를 직접 호출 ──────────
-# (Render 동적 PORT 환경에서 localhost:8080 호출이 실패하던 문제 해결)
 def _mock_request():
     """slowapi limiter를 통과하는 내부용 가짜 Request (실제 starlette Request)"""
     from starlette.requests import Request as _SReq
@@ -5619,232 +5071,175 @@ def _call_endpoint(fn, label, *args, **kwargs):
         logger.warning(f"[수집] {label} 실패: {type(e).__name__}: {e}")
         return {}
 
-def _collect_macro_data():
-    """매크로팀장 입력 데이터 수집 — endpoint 함수 직접 호출 (HTTP 우회)"""
-    liq = _call_endpoint(get_liquidity,   "liquidity",  _mock_request())
-    mkt = _call_endpoint(get_market_data, "market",     _mock_request())
-    fg  = _call_endpoint(get_fear_greed,  "fear_greed", _mock_request())
+# ═══════════════════════════════════════════════════════════════════════
+# 데이터 수집 (DB 직접 / endpoint 함수 직접 호출)
+# ═══════════════════════════════════════════════════════════════════════
 
-    # liquidity_fed: MMF 제외
-    liq_fed = {
-        "total_score": liq.get("total_score"),
-        "max_score": liq.get("max_score", 60),
-        "signal": liq.get("signal", {}),
-        "net_liquidity": liq.get("net_liquidity", {}),
-        "indicators": [i for i in liq.get("indicators", []) if i.get("label", "") and "MMF" not in i.get("label", "")]
-    }
-    # fx_rates
-    fx = {k: mkt.get(k) for k in ["dxy", "us10y", "usdkrw"] if mkt.get(k)}
-    # asset_prices
-    ap = {k: mkt.get(k) for k in ["gold", "wti"] if mkt.get(k)}
-    # sentiment
-    snt = {"vix": mkt.get("vix"), "fear_greed": fg}
+def _build_market_context():
+    """시장 환경 요약 — 코드로 생성 (LLM 없음). 두 에이전트의 컨텍스트로 사용."""
+    liq = _call_endpoint(get_liquidity,     "liquidity",  _mock_request())
+    mkt = _call_endpoint(get_market_data,   "market",     _mock_request())
+    fg  = _call_endpoint(get_fear_greed,    "fear_greed", _mock_request())
+    sm  = _call_endpoint(get_smart_money,   "smartmoney", _mock_request())
 
-    return {
-        "liquidity_fed": liq_fed,
-        "fx_rates": fx,
-        "asset_prices": ap,
-        "sentiment": snt
-    }
-
-def _collect_money_flow_data():
-    """자금흐름팀장 입력 데이터 수집 — endpoint 함수 직접 호출 (HTTP 우회)"""
-    liq = _call_endpoint(get_liquidity,     "liquidity",    _mock_request())
-    mkt = _call_endpoint(get_market_data,   "market",       _mock_request())
-    sm  = _call_endpoint(get_smart_money,   "smartmoney",   _mock_request())
-    br  = _call_endpoint(get_market_breadth,"breadth",      _mock_request())
-    sv  = _call_endpoint(get_short_volume,  "short_volume", _mock_request())
-
-    return {
-        "mmf_flow": liq.get("mmf", {}),
-        "credit_flow": mkt.get("high_yield", {}),
-        "sector_momentum": sm,
-        "market_breadth": br,
-        "short_volume": sv
-    }
-
-def _collect_offensive_data(macro_summary, flow_summary):
-    """공격팀장 입력: 스크리닝 Top 5 + 매크로/자금흐름 요약"""
-    if not DATABASE_URL:
-        return {"candidates": [], "macro_context": macro_summary, "flow_context": flow_summary}
-    try:
-        conn = get_conn(); cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        cur.execute("""
-            SELECT * FROM screening_cache
-            WHERE screened_at > NOW() - INTERVAL '25 hours'
-            ORDER BY total_score DESC
-            LIMIT 5
-        """)
-        rows = [dict(r) for r in cur.fetchall()]
-        cur.close(); conn.close()
-        # datetime 직렬화 처리
-        for r in rows:
-            if r.get("screened_at"):
-                r["screened_at"] = r["screened_at"].isoformat() if hasattr(r["screened_at"], "isoformat") else str(r["screened_at"])
-        return {
-            "candidates": rows,
-            "macro_context": macro_summary,
-            "flow_context": flow_summary
-        }
-    except Exception as e:
-        logger.error(f"공격팀장 데이터 수집 실패: {e}")
-        return {"candidates": [], "macro_context": macro_summary, "flow_context": flow_summary}
-
-def _collect_defensive_data(macro_summary, flow_summary, macro_stage):
-    """수비팀장 입력: 보유 종목 + 룰 + 매크로 stage — get_holdings 직접 호출"""
-    port = _call_endpoint(get_holdings, "holdings", _mock_request(), account="all")
-    if not port:
-        port = {"holdings": [], "summary": {}}
-
-    holdings = port.get("holdings", [])
-
-    # 스크리닝 데이터 매칭
-    screening_map = {}
-    if DATABASE_URL:
+    score = liq.get("total_score")
+    # 점수 → stage
+    stage_num, stage_name = None, None
+    if score is not None:
         try:
-            conn = get_conn(); cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-            tickers = list(set(h.get("ticker") for h in holdings if h.get("ticker")))
-            if tickers:
-                cur.execute("SELECT * FROM screening_cache WHERE ticker = ANY(%s) AND screened_at > NOW() - INTERVAL '25 hours'", (tickers,))
-                for r in cur.fetchall():
-                    screening_map[r["ticker"]] = {
-                        "total_score": r.get("total_score"),
-                        "classic_score": r.get("classic_score"),
-                        "growth_score": r.get("growth_score"),
-                        "modern_score": r.get("modern_score"),
-                        "rsi": r.get("rsi"),
-                        "ma20_pct": r.get("ma20_pct"),
-                        "from_52w_high": r.get("from_52w_high"),
-                        "vol_ratio": r.get("vol_ratio")
-                    }
-            cur.close(); conn.close()
-        except Exception as e:
-            logger.warning(f"스크리닝 매칭 실패: {e}")
+            s = int(score)
+            if   s >= 48: stage_num, stage_name = 1, "적극매수"
+            elif s >= 36: stage_num, stage_name = 2, "매수우호"
+            elif s >= 24: stage_num, stage_name = 3, "중립관망"
+            elif s >= 12: stage_num, stage_name = 4, "매수축소"
+            else:         stage_num, stage_name = 5, "현금보유"
+        except: pass
 
-    for h in holdings:
-        h["screening_data"] = screening_map.get(h.get("ticker"))
+    sectors = sm.get("sectors", []) if isinstance(sm, dict) else []
+    sectors_sorted = sorted(sectors, key=lambda x: x.get("rel_strength") or -999, reverse=True)
+    leading = [s.get("name") or s.get("ticker") for s in sectors_sorted[:3]]
+    lagging = [s.get("name") or s.get("ticker") for s in sectors_sorted[-3:][::-1]]
+
+    vix_info = mkt.get("vix") or {}
+    vix_val = vix_info.get("value") if isinstance(vix_info, dict) else vix_info
+
+    fg_val = None
+    if isinstance(fg, dict):
+        fgd = fg.get("fear_greed") or {}
+        fg_val = fgd.get("now") if isinstance(fgd, dict) else fg.get("now")
+
+    # 한 줄 컨텍스트
+    parts = []
+    if stage_num:
+        parts.append(f"유동성 {score}점 Stage {stage_num}({stage_name})")
+    if vix_val is not None:
+        parts.append(f"VIX {vix_val}")
+    if leading:
+        parts.append(f"주도섹터 {', '.join(str(x) for x in leading[:2])}")
+    context_line = " · ".join(parts) if parts else "시장 데이터 일부 누락"
 
     return {
-        "holdings": holdings,
-        "portfolio_summary": port.get("summary", {}),
-        "rules": {
-            "stop_loss_pct": -15,
-            "take_profit_pct": 50,
-            "tqqq_target_by_macro": {
-                "stage_1": [20, 30], "stage_2": [15, 20], "stage_3": [5, 10],
-                "stage_4": [0, 5], "stage_5": [0, 0]
-            },
-            "main_single_max_pct": 15,
-            "sub_account_loose": True
-        },
-        "macro_signal_stage": macro_stage,
-        "macro_context": macro_summary,
-        "flow_context": flow_summary
+        "context_line": context_line,
+        "liquidity_score": score,
+        "stage": stage_num,
+        "stage_name": stage_name,
+        "vix": vix_val,
+        "fear_greed": fg_val,
+        "leading_sectors": leading,
+        "lagging_sectors": lagging,
     }
+
+def _collect_holdings():
+    """보유 종목 수집 — get_holdings 직접 호출"""
+    port = _call_endpoint(get_holdings, "holdings", _mock_request(), account="all")
+    holdings = port.get("holdings", []) if isinstance(port, dict) else []
+    slim = []
+    for h in holdings:
+        slim.append({
+            "ticker":     h.get("ticker"),
+            "name":       h.get("name"),
+            "sector":     h.get("sector"),
+            "account":    h.get("account"),
+            "pnl_pct":    h.get("pnl_pct"),
+            "weight_pct": h.get("weight_pct"),
+        })
+    return {
+        "holdings": slim,
+        "summary": port.get("summary", {}) if isinstance(port, dict) else {},
+        "cash": port.get("cash", {}) if isinstance(port, dict) else {},
+    }
+
+def _collect_candidates(limit=5):
+    """신규 후보 = 더블컨펌(스크리너∩모멘텀). 미국(nasdaq+sp500) 통합 상위 N."""
+    merged = {}
+    for mkt in ("nasdaq", "sp500"):
+        dc = _call_endpoint(get_double_confirm, f"double_confirm({mkt})", market=mkt)
+        for r in (dc.get("results", []) if isinstance(dc, dict) else []):
+            tk = r.get("ticker")
+            if not tk:
+                continue
+            # 같은 티커가 두 시장에 있으면 combined_score 높은 쪽
+            if tk not in merged or (r.get("combined_score") or 0) > (merged[tk].get("combined_score") or 0):
+                merged[tk] = r
+    cands = sorted(merged.values(), key=lambda x: x.get("combined_score") or 0, reverse=True)[:limit]
+    slim = []
+    for c in cands:
+        slim.append({
+            "ticker":         c.get("ticker"),
+            "name":           c.get("name"),
+            "sector":         c.get("sector"),
+            "total_score":    c.get("total_score"),
+            "momentum_score": c.get("momentum_score"),
+            "combined_score": c.get("combined_score"),
+            "from_52w_high":  c.get("from_52w_high"),
+            "vol_ratio":      c.get("vol_ratio"),
+        })
+    return {"candidates": slim}
 
 # ═══════════════════════════════════════════════════════════════════════
-# 에이전트 호출 함수
+# 에이전트 호출 (Claude API)
 # ═══════════════════════════════════════════════════════════════════════
 
 def _call_agent(system_prompt, user_data, parse_json=True, web_search_max_uses=0, max_tokens=None):
-    """Claude API 호출 — JSON 또는 마크다운 응답
-    
-    web_search_max_uses: 0이면 검색 비활성화, 1+면 그 횟수까지 검색 가능
-    max_tokens: None이면 기본 AGENT_MAX_TOKENS_TEAM(3000) 사용
-    
-    프롬프트 캐싱: 시스템 프롬프트를 캐시하여 반복 호출 시 90% 할인.
-    5분 TTL이므로 한 번의 종합 분석(5개 에이전트, 약 1분 내) 안에서 효과적.
-    """
+    """Claude API 호출 — 프롬프트 캐싱 + 웹검색 + 에러 처리"""
     client = get_anthropic_client()
     user_content = json.dumps(sanitize(user_data), ensure_ascii=False, default=str)
     if len(user_content) > 80000:
         user_content = user_content[:80000] + "\n[데이터 잘림]"
-    
-    # 입력 토큰 추정 + 안전장치 (선택)
-    estimated_input = len(user_content) // 2 + len(system_prompt) // 2
-    if estimated_input > 30000:
-        logger.warning(f"⚠️ 큰 입력 감지: ~{estimated_input}토큰 (비용 주의)")
 
-    # 시스템 프롬프트를 캐싱 가능한 블록 형태로 전송
-    system_blocks = [
-        {
-            "type": "text",
-            "text": system_prompt,
-            "cache_control": {"type": "ephemeral"}
-        }
-    ]
-
-    # max_tokens 결정
+    system_blocks = [{"type": "text", "text": system_prompt, "cache_control": {"type": "ephemeral"}}]
     if max_tokens is None:
         max_tokens = AGENT_MAX_TOKENS_TEAM
 
-    # API 호출 파라미터
     create_kwargs = {
         "model": AGENT_MODEL,
         "max_tokens": max_tokens,
         "system": system_blocks,
-        "messages": [{"role": "user", "content": user_content}]
+        "messages": [{"role": "user", "content": user_content}],
     }
-    
-    # 웹 검색 도구 추가 (활성화 시)
     if web_search_max_uses > 0:
-        create_kwargs["tools"] = [{
-            "type": "web_search_20250305",
-            "name": "web_search",
-            "max_uses": web_search_max_uses
-        }]
+        create_kwargs["tools"] = [{"type": "web_search_20250305", "name": "web_search", "max_uses": web_search_max_uses}]
 
     try:
         response = client.messages.create(**create_kwargs)
     except Exception as e:
         err_msg = str(e)
-        # web_search 미활성화 시 fallback
         if "web_search" in err_msg.lower() and web_search_max_uses > 0:
-            logger.warning(f"웹 검색 도구 사용 불가, fallback으로 검색 없이 호출: {e}")
+            logger.warning(f"웹 검색 사용 불가, 검색 없이 재호출: {e}")
             create_kwargs.pop("tools", None)
             response = client.messages.create(**create_kwargs)
-        # Rate limit 에러 시 — 재시도 안 함 (비용 보호)
         elif "rate_limit" in err_msg.lower() or "429" in err_msg:
-            logger.error(f"⛔ Rate limit 도달 — 재시도 안 함 (비용 보호): {err_msg[:200]}")
-            logger.error(f"   1분 이상 대기 후 사용자가 직접 재시도하세요.")
+            logger.error(f"⛔ Rate limit — 재시도 안 함: {err_msg[:200]}")
             raise
         else:
             raise
 
-    # 토큰 사용량 + 캐싱 효과 로깅
     usage = getattr(response, "usage", None)
     if usage:
-        in_tokens = getattr(usage, "input_tokens", 0)
-        out_tokens = getattr(usage, "output_tokens", 0)
-        cache_read = getattr(usage, "cache_read_input_tokens", 0) or 0
-        cache_create = getattr(usage, "cache_creation_input_tokens", 0) or 0
-        if cache_read > 0:
-            saved_pct = round(cache_read / max(1, cache_read + in_tokens) * 100)
-            logger.info(f"📊 토큰: in={in_tokens} (cache_read={cache_read}, saved≈{saved_pct}%) + out={out_tokens}")
-        elif cache_create > 0:
-            logger.info(f"📊 토큰: in={in_tokens} (cache_create={cache_create}, 다음 호출부터 절감) + out={out_tokens}")
+        in_t = getattr(usage, "input_tokens", 0); out_t = getattr(usage, "output_tokens", 0)
+        cr = getattr(usage, "cache_read_input_tokens", 0) or 0
+        cc = getattr(usage, "cache_creation_input_tokens", 0) or 0
+        if cr > 0:
+            logger.info(f"📊 토큰: in={in_t} (cache_read={cr}) + out={out_t}")
+        elif cc > 0:
+            logger.info(f"📊 토큰: in={in_t} (cache_create={cc}) + out={out_t}")
         else:
-            logger.info(f"📊 토큰: in={in_tokens} + out={out_tokens}")
+            logger.info(f"📊 토큰: in={in_t} + out={out_t}")
 
-    # 응답 텍스트 추출 — content 배열에서 text 블록만 합치기
-    text_parts = []
-    search_count = 0
+    text_parts = []; search_count = 0
     for block in response.content:
-        block_type = getattr(block, "type", None)
-        if block_type == "text":
+        bt = getattr(block, "type", None)
+        if bt == "text":
             text_parts.append(block.text)
-        elif block_type == "server_tool_use" and getattr(block, "name", "") == "web_search":
+        elif bt == "server_tool_use" and getattr(block, "name", "") == "web_search":
             search_count += 1
-        elif block_type == "web_search_tool_result":
+        elif bt == "web_search_tool_result":
             search_count += 1
-    
     text = "\n".join(text_parts).strip()
-    
     if search_count > 0:
         logger.info(f"🔍 웹 검색 사용: {search_count}회")
 
     if parse_json:
-        # JSON 추출 (```json 블록 제거)
         cleaned = text.strip()
         if cleaned.startswith("```"):
             cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
@@ -5854,180 +5249,93 @@ def _call_agent(system_prompt, user_data, parse_json=True, web_search_max_uses=0
         except json.JSONDecodeError as e:
             logger.error(f"JSON 파싱 실패: {e}\n응답: {text[:500]}")
             return {"error": "JSON 파싱 실패", "raw": text[:1000]}
-    return text  # 마크다운은 그대로
+    return text
 
-def run_macro_agent():
-    data = _collect_macro_data()
-    return _call_agent(MACRO_AGENT_PROMPT, data, parse_json=True, web_search_max_uses=3)
+# ═══════════════════════════════════════════════════════════════════════
+# 에이전트 실행 (2개) + 코드 종합
+# ═══════════════════════════════════════════════════════════════════════
 
-def run_money_flow_agent():
-    data = _collect_money_flow_data()
-    return _call_agent(MONEY_FLOW_AGENT_PROMPT, data, parse_json=True, web_search_max_uses=3)
-
-def run_offensive_agent(macro_summary, flow_summary):
-    data = _collect_offensive_data(macro_summary, flow_summary)
-    return _call_agent(STOCK_OFFENSIVE_PROMPT, data, parse_json=True, web_search_max_uses=5)
-
-def run_defensive_agent(macro_summary, flow_summary, macro_stage):
-    data = _collect_defensive_data(macro_summary, flow_summary, macro_stage)
-    return _call_agent(STOCK_DEFENSIVE_PROMPT, data, parse_json=True, web_search_max_uses=5)
-
-def _slim_team_report(report, agent_type):
-    """팀장 결과에서 부장이 진짜 필요한 핵심만 추출 (토큰 절감)"""
-    if not isinstance(report, dict):
-        return report
-    if report.get("error"):
-        return {"error": report["error"]}
-    
-    if agent_type == "macro":
-        return {
-            "environment": report.get("environment"),
-            "confidence": report.get("confidence"),
-            "headline": report.get("headline"),
-            "coherence": report.get("coherence"),
-            "key_drivers": report.get("key_drivers", []),
-            "watch_points": report.get("watch_points", []),
-            "rule_signal_comparison": report.get("rule_signal_comparison", {}),
-            "external_view": report.get("external_view", {}),
-            "narrative": report.get("narrative")
-        }
-    elif agent_type == "flow":
-        return {
-            "flow_state": report.get("flow_state"),
-            "confidence": report.get("confidence"),
-            "headline": report.get("headline"),
-            "leading_sectors": [
-                {"sector": s.get("sector"), "rel_strength": s.get("rel_strength")} 
-                for s in (report.get("leading_sectors") or [])[:3]
-            ],
-            "lagging_sectors": [
-                {"sector": s.get("sector"), "rel_strength": s.get("rel_strength")} 
-                for s in (report.get("lagging_sectors") or [])[:3]
-            ],
-            "rotation_signal": report.get("rotation_signal", {}),
-            "external_view": report.get("external_view", {}),
-            "narrative": report.get("narrative")
-        }
-    elif agent_type == "offensive":
-        # 종목 분석은 핵심 필드만 (narrative + entry_strength + 점수 + 권고 비중)
-        slim_cands = []
-        for c in (report.get("candidates_analysis") or []):
-            slim_cands.append({
-                "ticker": c.get("ticker"),
-                "sector": c.get("sector"),
-                "entry_strength": c.get("entry_strength"),
-                "score_breakdown": {
-                    "total": (c.get("score_breakdown") or {}).get("total"),
-                    "strength_pillar": (c.get("score_breakdown") or {}).get("strength_pillar"),
-                    "weakness": (c.get("score_breakdown") or {}).get("weakness")
-                },
-                "context_fit": c.get("context_fit", {}),
-                "suggested_weight": c.get("suggested_weight"),
-                "risk_notes": c.get("risk_notes"),
-                "external_signals": c.get("external_signals", {}),
-                "narrative": c.get("narrative")
-            })
-        return {
-            "summary": report.get("summary"),
-            "candidates_analysis": slim_cands,
-            "top_picks": report.get("top_picks", []),
-            "rejected": report.get("rejected", []),
-            "narrative": report.get("narrative")
-        }
-    elif agent_type == "defensive":
-        # 안전 그룹은 티커만 (가장 큰 절감)
-        return {
-            "summary": report.get("summary"),
-            "immediate_action": report.get("immediate_action", []),
-            "monitoring": report.get("monitoring", []),
-            "adjustment": report.get("adjustment", []),
-            "safe": [{"ticker": s.get("ticker"), "pnl_pct": s.get("pnl_pct")} 
-                     for s in (report.get("safe") or [])],
-            "rule_violations_detail": report.get("rule_violations_detail", []),
-            "portfolio_health": report.get("portfolio_health", {}),
-            "narrative": report.get("narrative")
-        }
-    return report
-
-def _slim_holdings(holdings):
-    """보유 종목에서 부장이 필요한 핵심 필드만"""
-    slim = []
-    for h in holdings:
-        slim.append({
-            "ticker": h.get("ticker"),
-            "name": h.get("name"),  # 한글명 병기용
-            "sector": h.get("sector"),
-            "account": h.get("account"),
-            "pnl_pct": h.get("pnl_pct"),
-            "weight_pct": h.get("weight_pct"),
-            "memo": h.get("memo")  # 매수 논리 (있으면)
-        })
-    return slim
-
-def run_manager_agent(macro_result, flow_result, offensive_result, defensive_result):
-    # 부장은 마크다운 반환
-    port = _call_endpoint(get_holdings, "holdings(manager)", _mock_request(), account="all")
-    if not port:
-        port = {"holdings": [], "summary": {}, "cash": {}, "usd_krw": 0}
-
-    # 매크로 점수 → stage 명시적 계산 (부장이 헷갈리지 않도록)
-    macro_score = None
-    macro_stage_num = None
-    macro_signal_name = None
-    if isinstance(macro_result, dict):
-        # 매크로팀장 출력에서 직접 추출
-        rsc = macro_result.get("rule_signal_comparison", {}) or {}
-        macro_score = rsc.get("code_score")
-        macro_stage_num = rsc.get("code_stage")
-        macro_signal_name = rsc.get("code_signal")
-
-    # 점수 → stage 변환 (fallback)
-    def _score_to_stage(score):
-        if score is None: return None, None
-        try:
-            s = int(score)
-            if s >= 48: return 1, "적극매수"
-            elif s >= 36: return 2, "매수우호"
-            elif s >= 24: return 3, "중립관망"
-            elif s >= 12: return 4, "매수축소"
-            else: return 5, "현금보유"
-        except: return None, None
-
-    if macro_score is not None and macro_stage_num is None:
-        macro_stage_num, macro_signal_name = _score_to_stage(macro_score)
-
-    # 부장 입력 슬림화 — 핵심만 추려서 토큰 사용량 감소 (35K → 약 15K 목표)
+def run_holdings_agent(holdings_data, market_context):
+    """Agent 1: 보유종목 집중 분석 (웹검색 — 손실/대형 비중 종목 악재)"""
+    holdings = holdings_data.get("holdings", [])
+    if not holdings:
+        return {"holdings_analysis": [], "portfolio_summary": "보유 종목 없음"}
+    # 손실(-5%↓) 또는 대형비중(8%↑) 종목 수만큼 검색 허용 (최대 8)
+    risky = [h for h in holdings if (h.get("pnl_pct") is not None and h["pnl_pct"] <= -5)
+             or (h.get("weight_pct") or 0) >= 8]
+    max_search = min(len(risky), 8)
     data = {
-        "team_reports": {
-            "macro": _slim_team_report(macro_result, "macro"),
-            "money_flow": _slim_team_report(flow_result, "flow"),
-            "stock_offensive": _slim_team_report(offensive_result, "offensive"),
-            "stock_defensive": _slim_team_report(defensive_result, "defensive")
-        },
-        "current_macro_state": {
-            "score": macro_score,
-            "stage": macro_stage_num,
-            "signal_name": macro_signal_name,
-            "_explanation": f"점수 {macro_score}점은 Stage {macro_stage_num} ({macro_signal_name})입니다. 보고서 전체에서 이 stage와 신호명을 일관되게 사용하세요."
-        },
-        "portfolio": {
-            "holdings": _slim_holdings(port.get("holdings", [])),
-            "cash": port.get("cash", {}),
-            "summary": port.get("summary", {}),
-            "usd_krw": port.get("usd_krw")
-        },
-        "rules": {
-            "stop_loss_pct": -15,
-            "take_profit_pct": 50,
-            "tqqq_target_by_macro": {
-                "stage_1": [20, 30], "stage_2": [15, 20], "stage_3": [5, 10],
-                "stage_4": [0, 5], "stage_5": [0, 0]
-            },
-            "main_single_max_pct": 15
-        },
-        "analysis_time_kst": datetime.now(pytz.timezone("Asia/Seoul")).strftime("%Y-%m-%d %H:%M")
+        "holdings": holdings,
+        "market_context": market_context.get("context_line"),
+        "market_detail": market_context,
+        "rules": {"stop_loss_pct": -15, "take_profit_pct": 50, "main_single_max_pct": 15},
     }
-    return _call_agent(MANAGER_AGENT_PROMPT, data, parse_json=False, web_search_max_uses=0, max_tokens=AGENT_MAX_TOKENS_MANAGER)
+    return _call_agent(HOLDINGS_AGENT_PROMPT, data, parse_json=True,
+                       web_search_max_uses=max_search, max_tokens=4000)
+
+def run_candidates_agent(candidates_data, market_context, holdings_tickers):
+    """Agent 2: 신규 후보 심층 분석 (웹검색 — 어닝/뉴스)"""
+    cands = candidates_data.get("candidates", [])
+    if not cands:
+        return {"candidates_analysis": []}
+    max_search = min(len(cands) * 2, 10)
+    data = {
+        "candidates": cands,
+        "market_context": market_context.get("context_line"),
+        "holdings_tickers": holdings_tickers,
+    }
+    return _call_agent(CANDIDATES_AGENT_PROMPT, data, parse_json=True,
+                       web_search_max_uses=max_search, max_tokens=4000)
+
+def _build_summary(market_context, holdings_result, candidates_result):
+    """코드로 우선순위 정렬한 마크다운 종합 (LLM 없음)"""
+    h_list = holdings_result.get("holdings_analysis", []) if isinstance(holdings_result, dict) else []
+    c_list = candidates_result.get("candidates_analysis", []) if isinstance(candidates_result, dict) else []
+
+    sells   = [h for h in h_list if h.get("action") in ("즉시매도", "분할매도")]
+    profits = [h for h in h_list if h.get("action") == "익절검토"]
+    reduces = [h for h in h_list if h.get("action") == "비중축소"]
+    holds   = [h for h in h_list if h.get("action") == "보유유지"]
+    buys    = [c for c in c_list if c.get("action") == "분할매수"]
+    watches = [c for c in c_list if c.get("action") in ("관심종목", "보류")]
+
+    lines = ["# 🎯 오늘의 액션 리포트", ""]
+    lines.append(f"**시장 환경**: {market_context.get('context_line', '—')}")
+    if holdings_result.get("portfolio_summary"):
+        lines.append(f"**포트폴리오**: {holdings_result['portfolio_summary']}")
+    lines.append("")
+
+    def fmt_hold(h):
+        t = f"- **{h.get('ticker')}** ({h.get('action')}, PnL {h.get('pnl_pct')}%) — {h.get('headline','')}"
+        if h.get("trigger"):
+            t += f"\n  - 트리거: {h['trigger']}"
+        return t
+
+    def fmt_buy(c):
+        t = f"- **{c.get('ticker')}** ({c.get('action')} {c.get('weight_suggestion','')}, 확신 {c.get('conviction','')}) — {c.get('headline','')}"
+        if c.get("trigger_buy"):
+            t += f"\n  - 진입: {c['trigger_buy']}"
+        if c.get("trigger_sell"):
+            t += f"\n  - 손절: {c['trigger_sell']}"
+        if c.get("next_event"):
+            t += f"\n  - 이벤트: {c['next_event']}"
+        return t
+
+    if sells:
+        lines += ["## 🔴 즉시 검토 (매도)"] + [fmt_hold(h) for h in sells] + [""]
+    if profits:
+        lines += ["## 🟢 익절 검토"] + [fmt_hold(h) for h in profits] + [""]
+    if buys:
+        lines += ["## 🔵 신규 매수 후보"] + [fmt_buy(c) for c in buys] + [""]
+    if reduces:
+        lines += ["## 🟡 비중 축소 검토"] + [fmt_hold(h) for h in reduces] + [""]
+    if watches:
+        lines += ["## 👀 관심 종목"] + [fmt_buy(c) for c in watches] + [""]
+    if holds:
+        held = ", ".join(f"{h.get('ticker')}({h.get('pnl_pct')}%)" for h in holds)
+        lines += [f"## ⚪ 정상 보유 ({len(holds)}종목)", held, ""]
+
+    return "\n".join(lines)
 
 # ═══════════════════════════════════════════════════════════════════════
 # 전체 워크플로우
@@ -6038,19 +5346,16 @@ _analysis_lock = threading.Lock()
 _analysis_in_progress = {"running": False, "started_at": None}
 
 def run_full_analysis():
-    """네 팀장 + 부장 순차 실행"""
-    # 중복 호출 방지
+    """2에이전트 순차 실행 (중복 방지 락)"""
     with _analysis_lock:
         if _analysis_in_progress["running"]:
             elapsed = (datetime.now() - _analysis_in_progress["started_at"]).total_seconds() if _analysis_in_progress["started_at"] else 0
-            if elapsed < 180:  # 3분 이내면 진행 중으로 간주
-                logger.warning(f"중복 분석 요청 차단 (이전 분석 진행 중, {elapsed:.0f}초 경과)")
-                raise RuntimeError(f"이미 분석이 진행 중입니다 ({elapsed:.0f}초 경과). 잠시 후 다시 시도하세요.")
+            if elapsed < 300:
+                raise RuntimeError(f"이미 분석 진행 중 ({elapsed:.0f}초 경과). 잠시 후 재시도하세요.")
             else:
-                logger.warning(f"이전 분석 락이 3분 이상 (좀비 락 의심), 해제하고 새로 시작")
+                logger.warning(f"좀비 락 의심 ({elapsed:.0f}초), 해제 후 새로 시작")
         _analysis_in_progress["running"] = True
         _analysis_in_progress["started_at"] = datetime.now()
-    
     try:
         return _run_full_analysis_impl()
     finally:
@@ -6059,118 +5364,81 @@ def run_full_analysis():
             _analysis_in_progress["started_at"] = None
 
 def _run_full_analysis_impl():
-    """실제 분석 로직 (락 해제 가능하도록 분리)"""
+    """시장환경(코드) → 보유분석(LLM) → 신규분석(LLM) → 종합(코드)"""
     started = datetime.now()
-    logger.info("에이전트 종합 분석 시작")
+    logger.info("[2에이전트] 종합 분석 시작")
     errors = []
-
     import time as _time
 
-    # 1. 매크로팀장
+    # 0. 데이터 수집 (코드)
+    market_context = _build_market_context()
+    holdings_data  = _collect_holdings()
+    candidates_data = _collect_candidates(limit=5)
+    holdings_tickers = [h.get("ticker") for h in holdings_data.get("holdings", []) if h.get("ticker")]
+    logger.info(f"[수집] 보유 {len(holdings_tickers)}종목 · 후보 {len(candidates_data.get('candidates', []))}종목")
+
+    # 1. Agent 1: 보유 집중 분석
     try:
-        macro = run_macro_agent()
-        logger.info(f"매크로팀장 완료: {macro.get('environment', 'unknown')}")
+        holdings_result = run_holdings_agent(holdings_data, market_context)
+        logger.info(f"[Agent 1] 보유 분석 완료: {len(holdings_result.get('holdings_analysis', []))}종목")
     except Exception as e:
-        logger.error(f"매크로팀장 실패: {e}")
-        macro = {"error": str(e)}
-        errors.append(f"macro: {e}")
-    logger.info("⏸ 분당 토큰 한도 분산 — 8초 대기")
+        logger.error(f"[Agent 1] 실패: {e}")
+        holdings_result = {"error": str(e), "holdings_analysis": []}
+        errors.append(f"holdings: {e}")
+
+    logger.info("⏸ 분당 토큰 분산 — 8초 대기")
     _time.sleep(8)
 
-    # 2. 자금흐름팀장
+    # 2. Agent 2: 신규 후보 심층 분석
     try:
-        flow = run_money_flow_agent()
-        logger.info(f"자금흐름팀장 완료: {flow.get('flow_state', 'unknown')}")
+        candidates_result = run_candidates_agent(candidates_data, market_context, holdings_tickers)
+        logger.info(f"[Agent 2] 후보 분석 완료: {len(candidates_result.get('candidates_analysis', []))}종목")
     except Exception as e:
-        logger.error(f"자금흐름팀장 실패: {e}")
-        flow = {"error": str(e)}
-        errors.append(f"flow: {e}")
-    logger.info("⏸ 8초 대기")
-    _time.sleep(8)
+        logger.error(f"[Agent 2] 실패: {e}")
+        candidates_result = {"error": str(e), "candidates_analysis": []}
+        errors.append(f"candidates: {e}")
 
-    # 3, 4. 종목분석팀장 (공격/수비) — 매크로/자금흐름 요약 전달
-    macro_summary = {k: macro.get(k) for k in ["environment", "headline", "confidence"] if not isinstance(macro, str)}
-    flow_summary = {k: flow.get(k) for k in ["flow_state", "headline", "leading_sectors", "lagging_sectors"] if not isinstance(flow, str)}
-    macro_stage = (macro.get("rule_signal_comparison", {}) or {}).get("agent_signal", "중립관망")
-    stage_map = {"적극매수": 1, "매수우호": 2, "중립관망": 3, "매수축소": 4, "현금보유": 5}
-    macro_stage_num = stage_map.get(macro_stage, 3)
+    # 3. 종합 (코드)
+    summary_text = _build_summary(market_context, holdings_result, candidates_result)
 
-    try:
-        offensive = run_offensive_agent(macro_summary, flow_summary)
-        logger.info(f"공격팀장 완료: {offensive.get('summary', {}).get('total_candidates', 0)}개")
-    except Exception as e:
-        logger.error(f"공격팀장 실패: {e}")
-        offensive = {"error": str(e)}
-        errors.append(f"offensive: {e}")
-    logger.info("⏸ 8초 대기")
-    _time.sleep(8)
-
-    try:
-        defensive = run_defensive_agent(macro_summary, flow_summary, macro_stage_num)
-        logger.info(f"수비팀장 완료: {defensive.get('summary', {}).get('total_holdings', 0)}개 점검")
-    except Exception as e:
-        logger.error(f"수비팀장 실패: {e}")
-        defensive = {"error": str(e)}
-        errors.append(f"defensive: {e}")
-    logger.info("⏸ 부장 호출 전 12초 대기 (가장 큰 입력)")
-    _time.sleep(12)
-
-    # 5. 부장 종합
-    try:
-        manager = run_manager_agent(macro, flow, offensive, defensive)
-        logger.info("부장 종합 완료")
-    except Exception as e:
-        logger.error(f"부장 실패: {e}")
-        manager = f"# 부장 분석 실패\n\n에러: {e}\n\n팀장 결과는 별도로 확인 가능합니다."
-        errors.append(f"manager: {e}")
-
-    # DB 저장 — psycopg2.extras.Json() 사용해서 명시적 JSONB 변환
+    # DB 저장
     analysis_time = datetime.now()
     if DATABASE_URL:
         from psycopg2.extras import Json
         try:
             conn = get_conn(); cur = conn.cursor()
-            # manager는 마크다운 문자열 — TEXT로 저장
-            manager_text = manager if isinstance(manager, str) else json.dumps(manager, ensure_ascii=False)
             cur.execute("""
                 INSERT INTO agent_analysis_cache
-                (analysis_time, macro_result, flow_result, offensive_result, defensive_result, manager_result, error_log)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                (analysis_time, market_context, holdings_result, candidates_result, summary_text, error_log)
+                VALUES (%s, %s, %s, %s, %s, %s)
             """, (
                 analysis_time,
-                Json(sanitize(macro)),
-                Json(sanitize(flow)),
-                Json(sanitize(offensive)),
-                Json(sanitize(defensive)),
-                manager_text,
-                "; ".join(errors) if errors else None
+                Json(sanitize(market_context)),
+                Json(sanitize(holdings_result)),
+                Json(sanitize(candidates_result)),
+                summary_text,
+                "; ".join(errors) if errors else None,
             ))
-            conn.commit()
-            cur.close(); conn.close()
+            conn.commit(); cur.close(); conn.close()
             logger.info(f"✓ 분석 결과 DB 저장 완료 (time={analysis_time})")
         except Exception as e:
-            logger.error(f"✗ 분석 결과 DB 저장 실패: {type(e).__name__}: {e}")
+            logger.error(f"✗ DB 저장 실패: {type(e).__name__}: {e}")
             errors.append(f"db_save: {type(e).__name__}: {e}")
     else:
         logger.warning("DATABASE_URL 없음 — 분석 결과 저장 안 됨")
 
     duration = (datetime.now() - started).total_seconds()
-    logger.info(f"종합 분석 완료 ({duration:.1f}초)")
+    logger.info(f"[2에이전트] 종합 분석 완료 ({duration:.1f}초)")
 
     return {
         "analysis_time": analysis_time.isoformat(),
         "duration_sec": round(duration, 1),
-        "macro": macro,
-        "money_flow": flow,
-        "offensive": offensive,
-        "defensive": defensive,
-        "manager": manager,
-        "errors": errors
+        "market_context": market_context,
+        "holdings_result": holdings_result,
+        "candidates_result": candidates_result,
+        "summary": summary_text,
+        "errors": errors,
     }
-
-# ═══════════════════════════════════════════════════════════════════════
-# API 엔드포인트
-# ═══════════════════════════════════════════════════════════════════════
 
 @app.post("/api/agents/full_analysis")
 @limiter.limit("3/minute")
@@ -6203,16 +5471,15 @@ def trigger_full_analysis(request: Request):
             """)
             recent = cur.fetchone()
             cur.close(); conn.close()
-            if recent:
+            if recent and recent.get("summary_text"):
                 elapsed_min = (datetime.now() - recent["analysis_time"]).total_seconds() / 60
                 logger.info(f"📦 5분 캐시 적중 — 최근 분석 ({elapsed_min:.1f}분 전) 반환 (API 호출 없음)")
                 return safe_json({
                     "analysis_time": recent["analysis_time"].isoformat() if recent.get("analysis_time") else None,
-                    "macro": recent.get("macro_result"),
-                    "money_flow": recent.get("flow_result"),
-                    "offensive": recent.get("offensive_result"),
-                    "defensive": recent.get("defensive_result"),
-                    "manager": recent.get("manager_result"),
+                    "market_context": recent.get("market_context"),
+                    "holdings_result": recent.get("holdings_result"),
+                    "candidates_result": recent.get("candidates_result"),
+                    "summary": recent.get("summary_text"),
                     "errors": recent.get("error_log"),
                     "cached": True,
                     "cache_age_min": round(elapsed_min, 1)
@@ -6249,18 +5516,17 @@ def get_latest_analysis(request: Request):
         return {"error": "DATABASE_URL 없음"}
     try:
         conn = get_conn(); cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        cur.execute("SELECT * FROM agent_analysis_cache ORDER BY analysis_time DESC LIMIT 1")
+        cur.execute("SELECT * FROM agent_analysis_cache WHERE summary_text IS NOT NULL ORDER BY analysis_time DESC LIMIT 1")
         row = cur.fetchone()
         cur.close(); conn.close()
         if not row:
             return {"empty": True, "message": "분석 기록 없음. 종합 분석을 먼저 실행하세요."}
         return safe_json({
             "analysis_time": row["analysis_time"].isoformat() if row.get("analysis_time") else None,
-            "macro": row.get("macro_result"),
-            "money_flow": row.get("flow_result"),
-            "offensive": row.get("offensive_result"),
-            "defensive": row.get("defensive_result"),
-            "manager": row.get("manager_result"),
+            "market_context": row.get("market_context"),
+            "holdings_result": row.get("holdings_result"),
+            "candidates_result": row.get("candidates_result"),
+            "summary": row.get("summary_text"),
             "errors": row.get("error_log")
         })
     except Exception as e:
@@ -6287,62 +5553,43 @@ def get_analysis_history(request: Request, limit: int = 10):
 @app.get("/api/agents/debug_collect")
 @limiter.limit("10/minute")
 def debug_collect(request: Request):
-    """[1단계 검증용] AI에 보내기 직전의 수집 데이터를 그대로 반환.
-    LLM 호출 없음 — 데이터 수집이 정상인지 눈으로 확인하는 용도."""
+    """[검증용] AI에 보내기 직전의 수집 데이터를 그대로 반환 (LLM 호출 없음)."""
     out = {}
-    # 1. 매크로
     try:
-        macro = _collect_macro_data()
-        out["macro"] = {
-            "liquidity_total_score": (macro.get("liquidity_fed") or {}).get("total_score"),
-            "vix": (macro.get("sentiment") or {}).get("vix"),
-            "fx_rates_keys": list((macro.get("fx_rates") or {}).keys()),
-            "_ok": bool((macro.get("liquidity_fed") or {}).get("total_score") is not None),
+        mc = _build_market_context()
+        out["market_context"] = {
+            "context_line": mc.get("context_line"),
+            "liquidity_score": mc.get("liquidity_score"),
+            "stage": mc.get("stage"),
+            "vix": mc.get("vix"),
+            "leading_sectors": mc.get("leading_sectors"),
+            "_ok": mc.get("liquidity_score") is not None,
         }
     except Exception as e:
-        out["macro"] = {"_error": f"{type(e).__name__}: {e}"}
-    # 2. 자금흐름
+        out["market_context"] = {"_error": f"{type(e).__name__}: {e}"}
     try:
-        flow = _collect_money_flow_data()
-        sm = flow.get("sector_momentum") or {}
-        sectors = (sm.get("sectors", []) if isinstance(sm, dict) else [])
-        out["flow"] = {
-            "sector_count": len(sectors),
-            "sm_keys": list(sm.keys()) if isinstance(sm, dict) else None,
-            "has_credit_flow": bool(flow.get("credit_flow")),
-            "has_breadth": bool(flow.get("market_breadth")),
-            "short_volume_count": len(flow.get("short_volume", {}) or {}),
-        }
-    except Exception as e:
-        out["flow"] = {"_error": f"{type(e).__name__}: {e}"}
-    # 3. 보유 종목 (수비)
-    try:
-        defn = _collect_defensive_data({}, {}, 3)
-        holds = defn.get("holdings", [])
+        hd = _collect_holdings()
+        holds = hd.get("holdings", [])
         out["holdings"] = {
             "count": len(holds),
-            "sample": [
-                {"ticker": h.get("ticker"), "pnl_pct": h.get("pnl_pct"),
-                 "weight_pct": h.get("weight_pct")}
-                for h in holds[:5]
-            ],
+            "sample": [{"ticker": h.get("ticker"), "pnl_pct": h.get("pnl_pct"),
+                        "weight_pct": h.get("weight_pct")} for h in holds[:5]],
             "_ok": len(holds) > 0,
         }
     except Exception as e:
         out["holdings"] = {"_error": f"{type(e).__name__}: {e}"}
-    # 4. 더블컨펌 (신규 후보)
     try:
-        off = _collect_offensive_data({}, {})
-        cands = off.get("candidates", [])
-        out["double_confirm"] = {
+        cd = _collect_candidates(limit=5)
+        cands = cd.get("candidates", [])
+        out["candidates"] = {
             "count": len(cands),
-            "sample": [
-                {"ticker": c.get("ticker"), "total_score": c.get("total_score")}
-                for c in cands[:5]
-            ],
+            "sample": [{"ticker": c.get("ticker"), "combined_score": c.get("combined_score"),
+                        "total_score": c.get("total_score"), "momentum_score": c.get("momentum_score")}
+                       for c in cands[:5]],
+            "_ok": len(cands) > 0,
         }
     except Exception as e:
-        out["double_confirm"] = {"_error": f"{type(e).__name__}: {e}"}
+        out["candidates"] = {"_error": f"{type(e).__name__}: {e}"}
     return safe_json(out)
 
 @app.on_event("shutdown")
