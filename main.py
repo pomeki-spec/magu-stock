@@ -6305,8 +6305,10 @@ def debug_collect(request: Request):
     try:
         flow = _collect_money_flow_data()
         sm = flow.get("sector_momentum") or {}
+        sectors = (sm.get("sectors", []) if isinstance(sm, dict) else [])
         out["flow"] = {
-            "sector_count": len(sm.get("results", []) if isinstance(sm, dict) else []),
+            "sector_count": len(sectors),
+            "sm_keys": list(sm.keys()) if isinstance(sm, dict) else None,
             "has_credit_flow": bool(flow.get("credit_flow")),
             "has_breadth": bool(flow.get("market_breadth")),
             "short_volume_count": len(flow.get("short_volume", {}) or {}),
