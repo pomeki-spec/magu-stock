@@ -5154,7 +5154,8 @@ def _collect_candidates(limit=5):
     merged = {}
     for mkt in ("nasdaq", "sp500"):
         dc = _call_endpoint(get_double_confirm, f"double_confirm({mkt})", market=mkt)
-        for r in (dc.get("results", []) if isinstance(dc, dict) else []):
+        # get_double_confirm은 결과를 "items" 키로 반환 (not "results")
+        for r in (dc.get("items", []) if isinstance(dc, dict) else []):
             tk = r.get("ticker")
             if not tk:
                 continue
@@ -5581,11 +5582,17 @@ def debug_collect(request: Request):
     try:
         cd = _collect_candidates(limit=5)
         cands = cd.get("candidates", [])
+        # 진단: 각 시장 더블컨펌 raw count/error (0일 때 원인 파악용)
+        diag = {}
+        for mkt in ("nasdaq", "sp500"):
+            dc = _call_endpoint(get_double_confirm, f"dc({mkt})", market=mkt)
+            diag[mkt] = {"count": dc.get("count"), "error": dc.get("error")}
         out["candidates"] = {
             "count": len(cands),
             "sample": [{"ticker": c.get("ticker"), "combined_score": c.get("combined_score"),
                         "total_score": c.get("total_score"), "momentum_score": c.get("momentum_score")}
                        for c in cands[:5]],
+            "diag": diag,
             "_ok": len(cands) > 0,
         }
     except Exception as e:
