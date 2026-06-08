@@ -4974,6 +4974,25 @@ def _toss_exchange_rate() -> float:
     except (TypeError, ValueError):
         return None
 
+@app.get("/api/toss/myip")
+@limiter.limit("20/minute")
+def toss_myip(request: Request):
+    """[검증] 이 서버의 아웃바운드 IP 확인 — 토스 콘솔 IP 화이트리스트 등록용.
+    여러 번 호출해 IP가 바뀌는지(고정 여부)도 확인."""
+    out = {}
+    for name, url in [("ipify", "https://api.ipify.org?format=json"),
+                      ("ifconfig", "https://ifconfig.me/ip")]:
+        try:
+            r = requests.get(url, timeout=10)
+            txt = r.text.strip()
+            try:
+                out[name] = r.json().get("ip", txt)
+            except Exception:
+                out[name] = txt
+        except Exception as e:
+            out[name] = f"err: {type(e).__name__}"
+    return {"outbound_ip": out}
+
 @app.get("/api/toss/ping")
 @limiter.limit("20/minute")
 def toss_ping(request: Request):
