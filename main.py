@@ -4993,6 +4993,51 @@ def toss_myip(request: Request):
             out[name] = f"err: {type(e).__name__}"
     return {"outbound_ip": out}
 
+@app.get("/api/toss/accounts")
+@limiter.limit("20/minute")
+def toss_accounts(request: Request):
+    """[검증] 계좌 목록 raw 응답 — accountSeq 구조 확인용"""
+    try:
+        token = _toss_get_token()
+        r = requests.get(
+            f"{TOSS_BASE}/api/v1/accounts",
+            headers={"Authorization": f"Bearer {token}", "Accept": "application/json", "User-Agent": TOSS_UA},
+            timeout=15,
+        )
+        try:
+            body = r.json()
+        except Exception:
+            body = r.text[:600]
+        return {"status": r.status_code, "body": body}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"ok": False, "error": f"{type(e).__name__}: {e}"})
+
+@app.get("/api/toss/asset")
+@limiter.limit("20/minute")
+def toss_asset(request: Request, seq: str = ""):
+    """[검증] 보유 자산 raw 응답 — seq(accountSeq)를 X-Tossinvest-Account로 전달.
+    여러 path 후보를 순차 시도하여 실제 동작하는 엔드포인트를 찾는다."""
+    if not seq:
+        return {"error": "seq(accountSeq) 파라미터 필요. 먼저 /api/toss/accounts 로 확인하세요."}
+    try:
+        token = _toss_get_token()
+        headers = {"Authorization": f"Bearer {token}", "Accept": "application/json",
+                   "User-Agent": TOSS_UA, "X-Tossinvest-Account": str(seq)}
+        out = {}
+        for path in ("/api/v1/holdings", "/api/v1/assets", "/api/v1/balance"):
+            try:
+                r = requests.get(f"{TOSS_BASE}{path}", headers=headers, timeout=15)
+                try:
+                    body = r.json()
+                except Exception:
+                    body = r.text[:400]
+                out[path] = {"status": r.status_code, "body": body}
+            except Exception as e:
+                out[path] = {"error": f"{type(e).__name__}: {e}"}
+        return out
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"ok": False, "error": f"{type(e).__name__}: {e}"})
+
 @app.get("/api/toss/ping")
 @limiter.limit("20/minute")
 def toss_ping(request: Request):
