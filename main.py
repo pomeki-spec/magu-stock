@@ -4974,6 +4974,102 @@ def _toss_exchange_rate() -> float:
     except (TypeError, ValueError):
         return None
 
+def _toss_account_seq() -> str:
+    """첫 번째 계좌의 accountSeq 반환"""
+    token = _toss_get_token()
+    r = requests.get(
+        f"{TOSS_BASE}/api/v1/accounts",
+        headers={"Authorization": f"Bearer {token}", "Accept": "application/json", "User-Agent": TOSS_UA},
+        timeout=15,
+    )
+    if r.status_code != 200:
+        raise RuntimeError(f"계좌조회 HTTP {r.status_code}: {r.text[:300]}")
+    res = r.json().get("result") or []
+    if not res:
+        raise RuntimeError("계좌 없음")
+    return str(res[0].get("accountSeq"))
+
+def _toss_holdings_raw() -> dict:
+    """토스 메인 계좌 보유 자산 raw (result dict)"""
+    token = _toss_get_token()
+    seq = _toss_account_seq()
+    r = requests.get(
+        f"{TOSS_BASE}/api/v1/holdings",
+        headers={"Authorization": f"Bearer {token}", "Accept": "application/json",
+                 "User-Agent": TOSS_UA, "X-Tossinvest-Account": seq},
+        timeout=15,
+    )
+    if r.status_code != 200:
+        raise RuntimeError(f"보유조회 HTTP {r.status_code}: {r.text[:300]}")
+    return r.json().get("result") or {}
+
+def _f(v):
+    """문자열 숫자 → float (None/빈값 안전)"""
+    try:
+        return float(v) if v is not None and v != "" else None
+    except (TypeError, ValueError):
+        return None
+
+@app.get("/api/toss/holdings")
+@limiter.limit("30/minute")
+def toss_holdings_view(request: Request):
+    """[테스트] 토스 메인 계좌 보유 자산 — magu-stock 포트폴리오 형식으로 변환"""
+    try:
+        data = _toss_holdings_raw()
+        usd_krw = _toss_exchange_rate() or 1380.0
+        items_out = []
+        total_krw = 0.0
+        for it in (data.get("items") or []):
+            cur = it.get("currency") or "USD"
+            qty = _f(it.get("quantity")) or 0
+            avg = _f(it.get("averagePurchasePrice"))
+            last = _f(it.get("lastPrice"))
+            mv = it.get("marketValue") or {}
+            pl = it.get("profitLoss") or {}
+            dpl = it.get("dailyProfitLoss") or {}
+            eval_local = _f(mv.get("amount")) or 0
+            pnl_local = _f(pl.get("amount"))
+            pnl_pct = (_f(pl.get("rate")) or 0) * 100
+            daily_pct = (_f(dpl.get("rate")) or 0) * 100
+            eval_krw = eval_local * usd_krw if cur == "USD" else eval_local
+            total_krw += eval_krw
+            items_out.append({
+                "ticker": it.get("symbol"),
+                "name": it.get("name"),
+                "market": it.get("marketCountry"),
+                "currency": cur,
+                "quantity": qty,
+                "avg_price": avg,
+                "current_price": last,
+                "eval_local": round(eval_local, 2),
+                "eval_krw": round(eval_krw, 0),
+                "pnl_local": round(pnl_local, 2) if pnl_local is not None else None,
+                "pnl_pct": round(pnl_pct, 2),
+                "daily_pct": round(daily_pct, 2),
+            })
+        for it in items_out:
+            it["weight_pct"] = round(it["eval_krw"] / total_krw * 100, 2) if total_krw > 0 else 0
+
+        mv = data.get("marketValue") or {}
+        pl = data.get("profitLoss") or {}
+        tp = data.get("totalPurchaseAmount") or {}
+        summary = {
+            "total_purchase_krw": _f((tp or {}).get("krw")),
+            "market_value_krw": _f(((mv or {}).get("amount") or {}).get("krw")),
+            "pnl_krw": _f(((pl or {}).get("amount") or {}).get("krw")),
+            "pnl_rate": (_f(pl.get("rate")) or 0) * 100,
+            "count": len(items_out),
+        }
+        return safe_json({
+            "items": items_out,
+            "summary": summary,
+            "usd_krw": round(usd_krw, 2),
+            "updated_at": datetime.now(pytz.timezone("Asia/Seoul")).strftime("%Y-%m-%d %H:%M"),
+        })
+    except Exception as e:
+        logger.error(f"[토스] holdings 오류: {e}")
+        return JSONResponse(status_code=500, content={"error": f"{type(e).__name__}: {e}"})
+
 @app.get("/api/toss/myip")
 @limiter.limit("20/minute")
 def toss_myip(request: Request):
