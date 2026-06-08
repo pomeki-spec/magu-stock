@@ -5010,6 +5010,43 @@ def _f(v):
     except (TypeError, ValueError):
         return None
 
+def _toss_extract_krw(obj) -> float | None:
+    """토스 응답에서 KRW 금액을 추출 — 응답 구조 변형 3가지 모두 처리.
+    A) {"krw": 12345}  B) {"amount": {"krw": 12345}}  C) {"amount": 12345, "currency": "KRW"}"""
+    if not obj or not isinstance(obj, dict):
+        return None
+    # A: flat krw key
+    v = _f(obj.get("krw") or obj.get("KRW"))
+    if v is not None:
+        return v
+    amt = obj.get("amount")
+    if isinstance(amt, dict):
+        # B: nested amount.krw
+        v = _f(amt.get("krw") or amt.get("KRW"))
+        if v is not None:
+            return v
+    # C: amount value + currency flag
+    if str(obj.get("currency", "")).upper() == "KRW":
+        return _f(amt)
+    return None
+
+def _toss_eval_krw(mv: dict, position_currency: str, usd_krw: float) -> tuple[float, float]:
+    """(eval_local, eval_krw) — marketValue 구조에 따라 올바른 KRW 변환.
+    토스가 이미 KRW로 환산해 준 경우 이중 변환을 막는다."""
+    mv_cur = str(mv.get("currency", "")).upper()
+    raw = _f(mv.get("amount"))
+    if raw is None:
+        return 0.0, 0.0
+    if mv_cur == "KRW":
+        # API가 이미 KRW로 환산 — 이중 곱셈 방지
+        krw = raw
+        local = krw / usd_krw if position_currency == "USD" and usd_krw else krw
+    else:
+        # amount가 포지션 통화 기준 (USD 또는 KRW)
+        local = raw
+        krw = local * usd_krw if position_currency == "USD" else local
+    return local, krw
+
 @app.get("/api/toss/holdings")
 @limiter.limit("30/minute")
 def toss_holdings_view(request: Request):
@@ -5024,14 +5061,19 @@ def toss_holdings_view(request: Request):
             qty = _f(it.get("quantity")) or 0
             avg = _f(it.get("averagePurchasePrice"))
             last = _f(it.get("lastPrice"))
-            mv = it.get("marketValue") or {}
-            pl = it.get("profitLoss") or {}
+            mv  = it.get("marketValue") or {}
+            pl  = it.get("profitLoss") or {}
             dpl = it.get("dailyProfitLoss") or {}
-            eval_local = _f(mv.get("amount")) or 0
+
+            eval_local, eval_krw = _toss_eval_krw(mv, cur, usd_krw)
+            # fallback: price × qty (marketValue 필드 없을 때)
+            if eval_local == 0 and last and qty:
+                eval_local = last * qty
+                eval_krw = eval_local * usd_krw if cur == "USD" else eval_local
+
             pnl_local = _f(pl.get("amount"))
-            pnl_pct = (_f(pl.get("rate")) or 0) * 100
+            pnl_pct   = (_f(pl.get("rate")) or 0) * 100
             daily_pct = (_f(dpl.get("rate")) or 0) * 100
-            eval_krw = eval_local * usd_krw if cur == "USD" else eval_local
             total_krw += eval_krw
             items_out.append({
                 "ticker": it.get("symbol"),
@@ -5050,21 +5092,31 @@ def toss_holdings_view(request: Request):
         for it in items_out:
             it["weight_pct"] = round(it["eval_krw"] / total_krw * 100, 2) if total_krw > 0 else 0
 
-        mv = data.get("marketValue") or {}
-        pl = data.get("profitLoss") or {}
-        tp = data.get("totalPurchaseAmount") or {}
+        mv_s = data.get("marketValue") or {}
+        pl_s = data.get("profitLoss") or {}
+        tp_s = data.get("totalPurchaseAmount") or {}
         summary = {
-            "total_purchase_krw": _f((tp or {}).get("krw")),
-            "market_value_krw": _f(((mv or {}).get("amount") or {}).get("krw")),
-            "pnl_krw": _f(((pl or {}).get("amount") or {}).get("krw")),
-            "pnl_rate": (_f(pl.get("rate")) or 0) * 100,
+            "total_purchase_krw": _toss_extract_krw(tp_s),
+            "market_value_krw":   _toss_extract_krw(mv_s) or round(total_krw, 0),
+            "pnl_krw":            _toss_extract_krw(pl_s),
+            "pnl_rate":           (_f(pl_s.get("rate")) or 0) * 100,
             "count": len(items_out),
         }
+
+        # 구조 진단용 — 실제 API 응답 형태 확인 후 삭제
+        raw_items = data.get("items") or []
+        _dbg = {
+            "first_item": {k: v for k, v in (raw_items[0].items() if raw_items else {}.items())
+                           if k in ("symbol", "currency", "marketValue", "profitLoss", "dailyProfitLoss")},
+            "summary_fields": {k: v for k, v in data.items() if k != "items"},
+        }
+
         return safe_json({
             "items": items_out,
             "summary": summary,
             "usd_krw": round(usd_krw, 2),
             "updated_at": datetime.now(pytz.timezone("Asia/Seoul")).strftime("%Y-%m-%d %H:%M"),
+            "_debug": _dbg,
         })
     except Exception as e:
         logger.error(f"[토스] holdings 오류: {e}")
@@ -5074,20 +5126,32 @@ def toss_holdings_view(request: Request):
 @limiter.limit("20/minute")
 def toss_myip(request: Request):
     """[검증] 이 서버의 아웃바운드 IP 확인 — 토스 콘솔 IP 화이트리스트 등록용.
-    여러 번 호출해 IP가 바뀌는지(고정 여부)도 확인."""
-    out = {}
+    여러 번 호출해 IP가 바뀌는지 확인 (Railway Static IP 미설정 시 매번 달라짐)."""
+    ips = []
     for name, url in [("ipify", "https://api.ipify.org?format=json"),
                       ("ifconfig", "https://ifconfig.me/ip")]:
         try:
             r = requests.get(url, timeout=10)
             txt = r.text.strip()
             try:
-                out[name] = r.json().get("ip", txt)
+                ip = r.json().get("ip", txt)
             except Exception:
-                out[name] = txt
+                ip = txt
         except Exception as e:
-            out[name] = f"err: {type(e).__name__}"
-    return {"outbound_ip": out}
+            ip = f"err: {type(e).__name__}"
+        ips.append((name, ip))
+
+    unique = list({v for _, v in ips if not v.startswith("err")})
+    is_static = len(unique) <= 1
+    return {
+        "outbound_ips": dict(ips),
+        "is_static": is_static,
+        "guide": (
+            "IP가 고정되어 있습니다. 토스 콘솔에 이 IP를 등록하세요."
+            if is_static else
+            "IP가 동적입니다. Railway 대시보드 → 프로젝트 Settings → Networking → Static Outbound IPs 를 활성화하세요."
+        ),
+    }
 
 @app.get("/api/toss/accounts")
 @limiter.limit("20/minute")
