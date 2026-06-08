@@ -4881,6 +4881,112 @@ def on_startup():
     import threading
     threading.Thread(target=_boot_catchup_check, daemon=True).start()
 
+# ═══════════════════════════════════════════════════════════════════════
+# 토스증권 Open API (시세·환율) — 테스트 단계, 기존 yfinance와 병행
+# ═══════════════════════════════════════════════════════════════════════
+import threading as _toss_threading
+
+TOSS_BASE = "https://openapi.tossinvest.com"
+TOSS_CLIENT_ID = os.environ.get("TOSS_CLIENT_ID", "")
+TOSS_CLIENT_SECRET = os.environ.get("TOSS_CLIENT_SECRET", "")
+_toss_token_cache = {"token": None, "expires_at": 0.0}
+_toss_token_lock = _toss_threading.Lock()
+
+def _toss_get_token():
+    """OAuth2 client_credentials 토큰 발급 + 메모리 캐시 (24h, 만료 60초 전 갱신)"""
+    import time as _t
+    with _toss_token_lock:
+        now = _t.time()
+        if _toss_token_cache["token"] and _toss_token_cache["expires_at"] - 60 > now:
+            return _toss_token_cache["token"]
+        if not TOSS_CLIENT_ID or not TOSS_CLIENT_SECRET:
+            raise RuntimeError("TOSS_CLIENT_ID / TOSS_CLIENT_SECRET 환경변수 미설정")
+        r = requests.post(
+            f"{TOSS_BASE}/oauth2/token",
+            data={"grant_type": "client_credentials",
+                  "client_id": TOSS_CLIENT_ID,
+                  "client_secret": TOSS_CLIENT_SECRET},
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            timeout=15,
+        )
+        r.raise_for_status()
+        j = r.json()
+        _toss_token_cache["token"] = j["access_token"]
+        _toss_token_cache["expires_at"] = now + int(j.get("expires_in", 86400))
+        logger.info(f"[토스] 토큰 발급 OK (만료 {j.get('expires_in')}초)")
+        return _toss_token_cache["token"]
+
+def _toss_symbol(ticker: str) -> str:
+    """yfinance 티커 → 토스 심볼. 005930.KS → 005930, AAPL → AAPL"""
+    t = (ticker or "").upper().strip()
+    if t.endswith(".KS") or t.endswith(".KQ"):
+        return t.rsplit(".", 1)[0]
+    return t
+
+def _toss_prices(tickers: list) -> dict:
+    """다건 현재가 조회 (최대 200). 반환 {원래티커: {price, currency}}"""
+    if not tickers:
+        return {}
+    token = _toss_get_token()
+    sym_map = {}
+    for t in tickers:
+        sym_map.setdefault(_toss_symbol(t), t)
+    symbols = ",".join(sym_map.keys())
+    r = requests.get(
+        f"{TOSS_BASE}/api/v1/prices",
+        params={"symbols": symbols},
+        headers={"Authorization": f"Bearer {token}"},
+        timeout=15,
+    )
+    r.raise_for_status()
+    out = {}
+    for item in (r.json().get("result") or []):
+        sym = item.get("symbol")
+        orig = sym_map.get(sym, sym)
+        try:
+            price = float(item["lastPrice"]) if item.get("lastPrice") is not None else None
+        except (TypeError, ValueError):
+            price = None
+        out[orig] = {"price": price, "currency": item.get("currency")}
+    return out
+
+def _toss_exchange_rate() -> float:
+    """USD→KRW 환율"""
+    token = _toss_get_token()
+    r = requests.get(
+        f"{TOSS_BASE}/api/v1/exchange-rate",
+        params={"baseCurrency": "USD", "quoteCurrency": "KRW"},
+        headers={"Authorization": f"Bearer {token}"},
+        timeout=15,
+    )
+    r.raise_for_status()
+    res = r.json().get("result") or {}
+    try:
+        return float(res["rate"]) if res.get("rate") is not None else None
+    except (TypeError, ValueError):
+        return None
+
+@app.get("/api/toss/ping")
+@limiter.limit("20/minute")
+def toss_ping(request: Request):
+    """[검증] 토큰 발급 + 환율 조회가 되는지 확인 (시세 파이프라인 점검)"""
+    try:
+        token = _toss_get_token()
+        rate = _toss_exchange_rate()
+        return {"ok": True, "token_preview": token[:10] + "…", "usd_krw": rate}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"ok": False, "error": f"{type(e).__name__}: {e}"})
+
+@app.get("/api/toss/test_price")
+@limiter.limit("20/minute")
+def toss_test_price(request: Request, symbols: str = "005930,AAPL"):
+    """[검증] 단일/다건 현재가 조회 테스트"""
+    try:
+        tickers = [s.strip() for s in symbols.split(",") if s.strip()]
+        return {"ok": True, "prices": _toss_prices(tickers)}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"ok": False, "error": f"{type(e).__name__}: {e}"})
+
 @app.on_event("shutdown")
 def on_shutdown():
     scheduler.shutdown()
