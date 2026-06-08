@@ -4887,8 +4887,10 @@ def on_startup():
 import threading as _toss_threading
 
 TOSS_BASE = "https://openapi.tossinvest.com"
-TOSS_CLIENT_ID = os.environ.get("TOSS_CLIENT_ID", "")
-TOSS_CLIENT_SECRET = os.environ.get("TOSS_CLIENT_SECRET", "")
+TOSS_CLIENT_ID = os.environ.get("TOSS_CLIENT_ID", "").strip()
+TOSS_CLIENT_SECRET = os.environ.get("TOSS_CLIENT_SECRET", "").strip()
+# 일부 게이트웨이/WAF가 기본 python-requests UA를 차단 → 브라우저 UA 사용
+TOSS_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
 _toss_token_cache = {"token": None, "expires_at": 0.0}
 _toss_token_lock = _toss_threading.Lock()
 
@@ -4906,10 +4908,14 @@ def _toss_get_token():
             data={"grant_type": "client_credentials",
                   "client_id": TOSS_CLIENT_ID,
                   "client_secret": TOSS_CLIENT_SECRET},
-            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            headers={"Content-Type": "application/x-www-form-urlencoded",
+                     "Accept": "application/json",
+                     "User-Agent": TOSS_UA},
             timeout=15,
         )
-        r.raise_for_status()
+        if r.status_code != 200:
+            # 토스가 보낸 실제 에러 본문을 그대로 노출 (원인 파악용)
+            raise RuntimeError(f"토큰발급 HTTP {r.status_code}: {r.text[:400]}")
         j = r.json()
         _toss_token_cache["token"] = j["access_token"]
         _toss_token_cache["expires_at"] = now + int(j.get("expires_in", 86400))
@@ -4935,10 +4941,11 @@ def _toss_prices(tickers: list) -> dict:
     r = requests.get(
         f"{TOSS_BASE}/api/v1/prices",
         params={"symbols": symbols},
-        headers={"Authorization": f"Bearer {token}"},
+        headers={"Authorization": f"Bearer {token}", "Accept": "application/json", "User-Agent": TOSS_UA},
         timeout=15,
     )
-    r.raise_for_status()
+    if r.status_code != 200:
+        raise RuntimeError(f"현재가 HTTP {r.status_code}: {r.text[:400]}")
     out = {}
     for item in (r.json().get("result") or []):
         sym = item.get("symbol")
@@ -4956,10 +4963,11 @@ def _toss_exchange_rate() -> float:
     r = requests.get(
         f"{TOSS_BASE}/api/v1/exchange-rate",
         params={"baseCurrency": "USD", "quoteCurrency": "KRW"},
-        headers={"Authorization": f"Bearer {token}"},
+        headers={"Authorization": f"Bearer {token}", "Accept": "application/json", "User-Agent": TOSS_UA},
         timeout=15,
     )
-    r.raise_for_status()
+    if r.status_code != 200:
+        raise RuntimeError(f"환율 HTTP {r.status_code}: {r.text[:400]}")
     res = r.json().get("result") or {}
     try:
         return float(res["rate"]) if res.get("rate") is not None else None
