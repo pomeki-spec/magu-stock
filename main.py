@@ -4881,6 +4881,63 @@ def on_startup():
     import threading
     threading.Thread(target=_boot_catchup_check, daemon=True).start()
 
+# ═══════════════════════════════════════════════════════════════════════
+# 유니버스 확장 검증 — pykrx(한국 시총) + 미국 인덱스 크롤링 (Railway 작동 확인용)
+# ═══════════════════════════════════════════════════════════════════════
+@app.get("/api/admin/universe_test")
+@limiter.limit("10/minute")
+def universe_test(request: Request):
+    """[검증] 시총 상위 종목 목록 소스가 Railway에서 작동하는지 확인 (스크리닝 안 함)"""
+    import time as _t
+    from datetime import timedelta
+    out = {}
+
+    # 1. 한국 — pykrx 시총 (KRX 데이터, 해외서버 접근 가능 여부가 핵심)
+    for mkt in ("KOSPI", "KOSDAQ"):
+        key = mkt.lower()
+        try:
+            t0 = _t.time()
+            from pykrx import stock
+            cap = None
+            base = datetime.now()
+            for i in range(7):  # 최근 영업일 역산
+                ds = (base - timedelta(days=i)).strftime("%Y%m%d")
+                try:
+                    df = stock.get_market_cap_by_ticker(ds, market=mkt)
+                    if df is not None and not df.empty:
+                        cap = df; break
+                except Exception:
+                    continue
+            if cap is not None and not cap.empty:
+                col = "시가총액" if "시가총액" in cap.columns else cap.columns[0]
+                top = cap.sort_values(col, ascending=False).head(5)
+                out[key] = {"ok": True, "total": len(cap), "sec": round(_t.time() - t0, 1),
+                            "top5": [{"code": idx, "name": stock.get_market_ticker_name(idx)} for idx in top.index]}
+            else:
+                out[key] = {"ok": False, "error": "빈 데이터 (영업일 7일 역산 실패)"}
+        except Exception as e:
+            out[key] = {"ok": False, "error": f"{type(e).__name__}: {str(e)[:200]}"}
+
+    # 2. 미국 — 인덱스 구성종목 위키 크롤링
+    for name, url in [("nasdaq100", "https://en.wikipedia.org/wiki/Nasdaq-100"),
+                      ("russell1000", "https://en.wikipedia.org/wiki/Russell_1000_Index")]:
+        try:
+            t0 = _t.time()
+            tables = pd.read_html(url)
+            found = None
+            for tb in tables:
+                for c in [str(x) for x in tb.columns]:
+                    if "icker" in c or "ymbol" in c:
+                        found = tb[c].dropna().astype(str).tolist(); break
+                if found:
+                    break
+            out[name] = {"ok": bool(found), "count": len(found) if found else 0,
+                         "sec": round(_t.time() - t0, 1), "sample": found[:5] if found else []}
+        except Exception as e:
+            out[name] = {"ok": False, "error": f"{type(e).__name__}: {str(e)[:200]}"}
+
+    return out
+
 @app.on_event("shutdown")
 def on_shutdown():
     scheduler.shutdown()

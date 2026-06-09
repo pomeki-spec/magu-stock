@@ -12,3 +12,4 @@ html5lib
 beautifulsoup4
 slowapi==0.1.9
 anthropic
+pykrx
