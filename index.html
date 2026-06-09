@@ -949,10 +949,6 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
       <span class="nav-icon">💼</span>
       <div><div class="nav-label">내 자산</div></div>
     </div>
-    <div class="nav-item" id="nav-toss" onclick="showPage('toss')" style="background:rgba(34,197,94,.12);border-left-color:#22c55e;">
-      <span class="nav-icon">🧪</span>
-      <div><div class="nav-label" style="color:#bbf7d0;">토스 자산 (테스트)</div></div>
-    </div>
     <div class="nav-item" id="nav-rebalance" onclick="showPage('rebalance')">
       <span class="nav-icon">⚖️</span>
       <div><div class="nav-label">리밸런싱</div></div>
@@ -1975,25 +1971,6 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
   </div>
 
   <!-- ───────── 💼 내 자산 ───────── -->
-  <div id="page-toss" style="display:none;">
-    <div class="topbar">
-      <div>
-        <div class="page-title">🧪 토스 자산 (테스트)</div>
-        <div class="update-row">
-          <span style="color:var(--sub);">토스증권 메인 계좌 실시간 — 기존 '내 자산'(yfinance)과 비교용</span>
-          <span id="toss-updated" style="color:var(--sub);margin-left:8px;"></span>
-        </div>
-      </div>
-      <div class="topbar-right">
-        <button class="seg-btn" onclick="loadTossHoldings()" style="background:#22c55e;color:#fff;border-color:#22c55e;">🔄 새로고침</button>
-      </div>
-    </div>
-    <div id="toss-summary" style="margin-bottom:14px;"></div>
-    <div id="toss-content" class="card" style="padding:0;overflow-x:auto;">
-      <div class="empty" style="padding:40px;text-align:center;color:var(--sub);">🔄 새로고침을 눌러 토스 자산을 불러오세요</div>
-    </div>
-  </div>
-
   <div id="page-portfolio" style="display:none;">
     <div class="topbar">
       <div>
@@ -2320,14 +2297,11 @@ function closeSidebar() {
 }
 
 function showPage(page) {
-  ['dashboard','classic','growth','modern','tenbagger','backtest','smartmoney','liquidity','momentum','rebalance','portfolio','toss','calendar'].forEach(p => {
+  ['dashboard','classic','growth','modern','tenbagger','backtest','smartmoney','liquidity','momentum','rebalance','portfolio','calendar'].forEach(p => {
     document.getElementById('page-'+p).style.display = p===page?'block':'none';
     const nav = document.getElementById('nav-'+p);
     if(nav) nav.classList.toggle('active', p===page);
   });
-  if(page === 'toss') {
-    loadTossHoldings();
-  }
   if(page === 'rebalance') {
     // 자동 동기화 체크 상태 복원 — 기본값: ON (명시적으로 꺼두지 않은 한)
     const stored = localStorage.getItem('rb-auto-sync');
@@ -4285,66 +4259,6 @@ function fmtKRW(n) {
     return `${man.toLocaleString()}만원`;
   }
   return n.toLocaleString() + '원';
-}
-
-async function loadTossHoldings() {
-  const sumEl = document.getElementById('toss-summary');
-  const wrap = document.getElementById('toss-content');
-  wrap.innerHTML = '<div class="empty" style="padding:40px;text-align:center;"><div class="spinner" style="margin:0 auto 8px;"></div>토스 자산 불러오는 중...</div>';
-  sumEl.innerHTML = '';
-  try {
-    const res = await fetch(`${API}/api/toss/holdings`);
-    const data = await res.json();
-    if (data.error) {
-      wrap.innerHTML = `<div class="empty" style="padding:40px;color:#991b1b;">⚠️ ${data.error}</div>`;
-      return;
-    }
-    const s = data.summary || {};
-    const won = v => v != null ? Math.round(v).toLocaleString() + '원' : '—';
-    const pc = v => (v >= 0 ? '+' : '') + (v != null ? v.toFixed(2) : '0') + '%';
-    const col = v => (v || 0) >= 0 ? '#15803d' : '#991b1b';
-
-    sumEl.innerHTML = `
-      <div class="card" style="padding:16px 18px;display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:14px;">
-        <div><div style="font-size:11px;color:var(--sub);">평가금액</div><div style="font-size:18px;font-weight:800;">${won(s.market_value_krw)}</div></div>
-        <div><div style="font-size:11px;color:var(--sub);">매입원금</div><div style="font-size:18px;font-weight:700;">${won(s.total_purchase_krw)}</div></div>
-        <div><div style="font-size:11px;color:var(--sub);">평가손익</div><div style="font-size:18px;font-weight:800;color:${col(s.pnl_krw)};">${won(s.pnl_krw)} (${pc(s.pnl_rate)})</div></div>
-        <div><div style="font-size:11px;color:var(--sub);">보유 종목</div><div style="font-size:18px;font-weight:700;">${s.count || 0}개</div></div>
-      </div>`;
-
-    const rows = (data.items || []).map(it => {
-      const isUS = it.currency === 'USD';
-      const fmtLocal = v => v != null ? (isUS ? '$' + v.toLocaleString(undefined, {maximumFractionDigits: 2}) : Math.round(v).toLocaleString() + '원') : '—';
-      return `<tr>
-        <td style="padding:10px 12px;"><b>${it.ticker}</b> <span style="font-size:11px;color:var(--sub);">${it.market}</span><br><span style="font-size:11px;color:var(--sub);">${it.name || ''}</span></td>
-        <td style="padding:10px 12px;text-align:right;">${it.quantity}</td>
-        <td style="padding:10px 12px;text-align:right;">${fmtLocal(it.avg_price)}</td>
-        <td style="padding:10px 12px;text-align:right;font-weight:700;">${fmtLocal(it.current_price)}</td>
-        <td style="padding:10px 12px;text-align:right;">${won(it.eval_krw)}</td>
-        <td style="padding:10px 12px;text-align:right;color:${col(it.pnl_pct)};font-weight:700;">${pc(it.pnl_pct)}</td>
-        <td style="padding:10px 12px;text-align:right;color:${col(it.daily_pct)};">${pc(it.daily_pct)}</td>
-        <td style="padding:10px 12px;text-align:right;">${it.weight_pct}%</td>
-      </tr>`;
-    }).join('');
-
-    wrap.innerHTML = `
-      <table style="width:100%;border-collapse:collapse;font-size:13px;">
-        <thead><tr style="background:#f8fafc;border-bottom:1px solid var(--border);">
-          <th style="padding:10px 12px;text-align:left;">종목</th>
-          <th style="padding:10px 12px;text-align:right;">수량</th>
-          <th style="padding:10px 12px;text-align:right;">평균매입가</th>
-          <th style="padding:10px 12px;text-align:right;">현재가</th>
-          <th style="padding:10px 12px;text-align:right;">평가액(KRW)</th>
-          <th style="padding:10px 12px;text-align:right;">손익률</th>
-          <th style="padding:10px 12px;text-align:right;">일일</th>
-          <th style="padding:10px 12px;text-align:right;">비중</th>
-        </tr></thead>
-        <tbody>${rows}</tbody>
-      </table>`;
-    document.getElementById('toss-updated').textContent = `· ${data.updated_at || ''} · 환율 ${data.usd_krw}`;
-  } catch (e) {
-    wrap.innerHTML = `<div class="empty" style="padding:40px;color:#991b1b;">⚠️ ${e.message}</div>`;
-  }
 }
 
 async function loadPortfolio() {
