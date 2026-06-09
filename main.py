@@ -454,16 +454,34 @@ def cleanup_old_data():
 # ══════════════════════════════════════════════════════════════
 
 def get_sp500_tickers():
-    """Wikipedia에서 S&P500 최신 구성종목 크롤링"""
-    try:
-        url = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
-        tables = pd.read_html(url)
-        tickers = tables[0]['Symbol'].str.replace('.', '-', regex=False).tolist()
-        logger.info(f"S&P500 Wikipedia 크롤링: {len(tickers)}개")
-        return tickers
-    except Exception as e:
-        logger.warning(f"S&P500 크롤링 실패, 하드코딩 폴백: {e}")
-        return []
+    """미국 시총 상위 유니버스 크롤링 — 러셀1000(~1000) 우선, 실패 시 S&P500(~500), 다 실패 시 []
+    위키는 기본 UA를 403 차단하므로 브라우저 UA로 받아 파싱한다."""
+    import io
+    UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+    sources = [
+        ("Russell 1000", "https://en.wikipedia.org/wiki/Russell_1000_Index"),
+        ("S&P 500",      "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"),
+    ]
+    for label, url in sources:
+        try:
+            html = requests.get(url, headers={"User-Agent": UA}, timeout=20).text
+            tables = pd.read_html(io.StringIO(html))
+            for tb in tables:
+                col = next((str(c) for c in tb.columns if "icker" in str(c) or "ymbol" in str(c)), None)
+                if not col:
+                    continue
+                syms = (tb[col].dropna().astype(str)
+                        .str.replace(".", "-", regex=False).str.strip().tolist())
+                syms = [s for s in syms if s and s.isascii() and 1 <= len(s) <= 6
+                        and s.replace("-", "").isalpha()]
+                if len(syms) >= 400:
+                    out = list(dict.fromkeys(syms))
+                    logger.info(f"미국 유니버스 크롤링: {len(out)}개 ({label})")
+                    return out
+        except Exception as e:
+            logger.warning(f"미국 유니버스 크롤링 실패 ({label}): {e}")
+    logger.warning("미국 유니버스 크롤링 전부 실패 → 폴백")
+    return []
 
 TICKERS_NASDAQ = list(dict.fromkeys([
     "AAPL","MSFT","NVDA","AMZN","META","GOOGL","TSLA","AVGO","COST","NFLX",
@@ -612,6 +630,18 @@ def get_tickers_sp500():
     return TICKERS_SP500_FALLBACK
 
 TICKERS_US = list(dict.fromkeys(TICKERS_NASDAQ + TICKERS_SP500_FALLBACK))
+# 한국 유니버스: 로컬(한국)에서 생성한 kr_universe.py(시총 상위) 우선, 없으면 정적 fallback.
+# KRX가 해외서버(Railway)를 차단하므로 한국 목록은 로컬에서 추출해 커밋한다.
+try:
+    import kr_universe as _kru
+    if getattr(_kru, "TICKERS_KOSPI_DYN", None):
+        TICKERS_KOSPI = list(dict.fromkeys(_kru.TICKERS_KOSPI_DYN))
+    if getattr(_kru, "TICKERS_KOSDAQ_DYN", None):
+        TICKERS_KOSDAQ = list(dict.fromkeys(_kru.TICKERS_KOSDAQ_DYN))
+    logger.info(f"kr_universe.py 적용: 코스피 {len(TICKERS_KOSPI)} · 코스닥 {len(TICKERS_KOSDAQ)}")
+except ImportError:
+    logger.info("kr_universe.py 없음 → 정적 한국 리스트 사용")
+
 TICKERS_KR = list(dict.fromkeys(TICKERS_KOSPI + TICKERS_KOSDAQ))
 
 KR_NAMES = {
@@ -1643,7 +1673,7 @@ def run_full_screening_job():
         results = []
         with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
             futures = {executor.submit(fetch_single_stock, t, market): t for t in tickers}
-            for f in concurrent.futures.as_completed(futures, timeout=300):
+            for f in concurrent.futures.as_completed(futures, timeout=900):
                 try:
                     r = f.result(timeout=30)
                     if r: results.append(r)
