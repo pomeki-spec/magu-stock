@@ -454,34 +454,22 @@ def cleanup_old_data():
 # ══════════════════════════════════════════════════════════════
 
 def get_sp500_tickers():
-    """미국 시총 상위 유니버스 크롤링 — 러셀1000(~1000) 우선, 실패 시 S&P500(~500), 다 실패 시 []
-    위키는 기본 UA를 403 차단하므로 브라우저 UA로 받아 파싱한다."""
+    """Wikipedia에서 S&P500 구성종목(~500) 크롤링.
+    위키가 기본 UA를 403 차단하므로 브라우저 UA로 받아 파싱한다."""
     import io
     UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
-    sources = [
-        ("Russell 1000", "https://en.wikipedia.org/wiki/Russell_1000_Index"),
-        ("S&P 500",      "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"),
-    ]
-    for label, url in sources:
-        try:
-            html = requests.get(url, headers={"User-Agent": UA}, timeout=20).text
-            tables = pd.read_html(io.StringIO(html))
-            for tb in tables:
-                col = next((str(c) for c in tb.columns if "icker" in str(c) or "ymbol" in str(c)), None)
-                if not col:
-                    continue
-                syms = (tb[col].dropna().astype(str)
-                        .str.replace(".", "-", regex=False).str.strip().tolist())
-                syms = [s for s in syms if s and s.isascii() and 1 <= len(s) <= 6
-                        and s.replace("-", "").isalpha()]
-                if len(syms) >= 400:
-                    out = list(dict.fromkeys(syms))
-                    logger.info(f"미국 유니버스 크롤링: {len(out)}개 ({label})")
-                    return out
-        except Exception as e:
-            logger.warning(f"미국 유니버스 크롤링 실패 ({label}): {e}")
-    logger.warning("미국 유니버스 크롤링 전부 실패 → 폴백")
-    return []
+    try:
+        html = requests.get("https://en.wikipedia.org/wiki/List_of_S%26P_500_companies",
+                            headers={"User-Agent": UA}, timeout=20).text
+        tables = pd.read_html(io.StringIO(html))
+        tickers = (tables[0]['Symbol'].dropna().astype(str)
+                   .str.replace('.', '-', regex=False).str.strip().tolist())
+        tickers = [t for t in tickers if t]
+        logger.info(f"S&P500 크롤링: {len(tickers)}개")
+        return tickers
+    except Exception as e:
+        logger.warning(f"S&P500 크롤링 실패, 폴백 사용: {e}")
+        return []
 
 TICKERS_NASDAQ = list(dict.fromkeys([
     "AAPL","MSFT","NVDA","AMZN","META","GOOGL","TSLA","AVGO","COST","NFLX",
@@ -504,7 +492,24 @@ TICKERS_NASDAQ = list(dict.fromkeys([
     "ALKT","RBRK","AEHR","EVTC","RSKD","IDCC","AEIS","NRDS","GFAI","INTC",
     "CSCO","PEP","CMCSA","VRSN","SWKS","QRVO","MPWR","ENTG","FORM","UCTT",
     "CRUS","SLAB","DIOD","AAON","EXPO","PRGS","PCTY","NCNO","JAMF","APPF",
-]))[:200]
+    # ── 나스닥 커버리지 확장: 상장 우량 중형주 (200 → ~400) ──
+    "TER","AMKR","WOLF","SMTC","SYNA","LFUS","VICR","RMBS","CRDO","ALAB",
+    "NVMI","CAMT","COHR","LITE","CIEN","VIAV","MXL","INDI","NVTS","ALGM",
+    "ADSK","ZI","NTNX","PATH","ESTC","CFLT","DT","PEGA","MANH","TYL",
+    "APPN","DOCN","FIVN","BOX","AI","QLYS","TENB","VRNS","RPD","PCOR",
+    "FRSH","GEN","BSY","WK","SPSC","BLKB","ALRM","INFA","PD","DBX",
+    "DOCS","FROG","TWLO","ZG","YELP","WIX","GLBE","PAYC","DOX","JKHY",
+    "ALNY","INCY","BMRN","EXEL","NBIX","UTHR","HALO","SRPT","RARE","IONS",
+    "ACAD","MEDP","RGEN","CYTK","ROIV","NTRA","TMDX","EXAS","ARGX","TECH",
+    "LNTH","PCRX","SMMT","INSM","ITCI","AXSM","CORT","KRYS","VRNA","VCYT",
+    "RXST","COGT","IMVT","KROS","HROW","PODD","DVAX","NVAX","SUPN","AMPH",
+    "EXPE","WYNN","PDD","JD","BIDU","TCOM","NTES","BILI","DPZ","PLNT",
+    "FOXA","FOX","SIRI","WBD","CHTR","EA","WBA","DLTR","ROST","ODFL",
+    "KHC","FANG","LBRDK","CSGP","ZBRA","EXC","XEL","AEP","WTW","CG",
+    "GLPI","GFS","FUTU","CART","KSPI","FLEX","CASY","SFM","COKE","SAIA",
+    "MDB","NET","SNOW","HUBS","VEEV","OPEN","CVNA","CLSK","WULF","CIFR",
+    "AAL","LCID","RUN","SHLS","FLNC","NXT","BTDR","IREN","APLD","CACC",
+]))[:400]
 
 # 모멘텀 스크리너 전용 추가 풀 (기존 200에 없는 광통신·반도체·우주·성장주)
 TICKERS_MOMENTUM_EXTRA_US = [
