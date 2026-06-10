@@ -4472,6 +4472,85 @@ def take_snapshot(request: Request):
 
 
 # ══════════════════════════════════════════════════════════════
+# 리밸런싱 자동 알림 (서버 스케줄 — 화면 안 열어도 매일 점검)
+# ══════════════════════════════════════════════════════════════
+def _rb_mock_request():
+    """get_holdings를 서버 내부에서 호출하기 위한 가짜 Request (slowapi 통과)"""
+    from starlette.requests import Request as _SReq
+    scope = {"type": "http", "method": "GET", "path": "/", "raw_path": b"/",
+             "query_string": b"", "headers": [], "client": ("127.0.0.1", 0),
+             "server": ("localhost", 80), "scheme": "http", "app": app}
+    return _SReq(scope)
+
+def run_rebalance_check_job(force=False):
+    """매일 KST 08:00 — 포트폴리오 비율 자동 점검 → 목표 이탈 시 텔레그램 (하루 1회).
+    force=True면 하루 1회 제한 무시 (수동 테스트용)."""
+    if not DATABASE_URL:
+        return
+    kst = pytz.timezone("Asia/Seoul")
+    try:
+        # 1) 설정 + 오늘 중복 체크
+        conn = get_conn(); cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("SELECT target, trigger_pct, last_alert FROM rb_settings WHERE id=1")
+        s = cur.fetchone(); cur.close(); conn.close()
+        s = dict(s) if s else {}
+        target  = s.get("target") or 70
+        trigger = s.get("trigger_pct") or 5
+        last    = s.get("last_alert")
+        today   = datetime.now(kst).date()
+        if not force and last and last == today:
+            logger.info("[리밸런싱] 오늘 이미 알림 발송 — 스킵")
+            return
+
+        # 2) 포트폴리오 비율 (현재가 캐시 반영)
+        port = get_holdings(_rb_mock_request(), account="all")
+        if not isinstance(port, dict) or port.get("error"):
+            logger.warning(f"[리밸런싱] 포트폴리오 조회 실패: {port}")
+            return
+        summ  = port.get("summary", {}) or {}
+        total = summ.get("total_assets_krw") or 0
+        stock = summ.get("total_stock_krw") or 0
+        cash  = summ.get("total_cash_krw") or 0
+        if total <= 0:
+            logger.info("[리밸런싱] 총자산 0 — 스킵")
+            return
+
+        cur_pct = round(stock / total * 100, 1)
+        gap = round(cur_pct - target, 1)  # +면 주식 초과, -면 부족
+        if abs(gap) < trigger:
+            logger.info(f"[리밸런싱] 정상 범위 (이탈 {gap:+.1f}%, 기준 ±{trigger}%) — 알림 안 함")
+            return
+
+        # 3) 조정 금액 + 메시지
+        amt = abs(stock - total * target / 100)
+        def fmt_won(n):
+            n = abs(n)
+            if n >= 1e8:
+                uk = int(n // 1e8); man = int((n % 1e8) // 1e4)
+                return f"{uk}억 {man:,}만원" if man else f"{uk}억원"
+            if n >= 1e4:
+                return f"{int(n // 1e4):,}만원"
+            return f"{int(n):,}원"
+        now_str = datetime.now(kst).strftime("%Y-%m-%d %H:%M")
+        direction = "📉 주식 매도 → 현금 확보" if gap > 0 else "📈 현금 → 주식 매수"
+        msg = (f"⚖️ <b>리밸런싱 알림</b>\n📅 {now_str}\n\n"
+               f"💼 총 자산: {fmt_won(total)}\n"
+               f"📊 현재 주식: {fmt_won(stock)} ({cur_pct}%)\n"
+               f"💵 현재 현금: {fmt_won(cash)}\n\n"
+               f"🎯 목표 {target}% vs 현재 {cur_pct}% (<b>{gap:+.1f}% 이탈</b>)\n"
+               f"{direction}\n💡 조정 필요 금액: <b>{fmt_won(amt)}</b>")
+        send_telegram(msg)
+
+        # 4) last_alert 갱신 (하루 1회 보장)
+        conn = get_conn(); cur = conn.cursor()
+        cur.execute("UPDATE rb_settings SET last_alert=%s WHERE id=1", (today,))
+        conn.commit(); cur.close(); conn.close()
+        logger.info(f"[리밸런싱] 알림 발송 완료 (이탈 {gap:+.1f}%)")
+    except Exception as e:
+        logger.error(f"[리밸런싱] 자동 체크 오류: {e}")
+
+
+# ══════════════════════════════════════════════════════════════
 # APScheduler — 매일 KST 04:00 자동 실행
 # ══════════════════════════════════════════════════════════════
 
@@ -4489,6 +4568,14 @@ scheduler.add_job(
     run_us_screening_job,
     CronTrigger(hour=19, minute=0, timezone=pytz.utc),  # UTC 19:00 = KST 04:00
     id="daily_screening_us",
+    replace_existing=True,
+    misfire_grace_time=3600
+)
+# 리밸런싱 자동 점검 — KST 08:00 (UTC 23:00, 미국 장 마감 후)
+scheduler.add_job(
+    run_rebalance_check_job,
+    CronTrigger(hour=23, minute=0, timezone=pytz.utc),  # UTC 23:00 = KST 08:00
+    id="daily_rebalance_check",
     replace_existing=True,
     misfire_grace_time=3600
 )
@@ -4752,6 +4839,14 @@ async def save_rb_settings(request: Request):
     except Exception as e:
         logger.error(f"rb_settings POST 오류: {e}")
         return {"ok": False, "error": str(e)}
+
+@app.post("/api/rb/check_now")
+@limiter.limit("5/minute")
+def rb_check_now(request: Request, background_tasks: BackgroundTasks):
+    """[테스트] 리밸런싱 자동 점검 즉시 실행 (force — 하루 1회 제한 무시).
+    목표 이탈 시에만 텔레그램 발송."""
+    background_tasks.add_task(run_rebalance_check_job, True)
+    return {"message": "리밸런싱 점검 실행됨. 목표 이탈 시 텔레그램 발송됩니다 (정상 범위면 발송 안 함)."}
 
 @app.get("/api/rb/last_alert")
 def get_rb_last_alert():
