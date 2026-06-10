@@ -1373,7 +1373,7 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
         <div class="bt-stat-card">
           <div class="bt-stat-label">📊 총 기록 수</div>
           <div class="bt-stat-val" id="bp-total">—</div>
-          <div class="bt-stat-meta">최근 6개월</div>
+          <div class="bt-stat-meta" id="bp-period-meta">최근 6개월</div>
         </div>
         <div class="bt-stat-card">
           <div class="bt-stat-label">🏆 승률</div>
@@ -1391,7 +1391,17 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
         <b>초과수익(알파)</b> = 베스트픽 평균 수익률 − SPY 30일 수익률. 양수면 시장 대비 아웃퍼폼.
       </div>
       <div class="card">
-        <div class="section-title">베스트픽 이력 <span class="section-right" id="bp-updated"></span></div>
+        <div class="section-title" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+          <span>베스트픽 이력</span>
+          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+            <button class="sm-period-btn" onclick="setBpPeriod(30,this)">1개월</button>
+            <button class="sm-period-btn" onclick="setBpPeriod(90,this)">3개월</button>
+            <button class="sm-period-btn active" onclick="setBpPeriod(180,this)">6개월</button>
+            <button class="sm-period-btn" onclick="setBpPeriod(365,this)">1년</button>
+            <button class="sm-period-btn" onclick="setBpPeriod(0,this)">전체</button>
+            <span id="bp-updated" style="font-size:11px;color:var(--sub);margin-left:4px;"></span>
+          </div>
+        </div>
         <div id="bp-history-wrap">
           <div style="text-align:center;padding:40px;color:var(--sub);">🔄 이력 새로고침 버튼을 눌러주세요</div>
         </div>
@@ -2693,10 +2703,27 @@ async function saveBestpick() {
   btn.disabled = false; btn.textContent = '📌 오늘 베스트픽 기록';
 }
 
+let _bpDays = 180;
+function setBpPeriod(days, btn) {
+  _bpDays = days;
+  document.querySelectorAll('#bt-section-bp .sm-period-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  const labels = {30:'최근 1개월', 90:'최근 3개월', 180:'최근 6개월', 365:'최근 1년', 0:'전체 기간'};
+  const meta = document.getElementById('bp-period-meta');
+  if (meta) meta.textContent = labels[days] || '전체 기간';
+  loadBestpickHistory();
+}
+
 async function loadBestpickHistory() {
   document.getElementById('bp-history-wrap').innerHTML = '<div style="text-align:center;padding:30px;color:var(--sub);"><div class="spinner" style="margin:0 auto 8px;"></div>이력 불러오는 중...</div>';
   try {
-    const res = await fetch(`${API}/api/bestpick/history?market=${document.getElementById('bp-market').value}`);
+    const market = document.getElementById('bp-market').value;
+    let url = `${API}/api/bestpick/history?market=${market}`;
+    if (_bpDays > 0) {
+      const from = new Date(); from.setDate(from.getDate() - _bpDays);
+      url += `&date_from=${from.toISOString().slice(0,10)}`;
+    }
+    const res = await fetch(url);
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const data = await res.json();
     if (data.error) {

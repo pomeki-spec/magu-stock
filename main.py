@@ -3412,7 +3412,7 @@ def _fetch_spy_returns() -> dict:
 
 
 @app.get("/api/bestpick/history")
-def get_bestpick_history(market: str = "nasdaq"):
+def get_bestpick_history(market: str = "nasdaq", date_from: str = None, date_to: str = None):
     """베스트픽 전체 이력 + 현재까지 수익률 추적 + SPY 벤치마크 비교"""
     if not DATABASE_URL:
         return {"error": "DATABASE_URL 없음"}
@@ -3449,10 +3449,13 @@ def get_bestpick_history(market: str = "nasdaq"):
                 WHERE record_id = r.id
                 ORDER BY price_date DESC LIMIT 1
             ) pl ON TRUE
-            WHERE r.picked_at >= CURRENT_DATE - INTERVAL '180 days'
-              AND r.market = %s
+            WHERE r.market = %s
+              AND r.picked_at >= %s::date
+              AND r.picked_at <= %s::date
             ORDER BY r.picked_at DESC, r.total_score DESC
-        """, (market,))
+        """, (market,
+              date_from or (datetime.now() - timedelta(days=180)).strftime("%Y-%m-%d"),
+              date_to   or datetime.now().strftime("%Y-%m-%d")))
         rows = [dict(r) for r in cur.fetchall()]
         cur.close(); conn.close()
 
