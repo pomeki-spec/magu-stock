@@ -1656,57 +1656,36 @@ def save_tenbagger_to_db(results: list):
 # 새벽 스케줄러 작업
 # ══════════════════════════════════════════════════════════════
 
-def run_full_screening_job():
-    """매일 KST 04:00 전체 스크리닝 → DB 저장"""
-    logger.info("=== MAGU STOCK 새벽 스크리닝 시작 ===")
-    start = datetime.now()
+def _screen_one_market(market, tickers):
+    """단일 시장 스크리닝 → DB 저장 (+ 미국은 베스트픽). 반환: 저장 건수"""
+    logger.info(f"[{market}] {len(tickers)}개 스크리닝 중...")
+    results = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
+        futures = {executor.submit(fetch_single_stock, t, market): t for t in tickers}
+        for f in concurrent.futures.as_completed(futures, timeout=900):
+            try:
+                r = f.result(timeout=30)
+                if r: results.append(r)
+            except concurrent.futures.TimeoutError:
+                logger.warning(f"[{market}] 종목 타임아웃 스킵")
+            except Exception as e:
+                logger.warning(f"[{market}] 종목 오류 스킵: {e}")
+    results.sort(key=lambda x: x['total_score'], reverse=True)
+    results = get_portfolio_weight(results)
+    save_screening_to_db(results)
+    if market in ("nasdaq", "sp500"):
+        picks = select_bestpick_5(results)
+        save_bestpick_to_db(picks, market=market)
+    logger.info(f"[{market}] {len(results)}개 완료")
+    return len(results)
 
-    sp500 = get_sp500_tickers()
-    if sp500:
-        global _sp500_cache
-        _sp500_cache = sp500
-
-    markets = {
-        "nasdaq": TICKERS_NASDAQ,
-        "sp500":  get_tickers_sp500(),
-        "kospi":  TICKERS_KOSPI,
-        "kosdaq": TICKERS_KOSDAQ,
-    }
-
-    for market, tickers in markets.items():
-        logger.info(f"[{market}] {len(tickers)}개 스크리닝 중...")
-        results = []
-        with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
-            futures = {executor.submit(fetch_single_stock, t, market): t for t in tickers}
-            for f in concurrent.futures.as_completed(futures, timeout=900):
-                try:
-                    r = f.result(timeout=30)
-                    if r: results.append(r)
-                except concurrent.futures.TimeoutError:
-                    logger.warning(f"[{market}] 종목 타임아웃 스킵")
-                except Exception as e:
-                    logger.warning(f"[{market}] 종목 오류 스킵: {e}")
-        results.sort(key=lambda x: x['total_score'], reverse=True)
-        results = get_portfolio_weight(results)
-        save_screening_to_db(results)
-        if market in ("nasdaq", "sp500"):
-            picks = select_bestpick_5(results)
-            save_bestpick_to_db(picks, market=market)
-        logger.info(f"[{market}] {len(results)}개 완료")
-
-    _run_tenbagger_job()
-    cleanup_old_data()
-    elapsed = int((datetime.now() - start).total_seconds() // 60)
-    logger.info(f"=== 스크리닝 완료: 소요 {elapsed}분 ===")
-
-    # 텔레그램 알림 발송
+def _send_screening_telegram():
+    """DB 최신 결과로 텔레그램 알림 (한국+미국 종합)"""
     try:
-        # DB에서 최신 결과 조회
         alert_results = {}
-        for market in ["nasdaq","sp500","kospi","kosdaq"]:
+        for market in ["nasdaq", "sp500", "kospi", "kosdaq"]:
             rows = load_screening_from_db(market)
             if rows: alert_results[market] = rows[:5]
-        # 텐배거 결과
         tb_rows = []
         if DATABASE_URL:
             try:
@@ -1718,6 +1697,35 @@ def run_full_screening_job():
         send_screening_alert(alert_results, tb_rows)
     except Exception as e:
         logger.error(f"텔레그램 알림 오류: {e}")
+
+def run_kr_screening_job():
+    """한국 스크리닝 (KST 01:00) — 미국과 분리해 yfinance rate limit 회피"""
+    logger.info("=== 한국 스크리닝 시작 (KST 01:00) ===")
+    start = datetime.now()
+    for market, tickers in (("kospi", TICKERS_KOSPI), ("kosdaq", TICKERS_KOSDAQ)):
+        _screen_one_market(market, tickers)
+    logger.info(f"=== 한국 스크리닝 완료: {int((datetime.now()-start).total_seconds()//60)}분 ===")
+
+def run_us_screening_job():
+    """미국 스크리닝 + 텐배거 + 정리 + 알림 (KST 04:00)"""
+    logger.info("=== 미국 스크리닝 시작 (KST 04:00) ===")
+    start = datetime.now()
+    sp500 = get_sp500_tickers()
+    if sp500:
+        global _sp500_cache
+        _sp500_cache = sp500
+    for market, tickers in (("nasdaq", TICKERS_NASDAQ), ("sp500", get_tickers_sp500())):
+        _screen_one_market(market, tickers)
+    _run_tenbagger_job()
+    cleanup_old_data()
+    logger.info(f"=== 미국 스크리닝 완료: {int((datetime.now()-start).total_seconds()//60)}분 ===")
+    _send_screening_telegram()  # 이 시점엔 한국(01:00)도 완료되어 종합 알림 가능
+
+def run_full_screening_job():
+    """전체 스크리닝 (수동 트리거 /api/screen/run · 부팅 catchup용) — 한국+미국 순차"""
+    logger.info("=== MAGU STOCK 전체 스크리닝 시작 ===")
+    run_kr_screening_job()
+    run_us_screening_job()
 
 def _run_tenbagger_job():
     results = []
@@ -4468,10 +4476,19 @@ def take_snapshot(request: Request):
 # ══════════════════════════════════════════════════════════════
 
 scheduler = BackgroundScheduler(timezone=pytz.utc)
+# 한국 스크리닝 — KST 01:00 (UTC 16:00). 미국과 3시간 분리해 yfinance rate limit 회피
 scheduler.add_job(
-    run_full_screening_job,
+    run_kr_screening_job,
+    CronTrigger(hour=16, minute=0, timezone=pytz.utc),  # UTC 16:00 = KST 01:00
+    id="daily_screening_kr",
+    replace_existing=True,
+    misfire_grace_time=3600
+)
+# 미국 스크리닝 + 텐배거 + 정리 + 알림 — KST 04:00 (UTC 19:00)
+scheduler.add_job(
+    run_us_screening_job,
     CronTrigger(hour=19, minute=0, timezone=pytz.utc),  # UTC 19:00 = KST 04:00
-    id="daily_screening",
+    id="daily_screening_us",
     replace_existing=True,
     misfire_grace_time=3600
 )
