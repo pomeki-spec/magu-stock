@@ -1747,7 +1747,8 @@ def _run_tenbagger_job():
     save_tenbagger_to_db(results)
 
 def _run_momentum_job():
-    """KST 04:30 모멘텀 스크리닝 (펀더멘탈 무관)"""
+    """KST 05:30 모멘텀 스크리닝 (펀더멘탈 무관) — 스크리닝과 동일한 rate limit 완화"""
+    import time as _t
     logger.info("=== 모멘텀 스크리닝 시작 ===")
     us_pool = list(dict.fromkeys(TICKERS_NASDAQ + TICKERS_MOMENTUM_EXTRA_US))
     sp500_pool = get_tickers_sp500() or TICKERS_SP500_FALLBACK
@@ -1757,12 +1758,13 @@ def _run_momentum_job():
         "kospi":  TICKERS_KOSPI,
         "kosdaq": TICKERS_KOSDAQ,
     }
-    for market, tickers in markets.items():
+    for i, (market, tickers) in enumerate(markets.items()):
+        if i: _t.sleep(90)  # 시장 사이 텀 — yfinance rate limit 회복
         logger.info(f"[모멘텀/{market}] {len(tickers)}개 스크리닝 중...")
         results = []
-        with concurrent.futures.ThreadPoolExecutor(max_workers=15) as executor:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
             futures = {executor.submit(fetch_momentum_stock, t, market): t for t in tickers}
-            for f in concurrent.futures.as_completed(futures, timeout=300):
+            for f in concurrent.futures.as_completed(futures, timeout=900):
                 try:
                     r = f.result(timeout=30)
                     if r: results.append(r)
@@ -4591,7 +4593,7 @@ scheduler.add_job(
 )
 scheduler.add_job(
     _run_momentum_job,
-    CronTrigger(hour=19, minute=30, timezone=pytz.utc),  # UTC 19:30 = KST 04:30
+    CronTrigger(hour=20, minute=30, timezone=pytz.utc),  # UTC 20:30 = KST 05:30 (미국 스크리닝 04:00 충분히 후)
     id="momentum_screening",
     replace_existing=True,
     misfire_grace_time=3600
@@ -4620,10 +4622,10 @@ scheduler.add_job(
     replace_existing=True,
     misfire_grace_time=3600
 )
-# 매일 KST 05:00 (UTC 20:00) — 더블 컨펌 자동 기록 (스크리닝 04:00 + 모멘텀 04:30 완료 후)
+# 매일 KST 06:30 (UTC 21:30) — 더블 컨펌 자동 기록 (스크리닝 04:00 + 모멘텀 05:30 완료 후)
 scheduler.add_job(
     _run_double_confirm_job,
-    CronTrigger(hour=20, minute=0, timezone=pytz.utc),
+    CronTrigger(hour=21, minute=30, timezone=pytz.utc),
     id="double_confirm_screening",
     replace_existing=True,
     misfire_grace_time=3600
