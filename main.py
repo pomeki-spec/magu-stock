@@ -1660,7 +1660,8 @@ def _screen_one_market(market, tickers):
     """단일 시장 스크리닝 → DB 저장 (+ 미국은 베스트픽). 반환: 저장 건수"""
     logger.info(f"[{market}] {len(tickers)}개 스크리닝 중...")
     results = []
-    with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
+    # 병렬 10 — yfinance rate limit 회피 (20이면 뒤 시장이 차단당해 일부만 성공)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
         futures = {executor.submit(fetch_single_stock, t, market): t for t in tickers}
         for f in concurrent.futures.as_completed(futures, timeout=900):
             try:
@@ -1700,21 +1701,25 @@ def _send_screening_telegram():
 
 def run_kr_screening_job():
     """한국 스크리닝 (KST 01:00) — 미국과 분리해 yfinance rate limit 회피"""
+    import time as _t
     logger.info("=== 한국 스크리닝 시작 (KST 01:00) ===")
     start = datetime.now()
-    for market, tickers in (("kospi", TICKERS_KOSPI), ("kosdaq", TICKERS_KOSDAQ)):
+    for i, (market, tickers) in enumerate((("kospi", TICKERS_KOSPI), ("kosdaq", TICKERS_KOSDAQ))):
+        if i: _t.sleep(90)  # 시장 사이 텀 — rate limit 회복
         _screen_one_market(market, tickers)
     logger.info(f"=== 한국 스크리닝 완료: {int((datetime.now()-start).total_seconds()//60)}분 ===")
 
 def run_us_screening_job():
     """미국 스크리닝 + 텐배거 + 정리 + 알림 (KST 04:00)"""
+    import time as _t
     logger.info("=== 미국 스크리닝 시작 (KST 04:00) ===")
     start = datetime.now()
     sp500 = get_sp500_tickers()
     if sp500:
         global _sp500_cache
         _sp500_cache = sp500
-    for market, tickers in (("nasdaq", TICKERS_NASDAQ), ("sp500", get_tickers_sp500())):
+    for i, (market, tickers) in enumerate((("nasdaq", TICKERS_NASDAQ), ("sp500", get_tickers_sp500()))):
+        if i: _t.sleep(90)  # 나스닥 후 텀 — S&P500이 rate limit에 걸리지 않도록
         _screen_one_market(market, tickers)
     _run_tenbagger_job()
     cleanup_old_data()
@@ -1723,8 +1728,10 @@ def run_us_screening_job():
 
 def run_full_screening_job():
     """전체 스크리닝 (수동 트리거 /api/screen/run · 부팅 catchup용) — 한국+미국 순차"""
+    import time as _t
     logger.info("=== MAGU STOCK 전체 스크리닝 시작 ===")
     run_kr_screening_job()
+    _t.sleep(120)  # 한국→미국 텀 — rate limit 회복
     run_us_screening_job()
 
 def _run_tenbagger_job():
