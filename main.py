@@ -621,7 +621,7 @@ TICKERS_KOSDAQ = list(dict.fromkeys([
 ]))[:150]
 
 _sp500_cache = []
-_gspc_ret_cache = {"ret": None, "updated": None}  # 상대강도 계산용 S&P500 수익률 캐시
+_mkt_ret_cache = {}  # {벤치마크심볼: {"ret": x, "updated": date}} — 상대강도용 시장 수익률 캐시 (시장별)
 _spy_hist_cache = {"data": None, "updated": None}  # 모멘텀 RS 계산용 SPY 1y 히스토리
 
 def get_tickers_sp500():
@@ -1228,26 +1228,35 @@ def score_analyst(rec):
     if not rec: return 2  # 커버리지 없음 → 중립 2점 (한국 소형주 불이익 방지)
     return {'strong_buy':10,'buy':7,'hold':4,'underperform':1,'sell':0,'strong_sell':0}.get(rec.lower(),2)
 
-def score_relative_strength(hist_daily):
+def _rs_benchmark(market):
+    """상대강도 벤치마크 — 시장별 (통화·시장 일치). 한국은 코스피/코스닥 지수, 그 외 S&P500"""
+    return {"kospi": "^KS11", "kosdaq": "^KQ11"}.get(market, "^GSPC")
+
+def score_relative_strength(hist_daily, market="nasdaq"):
+    """종목 1년 수익률을 '자기 시장 지수' 대비로 평가 (한국 종목을 S&P500과 비교하던 버그 수정)"""
     try:
         n=min(len(hist_daily)-1,252)
         if n<60: return 0
         stock_ret=float((hist_daily['Close'].iloc[-1]/hist_daily['Close'].iloc[-n]-1)*100)
-        global _gspc_ret_cache
+        bench=_rs_benchmark(market)
         today=datetime.now().strftime("%Y-%m-%d")
-        if _gspc_ret_cache["updated"]==today and _gspc_ret_cache["ret"] is not None:
-            mkt_ret=_gspc_ret_cache["ret"]
+        c=_mkt_ret_cache.get(bench)
+        if c and c.get("updated")==today and c.get("ret") is not None:
+            mkt_ret=c["ret"]
         else:
             try:
-                spy=yf.Ticker("^GSPC").history(period="1y",timeout=5)
-                spy_n=min(len(spy)-1,n)
-                if spy_n>=60:
-                    mkt_ret=float((spy['Close'].iloc[-1]/spy['Close'].iloc[-spy_n]-1)*100)
-                    _gspc_ret_cache={"ret":mkt_ret,"updated":today}
+                idx=yf.Ticker(bench).history(period="1y",timeout=5)
+                idx_n=min(len(idx)-1,n)
+                if idx_n>=60:
+                    mkt_ret=float((idx['Close'].iloc[-1]/idx['Close'].iloc[-idx_n]-1)*100)
+                    _mkt_ret_cache[bench]={"ret":mkt_ret,"updated":today}
                 else:
                     mkt_ret=10.0*(n/252)
             except:
-                mkt_ret=_gspc_ret_cache["ret"] if _gspc_ret_cache["ret"] is not None else 10.0*(n/252)
+                mkt_ret=(c or {}).get("ret") if (c or {}).get("ret") is not None else 10.0*(n/252)
+        # 벤치마크/종목 수익률이 NaN이면 안전 폴백 (지수 데이터 일시 결측 대비)
+        if mkt_ret is None or math.isnan(mkt_ret): mkt_ret=10.0*(n/252)
+        if math.isnan(stock_ret): return 0
         excess=stock_ret-mkt_ret
         if excess>=30: return 10
         elif excess>=20: return 8
@@ -1278,9 +1287,9 @@ def score_obv_momentum(hist_daily):
         else: return 0
     except: return 0
 
-def calculate_modern_score(info, hist_daily):
+def calculate_modern_score(info, hist_daily, market="nasdaq"):
     rec=info.get('recommendationKey','') or ''
-    return score_analyst(rec)+score_relative_strength(hist_daily)+score_obv_momentum(hist_daily)
+    return score_analyst(rec)+score_relative_strength(hist_daily, market)+score_obv_momentum(hist_daily)
 
 def get_recommendation(total_score, classic=None, growth=None, modern=None):
     if classic is not None and growth is not None and modern is not None:
@@ -1314,7 +1323,7 @@ def fetch_single_stock(ticker, market):
         g_ma200=score_ma200(hist_daily); g_rsi=score_rsi(hist_daily)
         growth=g_roe+g_debt+g_eps+g_peg+g_ma200+g_rsi
         m_anal=score_analyst(info.get('recommendationKey','') or '')
-        m_rs=score_relative_strength(hist_daily); m_obv=score_obv_momentum(hist_daily)
+        m_rs=score_relative_strength(hist_daily, market); m_obv=score_obv_momentum(hist_daily)
         modern=m_anal+m_rs+m_obv; total=classic+growth+modern
         cp=hist_daily['Close'].iloc[-1]; pp=hist_daily['Close'].iloc[-2]
         current_price=float(cp) if not (math.isnan(float(cp)) or math.isinf(float(cp))) else 0.0
@@ -2737,6 +2746,7 @@ def search_stock_by_name(q: str = ""):
 @app.get("/api/stock/{ticker}")
 def get_stock_score(ticker: str):
     ticker=ticker.upper().strip()
+    market = "kospi" if ticker.endswith(".KS") else "kosdaq" if ticker.endswith(".KQ") else "nasdaq"
     try:
         stock=yf.Ticker(ticker); info=stock.info
         price_check=info.get('regularMarketPrice') or info.get('currentPrice') or info.get('previousClose')
@@ -2752,7 +2762,7 @@ def get_stock_score(ticker: str):
         g_ma200=score_ma200(hist_daily); g_rsi=score_rsi(hist_daily)
         growth=g_roe+g_debt+g_eps+g_peg+g_ma200+g_rsi
         m_anal=score_analyst(info.get('recommendationKey','') or '')
-        m_rs=score_relative_strength(hist_daily); m_obv=score_obv_momentum(hist_daily)
+        m_rs=score_relative_strength(hist_daily, market); m_obv=score_obv_momentum(hist_daily)
         modern=m_anal+m_rs+m_obv; total=classic+growth+modern
         current_price=float(hist_daily['Close'].iloc[-1]); prev_price=float(hist_daily['Close'].iloc[-2])
         change_pct=(current_price/prev_price-1)*100
