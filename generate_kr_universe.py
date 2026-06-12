@@ -23,30 +23,39 @@ KOSPI_PAGES = 10    # 50종목/페이지 → 500
 KOSDAQ_PAGES = 10
 
 
-def fetch_codes(sosok: int, pages: int):
-    """네이버 시총 상위 페이지에서 종목코드 추출 (시총 내림차순). sosok 0=코스피 1=코스닥"""
-    out = []
+def fetch_rows(sosok: int, pages: int, suffix: str):
+    """네이버 시총 상위 페이지에서 (티커, 한글명) 추출 (시총 내림차순). sosok 0=코스피 1=코스닥"""
+    out = []  # [(ticker, name)]
+    seen = set()
     for p in range(1, pages + 1):
         url = f"https://finance.naver.com/sise/sise_market_sum.naver?sosok={sosok}&page={p}"
         html = requests.get(url, headers=UA, timeout=15).content.decode("euc-kr", "ignore")
         soup = BeautifulSoup(html, "html.parser")
-        page_codes = []
+        page_any = False
         for a in soup.select("table.type_2 a[href*='code=']"):
             m = re.search(r"code=(\d{6})", a.get("href", ""))
-            if m:
-                page_codes.append(m.group(1))
-        page_codes = list(dict.fromkeys(page_codes))
-        if not page_codes:
+            if not m:
+                continue
+            code = m.group(1)
+            name = a.get_text(strip=True)
+            if code in seen or not name:
+                continue
+            seen.add(code)
+            out.append((code + suffix, name))
+            page_any = True
+        if not page_any:
             break  # 마지막 페이지 이후
-        out.extend(page_codes)
         time.sleep(0.4)
-    return list(dict.fromkeys(out))
+    return out
 
 
 def main():
     print("네이버 금융 시총 상위 추출 중...")
-    kospi = [c + ".KS" for c in fetch_codes(0, KOSPI_PAGES)]
-    kosdaq = [c + ".KQ" for c in fetch_codes(1, KOSDAQ_PAGES)]
+    kospi_rows = fetch_rows(0, KOSPI_PAGES, ".KS")
+    kosdaq_rows = fetch_rows(1, KOSDAQ_PAGES, ".KQ")
+    kospi = [t for t, _ in kospi_rows]
+    kosdaq = [t for t, _ in kosdaq_rows]
+    kr_names = {t: n for t, n in kospi_rows + kosdaq_rows}
     print(f"  코스피: {len(kospi)}개")
     print(f"  코스닥: {len(kosdaq)}개")
 
@@ -54,8 +63,9 @@ def main():
         f.write(f"# 자동생성: generate_kr_universe.py (네이버 금융 시총상위) — {datetime.now():%Y-%m-%d %H:%M}\n")
         f.write(f"TICKERS_KOSPI_DYN = {kospi!r}\n")
         f.write(f"TICKERS_KOSDAQ_DYN = {kosdaq!r}\n")
+        f.write(f"KR_NAMES_DYN = {kr_names!r}\n")
 
-    print(f"\nkr_universe.py 생성 완료 (코스피 {len(kospi)} + 코스닥 {len(kosdaq)} = {len(kospi)+len(kosdaq)}개)")
+    print(f"\nkr_universe.py 생성 완료 (코스피 {len(kospi)} + 코스닥 {len(kosdaq)} = {len(kospi)+len(kosdaq)}개, 한글명 {len(kr_names)}개)")
     print("→ git add kr_universe.py && git commit && git push 후 배포")
 
 

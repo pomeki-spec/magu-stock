@@ -758,6 +758,12 @@ KR_NAMES = {
     "041590.KQ":"플랜티넷","038830.KQ":"이건에너지","036620.KQ":"감성코퍼레이션",
     "067570.KQ":"에이테크솔루션","042420.KQ":"네오위즈홀딩스",
 }
+# kr_universe.py(네이버 크롤링)의 한글 종목명 병합 — 확장 종목도 한글명 표시
+try:
+    if getattr(_kru, "KR_NAMES_DYN", None):
+        KR_NAMES.update(_kru.KR_NAMES_DYN)
+except (NameError, AttributeError):
+    pass
 TICKERS_KR_BT = TICKERS_KR[:50]
 
 SECTOR_ETFS = [
