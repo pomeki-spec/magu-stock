@@ -1722,8 +1722,8 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
             </button>
           </div>
         </div>
-        <div class="rb-input-grid" style="display:grid;grid-template-columns:1fr 1.05fr;gap:12px;margin-bottom:16px;align-items:stretch;">
-          <div style="display:flex;flex-direction:column;gap:12px;justify-content:space-between;">
+        <div class="rb-input-grid" style="display:grid;grid-template-columns:1fr 1.05fr;gap:12px;margin-bottom:16px;align-items:start;">
+          <div style="display:flex;flex-direction:column;gap:12px;">
           <div>
             <div style="font-size:11px;color:var(--sub);margin-bottom:6px;font-weight:600;">총 자산 (원)</div>
             <input id="rb-total" type="text" inputmode="numeric" placeholder="예: 130,000,000"
@@ -1735,16 +1735,6 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
             <input id="rb-stock" type="text" inputmode="numeric" placeholder="예: 100,000,000"
               style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-weight:700;background:var(--card);color:var(--text);box-sizing:border-box;"
               oninput="formatRbInput(this)" onblur="saveRbInputs();calcRebalance();">
-          </div>
-          <div id="rb-input-summary" style="padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:#f8fafc;display:flex;align-items:center;justify-content:space-between;gap:8px;">
-            <div>
-              <div style="font-size:11px;color:var(--sub);font-weight:600;margin-bottom:2px;">현금 (총자산 − 주식)</div>
-              <div><span style="font-size:15px;font-weight:800;" id="rb-input-cash">—</span><span style="font-size:11px;color:var(--sub);margin-left:3px;">원</span></div>
-            </div>
-            <div style="text-align:right;">
-              <div style="font-size:11px;color:var(--sub);font-weight:600;margin-bottom:2px;">주식 / 현금 비율</div>
-              <div style="font-size:13px;font-weight:700;"><span id="rb-input-spct" style="color:#1d4ed8;">—</span> <span style="color:var(--sub);">/</span> <span id="rb-input-cpct" style="color:#64748b;">—</span></div>
-            </div>
           </div>
           </div>
           <div>
@@ -3956,11 +3946,6 @@ function calcRebalance() {
   const curCashPct = Math.round(cash / total * 1000) / 10;
   const gap = Math.round((curStockPct - target) * 10) / 10;
   const absGap = Math.abs(gap);
-
-  // 입력부 요약 박스(왼쪽 빈자리 채움 + 즉시 피드백)
-  const ciCash = document.getElementById('rb-input-cash'); if(ciCash) ciCash.textContent = fmtWon(cash);
-  const ciSpct = document.getElementById('rb-input-spct'); if(ciSpct) ciSpct.textContent = curStockPct + '%';
-  const ciCpct = document.getElementById('rb-input-cpct'); if(ciCpct) ciCpct.textContent = curCashPct + '%';
 
   // 상단 4개 카드
   document.getElementById('rb-disp-total').textContent = fmtWon(total);
