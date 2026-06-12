@@ -1666,20 +1666,27 @@ def save_tenbagger_to_db(results: list):
 # ══════════════════════════════════════════════════════════════
 
 def _screen_one_market(market, tickers):
-    """단일 시장 스크리닝 → DB 저장 (+ 미국은 베스트픽). 반환: 저장 건수"""
+    """단일 시장 스크리닝 → DB 저장 (+ 미국은 베스트픽). 반환: 저장 건수.
+    chunk(60)로 나눠 사이에 쉬어 yfinance 단시간 폭주 차단 회피."""
+    import time as _t
     logger.info(f"[{market}] {len(tickers)}개 스크리닝 중...")
     results = []
-    # 병렬 10 — yfinance rate limit 회피 (20이면 뒤 시장이 차단당해 일부만 성공)
-    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-        futures = {executor.submit(fetch_single_stock, t, market): t for t in tickers}
-        for f in concurrent.futures.as_completed(futures, timeout=900):
-            try:
-                r = f.result(timeout=30)
-                if r: results.append(r)
-            except concurrent.futures.TimeoutError:
-                logger.warning(f"[{market}] 종목 타임아웃 스킵")
-            except Exception as e:
-                logger.warning(f"[{market}] 종목 오류 스킵: {e}")
+    CHUNK = 60
+    for ci in range(0, len(tickers), CHUNK):
+        chunk = tickers[ci:ci + CHUNK]
+        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+            futures = {executor.submit(fetch_single_stock, t, market): t for t in chunk}
+            for f in concurrent.futures.as_completed(futures, timeout=300):
+                try:
+                    r = f.result(timeout=30)
+                    if r: results.append(r)
+                except concurrent.futures.TimeoutError:
+                    logger.warning(f"[{market}] 종목 타임아웃 스킵")
+                except Exception as e:
+                    logger.warning(f"[{market}] 종목 오류 스킵: {e}")
+        if ci + CHUNK < len(tickers):
+            _t.sleep(20)  # chunk 사이 텀 — yfinance 차단 회피
+    logger.info(f"[{market}] 수집 {len(results)}/{len(tickers)}")
     results.sort(key=lambda x: x['total_score'], reverse=True)
     results = get_portfolio_weight(results)
     save_screening_to_db(results)
@@ -1767,20 +1774,25 @@ def _run_momentum_job():
         "kospi":  TICKERS_KOSPI,
         "kosdaq": TICKERS_KOSDAQ,
     }
+    CHUNK = 60
     for i, (market, tickers) in enumerate(markets.items()):
         if i: _t.sleep(90)  # 시장 사이 텀 — yfinance rate limit 회복
         logger.info(f"[모멘텀/{market}] {len(tickers)}개 스크리닝 중...")
         results = []
-        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-            futures = {executor.submit(fetch_momentum_stock, t, market): t for t in tickers}
-            for f in concurrent.futures.as_completed(futures, timeout=900):
-                try:
-                    r = f.result(timeout=30)
-                    if r: results.append(r)
-                except: continue
+        for ci in range(0, len(tickers), CHUNK):
+            chunk = tickers[ci:ci + CHUNK]
+            with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+                futures = {executor.submit(fetch_momentum_stock, t, market): t for t in chunk}
+                for f in concurrent.futures.as_completed(futures, timeout=300):
+                    try:
+                        r = f.result(timeout=30)
+                        if r: results.append(r)
+                    except: continue
+            if ci + CHUNK < len(tickers):
+                _t.sleep(20)  # chunk 사이 텀
         results.sort(key=lambda x: x['momentum_score'], reverse=True)
         save_momentum_to_db(results)
-        logger.info(f"[모멘텀/{market}] {len(results)}개 완료")
+        logger.info(f"[모멘텀/{market}] {len(results)}/{len(tickers)} 완료")
     logger.info("=== 모멘텀 스크리닝 완료 ===")
 
 # ══════════════════════════════════════════════════════════════
