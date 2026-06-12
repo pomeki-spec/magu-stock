@@ -1722,7 +1722,8 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
             </button>
           </div>
         </div>
-        <div class="rb-input-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px;">
+        <div class="rb-input-grid" style="display:grid;grid-template-columns:1fr 1.05fr;gap:12px;margin-bottom:16px;align-items:stretch;">
+          <div style="display:flex;flex-direction:column;gap:12px;justify-content:space-between;">
           <div>
             <div style="font-size:11px;color:var(--sub);margin-bottom:6px;font-weight:600;">총 자산 (원)</div>
             <input id="rb-total" type="text" inputmode="numeric" placeholder="예: 130,000,000"
@@ -1734,6 +1735,7 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
             <input id="rb-stock" type="text" inputmode="numeric" placeholder="예: 100,000,000"
               style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-weight:700;background:var(--card);color:var(--text);box-sizing:border-box;"
               oninput="formatRbInput(this)" onblur="saveRbInputs();calcRebalance();">
+          </div>
           </div>
           <div>
             <div style="font-size:11px;color:var(--sub);margin-bottom:6px;font-weight:600;">목표 주식 비율 — 매크로 자동 산정</div>
@@ -3584,23 +3586,29 @@ async function loadMarketData() {
     // ── 하이일드 스프레드 ─────────────────────────────────────
     if(d.high_yield){
       const hy=d.high_yield;
-      const isNarrowing=hy.direction==='narrowing';
       const badge=document.getElementById('hy-signal-badge');
       const s5dVal=Math.abs(hy.spread_5d||0);
       const barPct=Math.min(s5dVal/2*50,50);
-      if(isNarrowing){
+      if(hy.direction==='narrowing'){
         badge.textContent='분할 매수 고려';
         badge.setAttribute('data-direction','narrowing');
         badge.style.color='#15803d';
         document.getElementById('hy-card').style.borderTopColor='#22c55e';
         document.getElementById('hy-bar-right').style.width=barPct+'%';
         document.getElementById('hy-bar-left').style.width='0%';
-      } else {
+      } else if(hy.direction==='widening'){
         badge.textContent='관망 (비중 축소 고려)';
         badge.setAttribute('data-direction','widening');
         badge.style.color='#991b1b';
         document.getElementById('hy-card').style.borderTopColor='#ef4444';
         document.getElementById('hy-bar-left').style.width=barPct+'%';
+        document.getElementById('hy-bar-right').style.width='0%';
+      } else {
+        badge.textContent='중립 (변화 미미)';
+        badge.setAttribute('data-direction','neutral');
+        badge.style.color='#64748b';
+        document.getElementById('hy-card').style.borderTopColor='#94a3b8';
+        document.getElementById('hy-bar-left').style.width='0%';
         document.getElementById('hy-bar-right').style.width='0%';
       }
       document.getElementById('hy-hyg').textContent=hy.hyg?'$'+hy.hyg:'—';
@@ -3847,7 +3855,8 @@ function setRbMode(mode) {
 function calcAutoTarget() {
   const fear = parseFloat(document.getElementById('fear-num')?.textContent || '50');
   const hyBadge = document.getElementById('hy-signal-badge');
-  const hyGood = hyBadge?.getAttribute('data-direction') === 'narrowing';
+  // 신용위험(widening)일 때만 보수적으로 깎음. narrowing·neutral(완충지대 ±0.1)은 '안정' 취급
+  const hyGood = hyBadge?.getAttribute('data-direction') !== 'widening';
 
   let conservative, reason, zoneName;
   // 9단계 구간
@@ -4082,18 +4091,24 @@ function updateRbMacro() {
   const hySigEl = document.getElementById('rb-macro-hy-sig');
   const hyCard = document.getElementById('rb-macro-hy');
   if(hyDirection) {
-    const isNarrowing = hyDirection === 'narrowing';
-    hyValEl.textContent = isNarrowing ? '축소 중' : '확대 중';
-    if(isNarrowing) {
+    if(hyDirection === 'narrowing') {
+      hyValEl.textContent = '축소 중';
       hySigEl.textContent = '→ 주식 비중 유지/확대';
       hySigEl.style.color = '#15803d';
       hyCard.style.borderLeftColor = '#22c55e';
       hyValEl.style.color = '#15803d';
-    } else {
+    } else if(hyDirection === 'widening') {
+      hyValEl.textContent = '확대 중';
       hySigEl.textContent = '→ 현금 비중 확대 고려';
       hySigEl.style.color = '#991b1b';
       hyCard.style.borderLeftColor = '#ef4444';
       hyValEl.style.color = '#991b1b';
+    } else {
+      hyValEl.textContent = '변화 미미';
+      hySigEl.textContent = '→ 신용 영향 없음 (완충지대)';
+      hySigEl.style.color = '#64748b';
+      hyCard.style.borderLeftColor = '#94a3b8';
+      hyValEl.style.color = '#64748b';
     }
   }
 

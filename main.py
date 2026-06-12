@@ -2530,7 +2530,13 @@ def get_market_data(request: Request):
                 hyg_5d = (hyg['Close'].iloc[-1]/hyg['Close'].iloc[-6]-1)*100
                 lqd_5d = (lqd['Close'].iloc[-1]/lqd['Close'].iloc[-6]-1)*100
                 spread_5d   = lqd_5d - hyg_5d
-                direction = "narrowing" if spread_5d < 0 else "widening"
+                # ±0.1%p 완충지대: 경계선 노이즈를 신용위험으로 과민판정하지 않음
+                if spread_5d < -0.1:
+                    direction = "narrowing"   # 신용 안정(리스크온)
+                elif spread_5d > 0.1:
+                    direction = "widening"    # 신용 위험(리스크오프)
+                else:
+                    direction = "neutral"     # 사실상 변화 없음
 
                 # ── 실제 신용 스프레드 bps (HYG yield - LQD yield) ──
                 try:
@@ -2552,7 +2558,7 @@ def get_market_data(request: Request):
                     "spread_5d": round(spread_5d,3),
                     "spread_bps": spread_bps,
                     "direction": direction,
-                    "signal": "리스크온 🟢" if direction=="narrowing" else "리스크오프 🔴"
+                    "signal": {"narrowing":"리스크온 🟢","widening":"리스크오프 🔴","neutral":"중립 ⚪"}[direction]
                 }
         except Exception as e:
             logger.warning(f"하이일드 스프레드 오류: {e}")
