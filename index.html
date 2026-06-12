@@ -1727,20 +1727,20 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
           <div>
             <div style="font-size:11px;color:var(--sub);font-weight:600;height:24px;display:flex;align-items:center;margin-bottom:6px;white-space:nowrap;">총 자산 (원)</div>
             <input id="rb-total" type="text" inputmode="numeric" placeholder="예: 130,000,000"
-              style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-weight:700;background:var(--card);color:var(--text);box-sizing:border-box;"
+              style="width:100%;height:54px;padding:0 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-weight:700;background:var(--card);color:var(--text);box-sizing:border-box;"
               oninput="formatRbInput(this)" onblur="saveRbInputs();calcRebalance();">
           </div>
           <!-- 2) 현재 주식 금액 -->
           <div>
             <div style="font-size:11px;color:var(--sub);font-weight:600;height:24px;display:flex;align-items:center;margin-bottom:6px;white-space:nowrap;">현재 주식 금액 (원)</div>
             <input id="rb-stock" type="text" inputmode="numeric" placeholder="예: 100,000,000"
-              style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-weight:700;background:var(--card);color:var(--text);box-sizing:border-box;"
+              style="width:100%;height:54px;padding:0 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-weight:700;background:var(--card);color:var(--text);box-sizing:border-box;"
               oninput="formatRbInput(this)" onblur="saveRbInputs();calcRebalance();">
           </div>
           <!-- 3) 보수적 -->
           <div>
             <div style="font-size:11px;color:var(--sub);font-weight:600;height:24px;display:flex;align-items:center;margin-bottom:6px;white-space:nowrap;">목표 주식 비율 — 자동 산정</div>
-            <div style="padding:10px 12px;border:1.5px solid #3b82f6;border-radius:8px;background:#eff6ff;cursor:pointer;transition:all .15s;"
+            <div style="height:54px;box-sizing:border-box;padding:0 12px;display:flex;flex-direction:column;justify-content:center;border:1.5px solid #3b82f6;border-radius:8px;background:#eff6ff;cursor:pointer;transition:all .15s;"
               id="rb-mode-conservative" onclick="setRbMode('conservative')" title="보수적 — CNN + 하이일드 조합">
               <div style="font-size:9px;color:#64748b;font-weight:700;margin-bottom:2px;">보수적</div>
               <div style="display:flex;align-items:baseline;gap:3px;">
@@ -1758,7 +1758,7 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
                 oninput="calcAutoTarget();calcRebalance();">
               <span>%</span>
             </div>
-            <div style="padding:10px 12px;border:1.5px solid #e2e8f0;border-radius:8px;background:#f8fafc;cursor:pointer;transition:all .15s;"
+            <div style="height:54px;box-sizing:border-box;padding:0 12px;display:flex;flex-direction:column;justify-content:center;border:1.5px solid #e2e8f0;border-radius:8px;background:#f8fafc;cursor:pointer;transition:all .15s;"
               id="rb-mode-aggressive" onclick="setRbMode('aggressive')" title="공격적 — 보수적 + 가산%">
               <div style="font-size:9px;color:#64748b;font-weight:700;margin-bottom:2px;">공격적</div>
               <div style="display:flex;align-items:baseline;gap:3px;">
