@@ -622,7 +622,7 @@ TICKERS_KOSDAQ = list(dict.fromkeys([
 
 _sp500_cache = []
 _mkt_ret_cache = {}  # {벤치마크심볼: {"ret": x, "updated": date}} — 상대강도용 시장 수익률 캐시 (시장별)
-_spy_hist_cache = {"data": None, "updated": None}  # 모멘텀 RS 계산용 SPY 1y 히스토리
+_bench_hist_cache = {}  # {지수심볼: {"data": hist, "updated": date}} — 모멘텀 RS용 시장 지수 1y (시장별)
 
 def get_tickers_sp500():
     global _sp500_cache
@@ -1373,29 +1373,31 @@ def fetch_single_stock(ticker, market):
 # 모멘텀 스크리너 — 펀더멘탈 무관, 순수 가격·거래량·추세
 # ══════════════════════════════════════════════════════════════
 
-def _get_spy_hist():
+def _get_benchmark_hist(market="nasdaq"):
+    """모멘텀 RS용 시장 지수 1y 히스토리 — 한국은 코스피/코스닥, 그 외 SPY"""
+    sym = {"kospi": "^KS11", "kosdaq": "^KQ11"}.get(market, "SPY")
     today = datetime.now().strftime("%Y-%m-%d")
-    global _spy_hist_cache
-    if _spy_hist_cache["updated"] == today and _spy_hist_cache["data"] is not None:
-        return _spy_hist_cache["data"]
+    c = _bench_hist_cache.get(sym)
+    if c and c.get("updated") == today and c.get("data") is not None:
+        return c["data"]
     try:
-        spy = yf.Ticker("SPY").history(period="1y", timeout=10)
-        if not spy.empty:
-            _spy_hist_cache = {"data": spy, "updated": today}
-        return _spy_hist_cache["data"]
+        h = yf.Ticker(sym).history(period="1y", timeout=10)
+        if not h.empty:
+            _bench_hist_cache[sym] = {"data": h, "updated": today}
+        return (_bench_hist_cache.get(sym) or {}).get("data")
     except:
-        return _spy_hist_cache["data"]
+        return (_bench_hist_cache.get(sym) or {}).get("data")
 
-def score_mt_rs(hist):
-    """상대강도 복합 (40점): 1M×8 + 3M×17 + 6M×15 — 중기 모멘텀 중심"""
+def score_mt_rs(hist, market="nasdaq"):
+    """상대강도 복합 (40점): 1M×8 + 3M×17 + 6M×15 — 자기 시장 지수 대비 (한국 SPY 비교 버그 수정)"""
     try:
-        spy = _get_spy_hist()
+        bench = _get_benchmark_hist(market)
         score = 0
         for days, pts in [(21, 8), (63, 17), (126, 15)]:
             if len(hist) < days: continue
             sr = float((hist['Close'].iloc[-1] / hist['Close'].iloc[-days] - 1) * 100)
-            if spy is not None and len(spy) > days:
-                mr = float((spy['Close'].iloc[-1] / spy['Close'].iloc[-days] - 1) * 100)
+            if bench is not None and len(bench) > days:
+                mr = float((bench['Close'].iloc[-1] / bench['Close'].iloc[-days] - 1) * 100)
             else:
                 mr = round(7.0 * (days / 252), 2)  # 연 7% 기준 기간 비례 보정
             ex = sr - mr
@@ -1458,7 +1460,7 @@ def fetch_momentum_stock(ticker, market):
         stock = yf.Ticker(ticker); info = stock.info
         hist = stock.history(period="1y")
         if hist.empty or len(hist) < 20: return None
-        rs = score_mt_rs(hist); ma = score_mt_ma(hist)
+        rs = score_mt_rs(hist, market); ma = score_mt_ma(hist)
         vol = score_mt_vol(hist); h52 = score_mt_52w(hist)
         mtotal = rs + ma + vol + h52
         if mtotal >= 75: rec = "강한 모멘텀"
@@ -3286,7 +3288,7 @@ def _run_double_confirm_job():
     """KST 05:00 — 베스트픽+모멘텀 동시 통과 상위 5종목 자동 기록"""
     if not DATABASE_URL: return
     logger.info("=== 더블 컨펌 스크리닝 시작 ===")
-    for market in ("nasdaq", "sp500"):
+    for market in ("nasdaq", "sp500", "kospi", "kosdaq"):
         try:
             conn = get_conn(); cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
             freshness = "AND screened_at > NOW() - INTERVAL '25 hours'"
