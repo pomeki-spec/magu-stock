@@ -1722,58 +1722,54 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
             </button>
           </div>
         </div>
-        <div class="rb-input-grid" style="display:grid;grid-template-columns:1fr 1.05fr;gap:12px;margin-bottom:16px;align-items:start;">
-          <div style="display:flex;flex-direction:column;gap:12px;">
+        <div class="rb-input-grid" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px;align-items:start;">
+          <!-- 1) 총 자산 -->
           <div>
-            <div style="font-size:11px;color:var(--sub);margin-bottom:6px;font-weight:600;">총 자산 (원)</div>
+            <div style="font-size:11px;color:var(--sub);font-weight:600;height:24px;display:flex;align-items:center;margin-bottom:6px;white-space:nowrap;">총 자산 (원)</div>
             <input id="rb-total" type="text" inputmode="numeric" placeholder="예: 130,000,000"
               style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-weight:700;background:var(--card);color:var(--text);box-sizing:border-box;"
               oninput="formatRbInput(this)" onblur="saveRbInputs();calcRebalance();">
           </div>
+          <!-- 2) 현재 주식 금액 -->
           <div>
-            <div style="font-size:11px;color:var(--sub);margin-bottom:6px;font-weight:600;">현재 주식 금액 (원)</div>
+            <div style="font-size:11px;color:var(--sub);font-weight:600;height:24px;display:flex;align-items:center;margin-bottom:6px;white-space:nowrap;">현재 주식 금액 (원)</div>
             <input id="rb-stock" type="text" inputmode="numeric" placeholder="예: 100,000,000"
               style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-weight:700;background:var(--card);color:var(--text);box-sizing:border-box;"
               oninput="formatRbInput(this)" onblur="saveRbInputs();calcRebalance();">
           </div>
-          </div>
+          <!-- 3) 보수적 -->
           <div>
-            <div style="font-size:11px;color:var(--sub);margin-bottom:6px;font-weight:600;">목표 주식 비율 — 매크로 자동 산정</div>
-            <!-- 보수적 / 공격적 2가지 표시 -->
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:6px;">
-              <div style="padding:10px 12px;border:1.5px solid #3b82f6;border-radius:8px;background:#eff6ff;cursor:pointer;transition:all .15s;"
-                id="rb-mode-conservative"
-                onclick="setRbMode('conservative')"
-                title="보수적 — CNN + 하이일드 조합">
-                <div style="font-size:9px;color:#64748b;font-weight:700;margin-bottom:2px;">보수적</div>
-                <div style="display:flex;align-items:baseline;gap:3px;">
-                  <span style="font-size:22px;font-weight:800;color:#1d4ed8;" id="rb-auto-target">—</span>
-                  <span style="font-size:13px;color:#1d4ed8;font-weight:600;">%</span>
-                </div>
-              </div>
-              <div style="padding:10px 12px;border:1.5px solid #e2e8f0;border-radius:8px;background:#f8fafc;cursor:pointer;transition:all .15s;"
-                id="rb-mode-aggressive"
-                onclick="setRbMode('aggressive')"
-                title="공격적 — 보수적 + 가산%">
-                <div style="font-size:9px;color:#64748b;font-weight:700;margin-bottom:2px;">공격적</div>
-                <div style="display:flex;align-items:baseline;gap:3px;">
-                  <span style="font-size:22px;font-weight:800;color:#64748b;" id="rb-aggressive-target">—</span>
-                  <span style="font-size:13px;color:#64748b;font-weight:600;">%</span>
-                </div>
+            <div style="font-size:11px;color:var(--sub);font-weight:600;height:24px;display:flex;align-items:center;margin-bottom:6px;white-space:nowrap;">목표 주식 비율 — 자동 산정</div>
+            <div style="padding:10px 12px;border:1.5px solid #3b82f6;border-radius:8px;background:#eff6ff;cursor:pointer;transition:all .15s;"
+              id="rb-mode-conservative" onclick="setRbMode('conservative')" title="보수적 — CNN + 하이일드 조합">
+              <div style="font-size:9px;color:#64748b;font-weight:700;margin-bottom:2px;">보수적</div>
+              <div style="display:flex;align-items:baseline;gap:3px;">
+                <span style="font-size:22px;font-weight:800;color:#1d4ed8;" id="rb-auto-target">—</span>
+                <span style="font-size:13px;color:#1d4ed8;font-weight:600;">%</span>
               </div>
             </div>
-            <!-- 공격적 가산 설정 -->
-            <div style="display:flex;align-items:center;justify-content:flex-end;gap:5px;">
-              <span style="font-size:10px;color:var(--sub);white-space:nowrap;">공격적 가산</span>
-              <input id="rb-aggressive-add" type="number" value="10" min="1" max="30"
-                style="width:48px;padding:3px 6px;border:1px solid var(--border);border-radius:5px;font-size:12px;font-weight:700;background:var(--card);color:var(--text);text-align:center;"
-                oninput="calcAutoTarget();calcRebalance();">
-              <span style="font-size:10px;color:var(--sub);">%</span>
-            </div>
-            <span id="rb-auto-reason" style="display:none;"></span>
-            <input type="checkbox" id="rb-manual-toggle" style="display:none;">
-            <input id="rb-target" type="number" value="70" style="display:none;">
           </div>
+          <!-- 4) 공격적 -->
+          <div>
+            <div style="font-size:11px;color:var(--sub);font-weight:600;height:24px;display:flex;align-items:center;gap:5px;margin-bottom:6px;white-space:nowrap;">
+              공격적 가산
+              <input id="rb-aggressive-add" type="number" value="10" min="1" max="30"
+                style="width:42px;padding:2px 4px;border:1px solid var(--border);border-radius:5px;font-size:12px;font-weight:700;background:var(--card);color:var(--text);text-align:center;"
+                oninput="calcAutoTarget();calcRebalance();">
+              <span>%</span>
+            </div>
+            <div style="padding:10px 12px;border:1.5px solid #e2e8f0;border-radius:8px;background:#f8fafc;cursor:pointer;transition:all .15s;"
+              id="rb-mode-aggressive" onclick="setRbMode('aggressive')" title="공격적 — 보수적 + 가산%">
+              <div style="font-size:9px;color:#64748b;font-weight:700;margin-bottom:2px;">공격적</div>
+              <div style="display:flex;align-items:baseline;gap:3px;">
+                <span style="font-size:22px;font-weight:800;color:#64748b;" id="rb-aggressive-target">—</span>
+                <span style="font-size:13px;color:#64748b;font-weight:600;">%</span>
+              </div>
+            </div>
+          </div>
+          <span id="rb-auto-reason" style="display:none;"></span>
+          <input type="checkbox" id="rb-manual-toggle" style="display:none;">
+          <input id="rb-target" type="number" value="70" style="display:none;">
         </div>
         <!-- 리밸런싱 트리거 설정 -->
         <div style="display:flex;align-items:flex-start;gap:12px;padding:12px 16px;background:#f8fafc;border-radius:8px;flex-wrap:wrap;">
