@@ -3871,18 +3871,19 @@ def _fetch_live_price_uncached(ticker: str):
         price = None
 
         if not is_kr:
-            # 미국 종목: 시간외 가격 우선 (0이나 None이면 폴백)
-            if market_state == 'PRE':
-                p = info.get('preMarketPrice')
-                if p:  # 0과 None 모두 falsy → 폴백으로 넘어감
-                    price = p
-            elif market_state in ('POST', 'POSTPOST'):
-                p = info.get('postMarketPrice')
-                if p:
-                    price = p
-            # 그 외 시간대(REGULAR/CLOSED) 또는 위에서 None일 경우 정규장 가격
-            if price is None:
-                price = info.get('regularMarketPrice') or info.get('currentPrice')
+            # 미국 종목: 시간외(프리/애프터) 가격 우선 — 0/None이면 폴백
+            pre  = info.get('preMarketPrice')
+            post = info.get('postMarketPrice')
+            reg  = info.get('regularMarketPrice') or info.get('currentPrice')
+            if market_state.startswith('PRE'):        # PRE, PREPRE (프리장)
+                price = pre or reg
+            elif market_state.startswith('POST'):     # POST, POSTPOST (애프터장)
+                price = post or reg
+            elif market_state == 'CLOSED':
+                # 장 마감 후~다음 프리장 전: 가장 최근 시간외 체결가 우선
+                price = post or pre or reg
+            else:                                     # REGULAR 등 정규장
+                price = reg
             try:
                 price = float(price) if price else None
             except (TypeError, ValueError):
