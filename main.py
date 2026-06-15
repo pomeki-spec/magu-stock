@@ -3875,15 +3875,16 @@ def _fetch_live_price_uncached(ticker: str):
             pre  = info.get('preMarketPrice')
             post = info.get('postMarketPrice')
             reg  = info.get('regularMarketPrice') or info.get('currentPrice')
-            if market_state.startswith('PRE'):        # PRE, PREPRE (프리장)
-                price = pre or reg
+            if market_state == 'PRE':                 # 프리장 진행 중
+                price = pre or post or reg
+            elif market_state == 'PREPRE':            # 프리장 직전(자정~새벽): 직전 애프터가 최신
+                price = post or pre or reg
             elif market_state.startswith('POST'):     # POST, POSTPOST (애프터장)
                 price = post or reg
-            elif market_state == 'CLOSED':
-                # 장 마감 후~다음 프리장 전: 가장 최근 시간외 체결가 우선
+            elif market_state == 'CLOSED':            # 장 마감 후~다음 프리장 전
                 price = post or pre or reg
             else:                                     # REGULAR 등 정규장
-                price = reg
+                price = reg or post or pre
             try:
                 price = float(price) if price else None
             except (TypeError, ValueError):
