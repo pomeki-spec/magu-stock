@@ -4486,7 +4486,37 @@ def get_snapshots(request: Request, months: int = 12, start_date: str = None, en
             if 'created_at' in d and d['created_at']:
                 d['created_at'] = d['created_at'].strftime("%Y-%m-%d %H:%M")
             out.append(d)
-        return {"snapshots": out}
+
+        # ── 동기간 S&P500 벤치마크 수익률 ──────────────────────
+        benchmark = None
+        if len(out) >= 2:
+            try:
+                from datetime import datetime as _dt, timedelta as _td
+                s_d = out[0]['snapshot_date']
+                e_d = out[-1]['snapshot_date']
+                # end 당일 포함 위해 +2일 (yfinance end는 exclusive + 주말/휴장 여유)
+                e_plus = (_dt.strptime(e_d, "%Y-%m-%d") + _td(days=3)).strftime("%Y-%m-%d")
+                hist = yf.Ticker("^GSPC").history(start=s_d, end=e_plus)
+                if len(hist) >= 2:
+                    b_start = float(hist['Close'].iloc[0])
+                    b_end   = float(hist['Close'].iloc[-1])
+                    if b_start > 0:
+                        b_ret = (b_end / b_start - 1) * 100
+                        # 내 자산 동기간 수익률
+                        my_start = float(out[0].get('total_assets') or 0)
+                        my_end   = float(out[-1].get('total_assets') or 0)
+                        my_ret = (my_end / my_start - 1) * 100 if my_start > 0 else None
+                        benchmark = {
+                            "symbol": "S&P500",
+                            "return_pct": round(b_ret, 2),
+                            "my_return_pct": round(my_ret, 2) if my_ret is not None else None,
+                            "alpha_pct": round(my_ret - b_ret, 2) if my_ret is not None else None,
+                            "start": s_d, "end": e_d,
+                        }
+            except Exception as be:
+                logger.warning(f"snapshots 벤치마크 계산 실패: {be}")
+
+        return {"snapshots": out, "benchmark": benchmark}
     except Exception as e:
         logger.error(f"snapshots GET 오류: {e}")
         return {"error": str(e)}

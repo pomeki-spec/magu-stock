@@ -5425,7 +5425,7 @@ async function loadSnapshots() {
       renderSnapshotChart([]);
       return;
     }
-    renderSnapshotChart(data.snapshots);
+    renderSnapshotChart(data.snapshots, data.benchmark);
   } catch(e) { console.error(e); }
 }
 
@@ -5456,7 +5456,7 @@ function aggregateSnapshots(snapshots, mode) {
   }).sort((a,b) => a.snapshot_date.localeCompare(b.snapshot_date));
 }
 
-function renderSnapshotChart(snapshots) {
+function renderSnapshotChart(snapshots, benchmark) {
   // 요약/라벨 초기화
   document.getElementById('pf-snap-summary').style.display = 'none';
 
@@ -5496,7 +5496,17 @@ function renderSnapshotChart(snapshots) {
     periodEl.textContent = `기간 내 증감:`;
     const sign = change >= 0 ? '+' : '-';
     const color = change >= 0 ? '#ef4444' : '#3b82f6';
-    changeEl.innerHTML = `<span style="color:${color};">${sign}${fmtKRW(Math.abs(change))} (${sign}${Math.abs(changePct).toFixed(2)}%)</span>`;
+    let html = `내 자산 <span style="color:${color};font-weight:800;">${sign}${Math.abs(changePct).toFixed(2)}%</span> <span style="color:var(--sub);">(${sign}${fmtKRW(Math.abs(change))})</span>`;
+    if(benchmark && benchmark.return_pct != null) {
+      const b = benchmark.return_pct;
+      const alpha = changePct - b;            // 내 자산 − S&P500 (표시값 기준 일관)
+      const bSign = b >= 0 ? '+' : '';
+      const aSign = alpha >= 0 ? '+' : '';
+      const aColor = alpha >= 0 ? '#16a34a' : '#dc2626';
+      html += ` <span style="color:#94a3b8;">|</span> S&P500 <span style="font-weight:700;">${bSign}${b.toFixed(2)}%</span>`;
+      html += ` <span style="color:#94a3b8;">|</span> 알파 <span style="color:${aColor};font-weight:800;">${aSign}${alpha.toFixed(2)}%p ${alpha >= 0 ? '🟢' : '🔴'}</span>`;
+    }
+    changeEl.innerHTML = html;
   }
 
   const canvas = document.getElementById('pf-snap-canvas');
