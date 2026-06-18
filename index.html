@@ -2113,7 +2113,36 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
           </tbody>
         </table>
       </div>
-      <div style="font-size:11px;color:var(--sub);margin-top:8px;">💡 현재 자산이 단계 금액을 넘으면 달성일이 자동 기록됩니다. ✏️로 날짜를 직접 보정할 수 있어요.</div>
+      <div style="font-size:11px;color:var(--sub);margin-top:8px;">💡 현재 자산이 단계 금액을 넘으면 달성일이 자동 기록됩니다. ✏️로 금액·날짜·목표를 직접 수정할 수 있어요.</div>
+    </div>
+
+    <!-- 자산 성장 목표: 편집 모달 -->
+    <div id="gm-edit-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9999;align-items:center;justify-content:center;">
+      <div style="background:var(--card);border-radius:12px;padding:22px;width:340px;max-width:90vw;box-shadow:0 10px 40px rgba(0,0,0,.25);">
+        <div style="font-size:15px;font-weight:800;margin-bottom:16px;" id="gm-edit-title">단계 편집</div>
+        <label style="font-size:12px;color:var(--sub);font-weight:600;">목표 금액 (원)</label>
+        <input id="gm-edit-amount" type="text" inputmode="numeric" oninput="formatRbInput(this)"
+          style="width:100%;padding:9px 11px;margin:4px 0 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-weight:700;background:var(--card);color:var(--text);box-sizing:border-box;">
+        <label style="font-size:12px;color:var(--sub);font-weight:600;">달성일 (비우면 미달성)</label>
+        <input id="gm-edit-date" type="date"
+          style="width:100%;padding:9px 11px;margin:4px 0 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;background:var(--card);color:var(--text);box-sizing:border-box;">
+        <div style="display:flex;gap:10px;">
+          <div style="flex:1;">
+            <label style="font-size:12px;color:var(--sub);font-weight:600;">목표 연도</label>
+            <input id="gm-edit-year" type="text" placeholder="'27년"
+              style="width:100%;padding:9px 11px;margin-top:4px;border:1px solid var(--border);border-radius:8px;font-size:14px;background:var(--card);color:var(--text);box-sizing:border-box;">
+          </div>
+          <div style="flex:1;">
+            <label style="font-size:12px;color:var(--sub);font-weight:600;">나이</label>
+            <input id="gm-edit-age" type="number"
+              style="width:100%;padding:9px 11px;margin-top:4px;border:1px solid var(--border);border-radius:8px;font-size:14px;background:var(--card);color:var(--text);box-sizing:border-box;">
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:18px;justify-content:flex-end;">
+          <button onclick="closeMilestoneModal()" class="seg-btn" style="padding:8px 16px;">취소</button>
+          <button onclick="saveMilestoneEdit()" class="seg-btn" style="padding:8px 16px;background:var(--blue);color:#fff;border-color:var(--blue);">저장</button>
+        </div>
+      </div>
     </div>
 
     <!-- 자산 추이 -->
@@ -4439,18 +4468,38 @@ function gmRow(o) {
   </tr>`;
 }
 
-async function editMilestone(stageOrder) {
+let _gmEditStage = null;
+function editMilestone(stageOrder) {
   const m = _gmData.find(x => x.stage_order === stageOrder);
   if(!m) return;
-  const v = prompt(`${m.label} 달성일 입력 (YYYY-MM-DD, 비우면 미달성 처리):`, m.achieved_date || '');
-  if(v === null) return;
+  _gmEditStage = stageOrder;
+  document.getElementById('gm-edit-title').textContent = `${m.label} 편집`;
+  document.getElementById('gm-edit-amount').value = Number(m.amount).toLocaleString('ko-KR');
+  document.getElementById('gm-edit-date').value = m.achieved_date || '';
+  document.getElementById('gm-edit-year').value = m.target_year || '';
+  document.getElementById('gm-edit-age').value = (m.age != null) ? m.age : '';
+  document.getElementById('gm-edit-modal').style.display = 'flex';
+}
+
+function closeMilestoneModal() {
+  document.getElementById('gm-edit-modal').style.display = 'none';
+  _gmEditStage = null;
+}
+
+async function saveMilestoneEdit() {
+  if(_gmEditStage === null) return;
+  const amount = parseInt(document.getElementById('gm-edit-amount').value.replace(/[,\s]/g, '')) || 0;
+  if(amount <= 0) { alert('목표 금액을 입력하세요.'); return; }
+  const date = document.getElementById('gm-edit-date').value.trim();
+  const year = document.getElementById('gm-edit-year').value.trim();
+  const ageRaw = document.getElementById('gm-edit-age').value.trim();
   try {
-    const res = await fetch(`${API}/api/portfolio/milestones/${stageOrder}`, {
+    const res = await fetch(`${API}/api/portfolio/milestones/${_gmEditStage}`, {
       method: 'PUT', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ achieved_date: v.trim() })
+      body: JSON.stringify({ amount, achieved_date: date, target_year: year, age: ageRaw === '' ? null : parseInt(ageRaw) })
     });
     const d = await res.json();
-    if(d.ok) loadMilestones();
+    if(d.ok) { closeMilestoneModal(); loadMilestones(); }
     else alert('수정 실패: ' + (d.error || ''));
   } catch(e) { alert('수정 실패'); }
 }
