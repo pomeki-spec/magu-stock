@@ -2088,6 +2088,34 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
       </div>
     </div>
 
+    <!-- 자산 성장 목표 -->
+    <div class="card" style="margin-bottom:14px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:10px;">
+        <span class="section-title" style="margin-bottom:0;">🎯 자산 성장 목표</span>
+        <span id="gm-current-label" style="font-size:12px;color:var(--sub);font-weight:600;">—</span>
+      </div>
+      <div style="overflow-x:auto;">
+        <table style="width:100%;border-collapse:collapse;font-size:13px;white-space:nowrap;">
+          <thead>
+            <tr style="background:#dbeafe;color:#1e3a8a;font-weight:700;">
+              <th style="padding:8px 6px;border:1px solid #cbd5e1;">구분</th>
+              <th style="padding:8px 6px;border:1px solid #cbd5e1;">단계</th>
+              <th style="padding:8px 6px;border:1px solid #cbd5e1;">날짜</th>
+              <th style="padding:8px 6px;border:1px solid #cbd5e1;text-align:right;">금액</th>
+              <th style="padding:8px 6px;border:1px solid #cbd5e1;">경과일수</th>
+              <th style="padding:8px 6px;border:1px solid #cbd5e1;">목표</th>
+              <th style="padding:8px 6px;border:1px solid #cbd5e1;">나이</th>
+              <th style="padding:8px 6px;border:1px solid #cbd5e1;"></th>
+            </tr>
+          </thead>
+          <tbody id="gm-tbody">
+            <tr><td colspan="8" style="padding:20px;text-align:center;color:var(--sub);">불러오는 중...</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div style="font-size:11px;color:var(--sub);margin-top:8px;">💡 현재 자산이 단계 금액을 넘으면 달성일이 자동 기록됩니다. ✏️로 날짜를 직접 보정할 수 있어요.</div>
+    </div>
+
     <!-- 자산 추이 -->
     <div class="card" style="margin-bottom:14px;">
       <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:10px;">
@@ -4319,11 +4347,112 @@ async function loadPortfolio() {
     document.getElementById('pf-updated').textContent = `업데이트: ${data.updated_at} · 환율 ₩${data.usd_krw}`;
     renderPortfolio();
     loadSnapshots();
+    loadMilestones();
     loadAlignment();
   } catch(e) {
     document.getElementById('pf-updated').textContent = '❌ 연결 실패';
     console.error(e);
   }
+}
+
+// ═══════════════════════════════════════════════════
+// 🎯 자산 성장 목표 (마일스톤)
+// ═══════════════════════════════════════════════════
+let _gmData = [];
+async function loadMilestones() {
+  try {
+    const res = await fetch(`${API}/api/portfolio/milestones`);
+    const data = await res.json();
+    if(data.error || !data.milestones) {
+      document.getElementById('gm-tbody').innerHTML =
+        `<tr><td colspan="8" style="padding:20px;text-align:center;color:var(--sub);">목표 데이터를 불러올 수 없습니다.</td></tr>`;
+      return;
+    }
+    _gmData = data.milestones;
+    renderMilestones(data.milestones, data.current_assets || 0);
+  } catch(e) { console.error(e); }
+}
+
+function gmDaysBetween(d1, d2) {
+  return Math.round((new Date(d2) - new Date(d1)) / 86400000);
+}
+
+function renderMilestones(ms, current) {
+  document.getElementById('gm-current-label').textContent = `현재 자산 ${fmtKRW(current)}`;
+
+  // 마지막으로 달성한 단계 인덱스 (그 뒤에 '현재' 행 삽입)
+  let lastAchievedIdx = -1;
+  ms.forEach((m, i) => { if(m.achieved_date) lastAchievedIdx = i; });
+
+  // 나이 계산 기준 (시작 단계)
+  const startM = ms.find(m => m.is_start) || ms[0];
+  const startYear = (startM && startM.achieved_date) ? new Date(startM.achieved_date).getFullYear() : new Date().getFullYear();
+  const startAge = startM ? (startM.age || 0) : 0;
+
+  let prevAchieved = null;
+  let html = '';
+  ms.forEach((m, i) => {
+    const achieved = !!m.achieved_date;
+    let elapsed = '-';
+    if(achieved && prevAchieved) elapsed = gmDaysBetween(prevAchieved, m.achieved_date).toLocaleString('ko-KR') + '일';
+    html += gmRow({
+      gubun: achieved ? '달성' : '목표', stage: m.label, date: m.achieved_date || '',
+      amount: m.amount, elapsed, year: m.target_year || '', age: m.age,
+      bg: achieved ? '#ffffff' : '#fefce8', editable: true, stageOrder: m.stage_order, isCurrent: false
+    });
+    if(achieved) prevAchieved = m.achieved_date;
+
+    // 마지막 달성 단계 바로 뒤에 '현재' 행
+    if(i === lastAchievedIdx) {
+      const today = new Date().toISOString().slice(0, 10);
+      const curElapsed = prevAchieved ? gmDaysBetween(prevAchieved, today).toLocaleString('ko-KR') + '일' : '-';
+      const curYear = new Date().getFullYear();
+      html += gmRow({
+        gubun: '현재', stage: '', date: today, amount: current, elapsed: curElapsed,
+        year: "'" + String(curYear).slice(2) + "년", age: startAge + (curYear - startYear),
+        bg: '#ffffff', editable: false, isCurrent: true
+      });
+    }
+  });
+  document.getElementById('gm-tbody').innerHTML = html;
+}
+
+function gmRow(o) {
+  const td = (c, extra='') => `<td style="padding:8px 6px;border:1px solid #cbd5e1;${extra}">${c}</td>`;
+  const amountStr = `<span style="color:#1d4ed8;font-weight:800;">${Number(o.amount).toLocaleString('ko-KR')}</span>`;
+  const rowStyle = o.isCurrent
+    ? `background:${o.bg};outline:2px solid #111827;outline-offset:-2px;`
+    : `background:${o.bg};`;
+  const gubunColor = o.gubun === '달성' ? '#16a34a' : (o.gubun === '현재' ? '#111827' : '#94a3b8');
+  const editBtn = o.editable
+    ? `<button onclick="editMilestone(${o.stageOrder})" title="달성일 보정" style="border:none;background:none;cursor:pointer;font-size:13px;padding:2px;">✏️</button>`
+    : '';
+  return `<tr style="${rowStyle}text-align:center;">
+    ${td(`<span style="color:${gubunColor};font-weight:700;">${o.gubun}</span>`)}
+    ${td(o.stage)}
+    ${td(o.date || '-')}
+    ${td(amountStr, 'text-align:right;')}
+    ${td(o.elapsed)}
+    ${td(o.year)}
+    ${td(o.age != null ? o.age + '세' : '')}
+    ${td(editBtn)}
+  </tr>`;
+}
+
+async function editMilestone(stageOrder) {
+  const m = _gmData.find(x => x.stage_order === stageOrder);
+  if(!m) return;
+  const v = prompt(`${m.label} 달성일 입력 (YYYY-MM-DD, 비우면 미달성 처리):`, m.achieved_date || '');
+  if(v === null) return;
+  try {
+    const res = await fetch(`${API}/api/portfolio/milestones/${stageOrder}`, {
+      method: 'PUT', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ achieved_date: v.trim() })
+    });
+    const d = await res.json();
+    if(d.ok) loadMilestones();
+    else alert('수정 실패: ' + (d.error || ''));
+  } catch(e) { alert('수정 실패'); }
 }
 
 // ═══════════════════════════════════════════════════

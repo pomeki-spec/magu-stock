@@ -367,6 +367,29 @@ def init_db():
             currency   VARCHAR(3) DEFAULT 'USD',
             cached_at  TIMESTAMP DEFAULT NOW()
         );
+
+        -- ──────────────────────────────────────────────
+        -- 자산 성장 목표 (단계별 마일스톤)
+        -- ──────────────────────────────────────────────
+        CREATE TABLE IF NOT EXISTS growth_milestones (
+            stage_order   INT PRIMARY KEY,        -- 0=시작, 1~N=차수
+            label         TEXT NOT NULL,
+            amount        BIGINT NOT NULL,        -- 목표 금액 (KRW)
+            target_year   TEXT,                   -- 표시용 목표 연도 (예: '27년)
+            age           INT,                    -- 해당 나이
+            achieved_date DATE,                   -- 달성일 (NULL=미달성)
+            is_start      BOOLEAN DEFAULT FALSE
+        );
+        INSERT INTO growth_milestones (stage_order,label,amount,target_year,age,achieved_date,is_start) VALUES
+            (0,'시작',40000000,'24년',40,'2024-12-01',TRUE),
+            (1,'1차',100000000,'25년',41,'2025-09-18',FALSE),
+            (2,'2차',200000000,'26년',42,NULL,FALSE),
+            (3,'3차',400000000,'27년',43,NULL,FALSE),
+            (4,'4차',800000000,'29년',45,NULL,FALSE),
+            (5,'5차',1000000000,'30년',46,NULL,FALSE),
+            (6,'6차',1200000000,'31년',47,NULL,FALSE),
+            (7,'7차',1500000000,'32년',48,NULL,FALSE)
+        ON CONFLICT (stage_order) DO NOTHING;
         CREATE INDEX IF NOT EXISTS idx_price_cached_at ON price_cache(cached_at DESC);
 
         -- ──────────────────────────────────────────────
@@ -4520,6 +4543,71 @@ def get_snapshots(request: Request, months: int = 12, start_date: str = None, en
     except Exception as e:
         logger.error(f"snapshots GET 오류: {e}")
         return {"error": str(e)}
+
+
+@app.get("/api/portfolio/milestones")
+@limiter.limit("60/minute")
+def get_milestones(request: Request):
+    """자산 성장 목표(마일스톤) 조회 + 현재 총자산 연동 + 하이브리드 자동 달성 기록"""
+    if not DATABASE_URL:
+        return {"error": "DATABASE_URL 없음"}
+    try:
+        # 현재 총자산 (실시간 holdings — price_cache 10분 캐시 사용)
+        current = 0.0
+        try:
+            hd = get_holdings(request, account="all")
+            if not hd.get('error') and hd.get('summary'):
+                current = float(hd['summary'].get('total_assets_krw') or 0)
+        except Exception as he:
+            logger.warning(f"milestones 현재자산 조회 실패: {he}")
+
+        conn = get_conn(); cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        # 하이브리드 자동 달성: 미달성인데 현재자산이 단계 금액을 넘었으면 오늘(KST) 기록
+        if current and current > 0:
+            kst_today = datetime.now(pytz.timezone("Asia/Seoul")).date()
+            cur.execute("""
+                UPDATE growth_milestones
+                SET achieved_date = %s
+                WHERE achieved_date IS NULL AND amount <= %s
+            """, (kst_today, current))
+            conn.commit()
+        cur.execute("SELECT * FROM growth_milestones ORDER BY stage_order ASC")
+        rows = [dict(r) for r in cur.fetchall()]
+        for r in rows:
+            if r.get('achieved_date'):
+                r['achieved_date'] = r['achieved_date'].strftime("%Y-%m-%d")
+        cur.close(); conn.close()
+        return {"milestones": rows, "current_assets": round(current)}
+    except Exception as e:
+        logger.error(f"milestones GET 오류: {e}")
+        return {"error": str(e)}
+
+
+@app.put("/api/portfolio/milestones/{stage_order}")
+@limiter.limit("30/minute")
+async def update_milestone(stage_order: int, request: Request):
+    """마일스톤 수동 편집 (달성일/금액/연도/나이/라벨). achieved_date='' 또는 null이면 미달성 처리"""
+    if not DATABASE_URL:
+        return {"ok": False, "error": "DATABASE_URL 없음"}
+    try:
+        body = await request.json()
+        sets = []; vals = []
+        for k in ('label', 'amount', 'target_year', 'age', 'achieved_date'):
+            if k in body:
+                v = body[k]
+                if v == '':
+                    v = None
+                sets.append(f"{k} = %s"); vals.append(v)
+        if not sets:
+            return {"ok": False, "error": "수정할 필드 없음"}
+        vals.append(stage_order)
+        conn = get_conn(); cur = conn.cursor()
+        cur.execute(f"UPDATE growth_milestones SET {', '.join(sets)} WHERE stage_order = %s", vals)
+        conn.commit(); cur.close(); conn.close()
+        return {"ok": True}
+    except Exception as e:
+        logger.error(f"milestone PUT 오류: {e}")
+        return {"ok": False, "error": str(e)}
 
 
 @app.post("/api/portfolio/snapshot")
