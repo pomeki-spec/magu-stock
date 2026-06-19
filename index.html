@@ -3668,7 +3668,7 @@ async function loadMarketData() {
       const bpsEl=document.getElementById('hy-bps');
       if(hy.spread_bps!=null){
         bpsEl.textContent=hy.spread_bps;
-        bpsEl.style.color=isNarrowing?'#15803d':'#991b1b';
+        bpsEl.style.color=hy.direction==='narrowing'?'#15803d':(hy.direction==='widening'?'#991b1b':'#64748b');
       } else {
         bpsEl.textContent='—';
         bpsEl.style.color='var(--sub)';
@@ -5175,8 +5175,8 @@ function renderPortfolio() {
         <td><strong>${curPriceDisp}</strong></td>
         <td><strong>${fmtKRW(h.current_value_krw)}</strong></td>
         <td style="color:${pnlColor};">
-          <div style="font-size:15px;font-weight:800;line-height:1.2;">${pnlSign}${h.pnl_pct.toFixed(2)}%</div>
-          <div style="font-size:10px;color:var(--sub);margin-top:2px;">${pnlDisp}</div>
+          <div style="font-size:15px;font-weight:800;line-height:1.2;">${h.pnl_pct == null ? '<span style="color:var(--sub);">—</span>' : pnlSign + h.pnl_pct.toFixed(2) + '%'}</div>
+          <div style="font-size:10px;color:var(--sub);margin-top:2px;">${h.pnl_local == null ? '가격 조회 실패' : pnlDisp}</div>
         </td>
         <td><strong style="font-size:13px;">${h.weight_pct}%</strong></td>
         <td style="white-space:nowrap;">
