@@ -4071,6 +4071,10 @@ async def add_holding(request: Request):
         if manual_sector and manual_sector not in ("—", "Unknown", ""):
             sector = manual_sector
             sector_method = "manual"
+        elif ticker.endswith('.KS') or ticker.endswith('.KQ'):
+            # 한국 종목: 매크로 정합(미국 SPDR 섹터)과 무관 → 섹터 추론·수동모달 생략하고 바로 저장
+            # (yfinance .info 재조회가 해외 서버에서 느리거나 막혀 추가가 멈추던 문제도 방지)
+            sector = "Unknown"; sector_method = "kr_skip"
         else:
             # live에는 캐시된 값이 있을 수 있으므로 원본 info로 재추론
             try:
