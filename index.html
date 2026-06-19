@@ -2001,45 +2001,27 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
       </div>
     </div>
 
-    <!-- 🚦 정합 시그널 카드 -->
-    <div class="card" id="pf-alignment-card" style="margin-bottom:14px;background:linear-gradient(135deg,#f0f9ff 0%,#eff6ff 100%);border:1px solid #93c5fd;">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px;">
-        <span class="section-title" style="margin-bottom:0;">🚦 매크로 정합 시그널</span>
-        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-          <span id="pf-alignment-status" style="font-size:11px;color:var(--sub);">분석 중...</span>
-          <button onclick="reclassifySectors()" id="pf-reclassify-btn"
-            title="저장된 종목 중 섹터 미분류(Unknown/—)인 항목을 자동 재분류 — 수동 설정한 섹터는 보존"
-            style="padding:4px 10px;border:1px solid #93c5fd;background:#fff;color:#1d4ed8;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap;">
-            🏷 섹터 재분류
-          </button>
-        </div>
-      </div>
-      <div id="pf-alignment-body" style="font-size:13px;color:var(--sub);">
-        <div class="spinner" style="margin:20px auto;"></div>
-      </div>
-    </div>
-
     <!-- 상단 요약 4카드 -->
-    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px;" id="pf-summary-grid">
-      <div class="card" style="text-align:left;">
-        <div style="font-size:11px;color:var(--sub);font-weight:600;margin-bottom:6px;">총 자산</div>
-        <div style="font-size:20px;font-weight:800;" id="pf-total">—</div>
-        <div style="font-size:11px;margin-top:4px;color:var(--sub);" id="pf-total-sub">—</div>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:14px;" id="pf-summary-grid">
+      <div class="card" style="text-align:left;border-left:4px solid #4f46e5;background:linear-gradient(135deg,#ffffff 0%,#eef2ff 100%);box-shadow:0 2px 10px rgba(15,23,42,.05);">
+        <div style="font-size:11px;color:#64748b;font-weight:700;margin-bottom:8px;letter-spacing:.2px;">💎 총 자산</div>
+        <div style="font-size:22px;font-weight:800;color:#0f172a;letter-spacing:-.5px;" id="pf-total">—</div>
+        <div style="font-size:11px;margin-top:5px;color:#94a3b8;font-weight:600;" id="pf-total-sub">—</div>
       </div>
-      <div class="card" style="text-align:left;">
-        <div style="font-size:11px;color:var(--sub);font-weight:600;margin-bottom:6px;">주식 평가</div>
-        <div style="font-size:20px;font-weight:800;" id="pf-stock">—</div>
-        <div style="font-size:11px;margin-top:4px;color:var(--sub);" id="pf-stock-pct">—</div>
+      <div class="card" style="text-align:left;border-left:4px solid #2563eb;background:linear-gradient(135deg,#ffffff 0%,#eff6ff 100%);box-shadow:0 2px 10px rgba(15,23,42,.05);">
+        <div style="font-size:11px;color:#64748b;font-weight:700;margin-bottom:8px;letter-spacing:.2px;">📈 주식 평가</div>
+        <div style="font-size:22px;font-weight:800;color:#0f172a;letter-spacing:-.5px;" id="pf-stock">—</div>
+        <div style="font-size:11px;margin-top:5px;color:#94a3b8;font-weight:600;" id="pf-stock-pct">—</div>
       </div>
-      <div class="card" style="text-align:left;">
-        <div style="font-size:11px;color:var(--sub);font-weight:600;margin-bottom:6px;">현금 보유</div>
-        <div style="font-size:20px;font-weight:800;" id="pf-cash">—</div>
-        <div style="font-size:11px;margin-top:4px;color:var(--sub);" id="pf-cash-pct">—</div>
+      <div class="card" style="text-align:left;border-left:4px solid #0891b2;background:linear-gradient(135deg,#ffffff 0%,#ecfeff 100%);box-shadow:0 2px 10px rgba(15,23,42,.05);">
+        <div style="font-size:11px;color:#64748b;font-weight:700;margin-bottom:8px;letter-spacing:.2px;">💵 현금 보유</div>
+        <div style="font-size:22px;font-weight:800;color:#0f172a;letter-spacing:-.5px;" id="pf-cash">—</div>
+        <div style="font-size:11px;margin-top:5px;color:#94a3b8;font-weight:600;" id="pf-cash-pct">—</div>
       </div>
-      <div class="card" style="text-align:left;">
-        <div style="font-size:11px;color:var(--sub);font-weight:600;margin-bottom:6px;">평가 손익</div>
-        <div style="font-size:20px;font-weight:800;" id="pf-pnl">—</div>
-        <div style="font-size:11px;margin-top:4px;color:var(--sub);" id="pf-pnl-pct">—</div>
+      <div class="card" style="text-align:left;border-left:4px solid #475569;background:linear-gradient(135deg,#ffffff 0%,#f8fafc 100%);box-shadow:0 2px 10px rgba(15,23,42,.05);">
+        <div style="font-size:11px;color:#64748b;font-weight:700;margin-bottom:8px;letter-spacing:.2px;">⚖️ 평가 손익</div>
+        <div style="font-size:22px;font-weight:800;color:#0f172a;letter-spacing:-.5px;" id="pf-pnl">—</div>
+        <div style="font-size:11px;margin-top:5px;color:#94a3b8;font-weight:600;" id="pf-pnl-pct">—</div>
       </div>
     </div>
 
@@ -4388,7 +4370,6 @@ async function loadPortfolio() {
     renderPortfolio();
     loadSnapshots();
     loadMilestones();
-    loadAlignment();
   } catch(e) {
     document.getElementById('pf-updated').textContent = '❌ 연결 실패';
     console.error(e);
@@ -5070,8 +5051,14 @@ function renderPortfolio() {
     cashKrw = (cash[_pfAccount]?.cash_krw || 0) + (cash[_pfAccount]?.cash_usd || 0) * usdKrw;
   }
 
-  // 주식 평가
-  const stockKrw = filtered.reduce((sum,h) => sum + (h.current_value_krw || 0), 0);
+  // 주식 평가 (가격 조회 실패 종목은 원가로 평가 → 손익 왜곡 방지)
+  const stockKrw = filtered.reduce((sum,h) => {
+    if(h.current_price == null) {
+      const cost = h.currency === 'USD' ? h.cost_local * usdKrw : h.cost_local;
+      return sum + cost;  // 가격 없으면 매수원가로 간주
+    }
+    return sum + (h.current_value_krw || 0);
+  }, 0);
   const costKrw = filtered.reduce((sum,h) => {
     const cost = h.currency === 'USD' ? h.cost_local * usdKrw : h.cost_local;
     return sum + cost;
@@ -5397,10 +5384,8 @@ async function reclassifySectors() {
     }
     alert(parts.join('\n'));
     await loadPortfolio();
-    // 정합 시그널도 재계산
     window._liqData = null;
     window._smSectorData = null;
-    if(typeof loadAlignment === 'function') loadAlignment();
   } catch(e) {
     alert('서버 연결 실패');
     console.error(e);
