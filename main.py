@@ -4066,34 +4066,10 @@ async def add_holding(request: Request):
         # 종목 정보 자동 조회 — 통화는 실제 종목 기반으로 결정 (프론트 입력 무시)
         live = _fetch_live_price(ticker)
         name     = payload.get('name') or live.get('name') or ticker
-        # 섹터: 프론트에서 명시적으로 넘어온 값 > 자동 추론
-        manual_sector = payload.get('sector')
-        if manual_sector and manual_sector not in ("—", "Unknown", ""):
-            sector = manual_sector
-            sector_method = "manual"
-        elif ticker.endswith('.KS') or ticker.endswith('.KQ'):
-            # 한국 종목: 매크로 정합(미국 SPDR 섹터)과 무관 → 섹터 추론·수동모달 생략하고 바로 저장
-            # (yfinance .info 재조회가 해외 서버에서 느리거나 막혀 추가가 멈추던 문제도 방지)
-            sector = "Unknown"; sector_method = "kr_skip"
-        else:
-            # live에는 캐시된 값이 있을 수 있으므로 원본 info로 재추론
-            try:
-                raw_info = yf.Ticker(ticker).info or {}
-            except Exception:
-                raw_info = {}
-            resolved = resolve_sector(ticker, raw_info)
-            if resolved["needs_manual"]:
-                # 추론 실패 — 프론트에 수동 입력 요청 신호 반환 (저장 안 함)
-                return {
-                    "ok": False,
-                    "needs_manual_sector": True,
-                    "ticker": ticker,
-                    "name": name,
-                    "long_name": raw_info.get("longName") or name,
-                    "message": "ETF 섹터 자동 추론 실패 — 수동 선택이 필요합니다"
-                }
-            sector = resolved["sector"]
-            sector_method = resolved["method"]
+        # 섹터: 매크로 정합 시그널 삭제로 더이상 사용 안 함 → 추론·수동모달 제거.
+        # 입력값이 있으면 보존, 없으면 Unknown (yfinance .info 재조회도 생략 → 추가 빠름)
+        sector = payload.get('sector') or "Unknown"
+        sector_method = "manual" if payload.get('sector') else "none"
         # 티커 규칙: .KS/.KQ = KRW, 그 외 = USD (yfinance info 우선)
         if ticker.endswith('.KS') or ticker.endswith('.KQ'):
             currency = 'KRW'
