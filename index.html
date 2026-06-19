@@ -5599,8 +5599,22 @@ async function loadSnapshots() {
       renderSnapshotChart([]);
       return;
     }
-    renderSnapshotChart(data.snapshots, data.benchmark);
-  } catch(e) { console.error(e); }
+    // 차트 먼저 렌더 (벤치마크 없이) — 벤치마크 응답 지연/실패와 무관하게 그래프 표시
+    renderSnapshotChart(data.snapshots, null);
+    loadBenchmarkOverlay(data.snapshots);
+  } catch(e) { console.error(e); renderSnapshotChart([]); }
+}
+
+// S&P500 벤치마크는 별도 호출 (yfinance라 느릴 수 있음) → 받으면 알파만 덧입힘
+async function loadBenchmarkOverlay(snapshots) {
+  if(!snapshots || snapshots.length < 2) return;
+  try {
+    const s = snapshots[0].snapshot_date;
+    const e = snapshots[snapshots.length - 1].snapshot_date;
+    const res = await fetch(`${API}/api/portfolio/benchmark?start_date=${s}&end_date=${e}`);
+    const d = await res.json();
+    if(d && d.return_pct != null) renderSnapshotChart(snapshots, d);  // 알파 포함 재렌더
+  } catch(e) { console.error('benchmark overlay', e); }
 }
 
 function aggregateSnapshots(snapshots, mode) {
