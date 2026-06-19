@@ -2052,14 +2052,14 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
           <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;">
             <span style="font-size:11px;color:var(--sub);width:32px;">KRW</span>
             <input id="cash-main-krw" type="text" inputmode="numeric" placeholder="0"
-              style="flex:1;padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;"
-              oninput="formatRbInput(this)" onblur="saveCash('main')">
+              style="flex:1;padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;text-align:right;"
+              oninput="formatCashInput(this)" onblur="saveCash('main')">
           </div>
           <div style="display:flex;gap:6px;align-items:center;">
             <span style="font-size:11px;color:var(--sub);width:32px;">USD</span>
-            <input id="cash-main-usd" type="number" step="0.01" placeholder="0"
-              style="flex:1;padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;"
-              onblur="saveCash('main')">
+            <input id="cash-main-usd" type="text" inputmode="decimal" placeholder="0"
+              style="flex:1;padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;text-align:right;"
+              oninput="formatCashInput(this)" onblur="saveCash('main')">
           </div>
         </div>
         <div style="padding:12px;background:#f8fafc;border-radius:10px;">
@@ -2067,14 +2067,14 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
           <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;">
             <span style="font-size:11px;color:var(--sub);width:32px;">KRW</span>
             <input id="cash-sub-krw" type="text" inputmode="numeric" placeholder="0"
-              style="flex:1;padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;"
-              oninput="formatRbInput(this)" onblur="saveCash('sub')">
+              style="flex:1;padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;text-align:right;"
+              oninput="formatCashInput(this)" onblur="saveCash('sub')">
           </div>
           <div style="display:flex;gap:6px;align-items:center;">
             <span style="font-size:11px;color:var(--sub);width:32px;">USD</span>
-            <input id="cash-sub-usd" type="number" step="0.01" placeholder="0"
-              style="flex:1;padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;"
-              onblur="saveCash('sub')">
+            <input id="cash-sub-usd" type="text" inputmode="decimal" placeholder="0"
+              style="flex:1;padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;text-align:right;"
+              oninput="formatCashInput(this)" onblur="saveCash('sub')">
           </div>
         </div>
       </div>
@@ -3787,6 +3787,17 @@ function formatRbInput(el) {
   calcRebalance();
 }
 
+// 현금 입력용 콤마 포맷 (소수점 2자리 허용, calcRebalance 안 부름)
+function formatCashInput(el) {
+  let v = el.value.replace(/[^0-9.]/g, '');
+  const dot = v.indexOf('.');
+  if(dot !== -1) v = v.slice(0, dot + 1) + v.slice(dot + 1).replace(/\./g, '');  // 소수점 1개만
+  const parts = v.split('.');
+  const intPart = parts[0] ? Number(parts[0]).toLocaleString('ko-KR') : '';
+  if(parts.length > 1) el.value = (intPart || '0') + '.' + parts[1].slice(0, 2);
+  else el.value = intPart;
+}
+
 // 저장된 입력값 복원 (DB 우선, fallback: localStorage)
 async function restoreRbInputs() {
   try {
@@ -4369,9 +4380,9 @@ async function loadPortfolio() {
     // 현금 입력 필드에 값 반영
     const cash = data.cash || {};
     document.getElementById('cash-main-krw').value = (cash.main?.cash_krw || 0).toLocaleString('ko-KR');
-    document.getElementById('cash-main-usd').value = cash.main?.cash_usd || 0;
+    document.getElementById('cash-main-usd').value = Number(cash.main?.cash_usd || 0).toLocaleString('ko-KR');
     document.getElementById('cash-sub-krw').value  = (cash.sub?.cash_krw || 0).toLocaleString('ko-KR');
-    document.getElementById('cash-sub-usd').value  = cash.sub?.cash_usd || 0;
+    document.getElementById('cash-sub-usd').value  = Number(cash.sub?.cash_usd || 0).toLocaleString('ko-KR');
 
     document.getElementById('pf-updated').textContent = `업데이트: ${data.updated_at} · 환율 ₩${data.usd_krw}`;
     renderPortfolio();
@@ -5537,7 +5548,7 @@ async function saveCash(account) {
   const krwEl = document.getElementById('cash-'+account+'-krw');
   const usdEl = document.getElementById('cash-'+account+'-usd');
   const krw = parseInt((krwEl.value || '0').replace(/,/g,'')) || 0;
-  const usd = parseFloat(usdEl.value || 0) || 0;
+  const usd = parseFloat((usdEl.value || '0').replace(/,/g,'')) || 0;
   try {
     await fetch(`${API}/api/portfolio/cash`, {
       method: 'POST',
