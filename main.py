@@ -3575,7 +3575,7 @@ def get_bestpick_history(market: str = "nasdaq", date_from: str = None, date_to:
         if not spy_data_ok:
             logger.warning("SPY 현재가 조회 실패 — 알파 계산 불가")
 
-        return {
+        return safe_json({
             "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
             "total_records": len(rows),
             "overall_avg_return": overall_avg,
@@ -3584,7 +3584,7 @@ def get_bestpick_history(market: str = "nasdaq", date_from: str = None, date_to:
             "spy_data_ok": spy_data_ok,
             "alpha_vs_spy": alpha,
             "history": summary_by_date
-        }
+        })
     except Exception as e:
         logger.error(f"베스트픽 이력 조회 오류: {e}")
         return {"error": str(e)}
@@ -3765,7 +3765,7 @@ def get_double_confirm_history(market: str = "nasdaq"):
                     screener_status = f"교집합 없음 — 베스트픽 {sc_cnt}종목, 모멘텀 {mt_cnt}종목이지만 동시 통과 없음"
             except: pass
 
-        return {
+        return safe_json({
             "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
             "total_records": len(rows),
             "overall_avg_return": overall_avg,
@@ -3775,7 +3775,7 @@ def get_double_confirm_history(market: str = "nasdaq"):
             "alpha_vs_spy": alpha,
             "screener_status": screener_status,
             "history": summary_by_date
-        }
+        })
     except Exception as e:
         logger.error(f"더블컨펌 이력 조회 오류: {e}")
         return {"error": str(e)}
