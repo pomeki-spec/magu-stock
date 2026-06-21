@@ -199,6 +199,13 @@ def init_db():
             minervini_detail JSONB,
             screened_at      TIMESTAMP DEFAULT NOW()
         );
+        -- 텐배거 재설계(2026): 진짜 텐배거 5요소 점수 컬럼
+        ALTER TABLE tenbagger_cache ADD COLUMN IF NOT EXISTS growth_score INT;
+        ALTER TABLE tenbagger_cache ADD COLUMN IF NOT EXISTS size_score   INT;
+        ALTER TABLE tenbagger_cache ADD COLUMN IF NOT EXISTS value_score  INT;
+        ALTER TABLE tenbagger_cache ADD COLUMN IF NOT EXISTS health_score INT;
+        ALTER TABLE tenbagger_cache ADD COLUMN IF NOT EXISTS early_score  INT;
+        ALTER TABLE tenbagger_cache ADD COLUMN IF NOT EXISTS detail_json  JSONB;
 
         CREATE TABLE IF NOT EXISTS bestpick_records (
             id                SERIAL PRIMARY KEY,
@@ -1669,24 +1676,20 @@ def save_tenbagger_to_db(results: list):
             cur.execute("""
                 INSERT INTO tenbagger_cache
                     (ticker,name,sector,market_cap_b,price,change_pct,
-                     lynch_score,oneil_score,minervini_score,total_score,grade,
-                     lynch_detail,oneil_detail,minervini_detail,screened_at)
+                     growth_score,size_score,value_score,health_score,early_score,
+                     total_score,grade,detail_json,screened_at)
                 VALUES
                     (%(ticker)s,%(name)s,%(sector)s,%(market_cap_b)s,%(price)s,%(change_pct)s,
-                     %(lynch_score)s,%(oneil_score)s,%(minervini_score)s,%(total_score)s,%(grade)s,
-                     %(lynch_detail)s,%(oneil_detail)s,%(minervini_detail)s,NOW())
+                     %(growth_score)s,%(size_score)s,%(value_score)s,%(health_score)s,%(early_score)s,
+                     %(total_score)s,%(grade)s,%(detail_json)s,NOW())
                 ON CONFLICT (ticker) DO UPDATE SET
                     name=EXCLUDED.name, sector=EXCLUDED.sector, market_cap_b=EXCLUDED.market_cap_b,
                     price=EXCLUDED.price, change_pct=EXCLUDED.change_pct,
-                    lynch_score=EXCLUDED.lynch_score, oneil_score=EXCLUDED.oneil_score,
-                    minervini_score=EXCLUDED.minervini_score, total_score=EXCLUDED.total_score,
-                    grade=EXCLUDED.grade, lynch_detail=EXCLUDED.lynch_detail,
-                    oneil_detail=EXCLUDED.oneil_detail, minervini_detail=EXCLUDED.minervini_detail,
-                    screened_at=NOW()
-            """, {**r,
-                  "lynch_detail": json.dumps(r.get("lynch_detail",{})),
-                  "oneil_detail": json.dumps(r.get("oneil_detail",{})),
-                  "minervini_detail": json.dumps(r.get("minervini_detail",{}))})
+                    growth_score=EXCLUDED.growth_score, size_score=EXCLUDED.size_score,
+                    value_score=EXCLUDED.value_score, health_score=EXCLUDED.health_score,
+                    early_score=EXCLUDED.early_score, total_score=EXCLUDED.total_score,
+                    grade=EXCLUDED.grade, detail_json=EXCLUDED.detail_json, screened_at=NOW()
+            """, {**r, "detail_json": json.dumps(r.get("detail_json",{}))})
         conn.commit(); cur.close(); conn.close()
         logger.info(f"텐배거 DB 저장: {len(results)}건")
     except Exception as e:
@@ -2047,148 +2050,138 @@ def _run_short_volume_job():
 # 텐배거 스크리너 (기존 그대로)
 # ══════════════════════════════════════════════════════════════
 
-def score_lynch(info, hist_daily):
-    score=0; detail={}
-    peg=info.get('pegRatio',999) or 999
-    if peg<=0: peg_score=0
-    elif peg<=0.5: peg_score=15
-    elif peg<=0.75: peg_score=12
-    elif peg<=1.0: peg_score=9
-    elif peg<=1.5: peg_score=5
-    elif peg<=2.0: peg_score=2
-    else: peg_score=0
-    score+=peg_score; detail['peg']=round(peg if peg!=999 else 0,2); detail['peg_score']=peg_score
-    eps_growth=info.get('earningsGrowth',0) or 0
-    if eps_growth>=0.50: eps_score=10
-    elif eps_growth>=0.35: eps_score=8
-    elif eps_growth>=0.25: eps_score=6
-    elif eps_growth>=0.15: eps_score=3
-    else: eps_score=0
-    score+=eps_score; detail['eps_growth']=round(eps_growth*100,1); detail['eps_score']=eps_score
-    mcap=info.get('marketCap',0) or 0; mcap_b=mcap/1e9
-    if mcap_b<=0: mcap_score=0
-    elif mcap_b<=0.3: mcap_score=10
-    elif mcap_b<=2.0: mcap_score=8
-    elif mcap_b<=10.0: mcap_score=5
-    elif mcap_b<=50.0: mcap_score=2
-    else: mcap_score=0
-    score+=mcap_score; detail['market_cap_b']=round(mcap_b,1); detail['mcap_score']=mcap_score
+def score_tb_growth(info):
+    """① 매출 폭발 성장 (25) — 적자여도 매출 고성장이면 점수 (PEG 의존 제거)"""
+    detail={}; score=0
+    rev_g=info.get('revenueGrowth',0) or 0
+    if rev_g>=0.60: rs=18
+    elif rev_g>=0.40: rs=15
+    elif rev_g>=0.25: rs=11
+    elif rev_g>=0.15: rs=7
+    elif rev_g>=0.05: rs=3
+    else: rs=0
+    score+=rs; detail['revenue_growth']=round(rev_g*100,1); detail['rev_score']=rs
+    eps_g=info.get('earningsGrowth',0) or 0
+    if eps_g>=0.40: es=7
+    elif eps_g>=0.20: es=4
+    elif eps_g>0: es=2
+    else: es=0
+    score+=es; detail['eps_growth']=round(eps_g*100,1); detail['eps_score']=es
     return score,detail
 
-def score_oneil(info, hist_daily, hist_weekly):
-    score=0; detail={}
-    eps_growth=info.get('earningsGrowth',0) or 0; quarterly=info.get('earningsQuarterlyGrowth',0) or 0
-    c_val=max(eps_growth,quarterly)
-    if c_val>=0.50: c_score=10
-    elif c_val>=0.35: c_score=8
-    elif c_val>=0.25: c_score=6
-    elif c_val>=0.15: c_score=3
-    else: c_score=0
-    score+=c_score; detail['quarterly_eps_growth']=round(c_val*100,1); detail['c_score']=c_score
-    try:
-        if len(hist_daily)>=252:
-            high_52w=float(hist_daily['High'].rolling(252).max().iloc[-1]); current=float(hist_daily['Close'].iloc[-1])
-            from_high=(current/high_52w-1)*100; detail['from_52w_high']=round(from_high,1)
-            if from_high>=0: n_score=10
-            elif from_high>=-3: n_score=8
-            elif from_high>=-8: n_score=5
-            elif from_high>=-15: n_score=2
-            else: n_score=0
-        else: n_score=0; detail['from_52w_high']=0
-    except: n_score=0; detail['from_52w_high']=0
-    score+=n_score; detail['n_score']=n_score
-    try:
-        if len(hist_daily)>=50:
-            avg_50d=float(hist_daily['Volume'].rolling(50).mean().iloc[-1]); recent_5=float(hist_daily['Volume'].iloc[-5:].mean())
-            vol_ratio=recent_5/avg_50d if avg_50d>0 else 1.0; detail['vol_ratio_50d']=round(vol_ratio,2)
-            if vol_ratio>=2.5: s_score=10
-            elif vol_ratio>=2.0: s_score=8
-            elif vol_ratio>=1.5: s_score=6
-            elif vol_ratio>=1.2: s_score=3
-            else: s_score=0
-        else: s_score=0; detail['vol_ratio_50d']=0
-    except: s_score=0; detail['vol_ratio_50d']=0
-    score+=s_score; detail['s_score']=s_score
-    rec=info.get('recommendationKey','') or ''
-    l_score=5 if rec=='strong_buy' else 3 if rec=='buy' else 0
-    score+=l_score; detail['l_score']=l_score
+def score_tb_size(info):
+    """② 소형 시총 (20) — 작을수록 고득점 (100억$ 초과는 fetch에서 제외)"""
+    detail={}
+    mcap=info.get('marketCap',0) or 0; b=mcap/1e9
+    if b<=0: s=0
+    elif b<=0.5: s=20
+    elif b<=1.0: s=18
+    elif b<=2.0: s=15
+    elif b<=5.0: s=11
+    elif b<=10.0: s=6
+    else: s=0
+    detail['market_cap_b']=round(b,2); detail['size_score']=s
+    return s,detail
+
+def score_tb_value(info):
+    """③ 밸류에이션 여력 (15) — PSR 적정 우대, 과열(고PSR) 감점"""
+    detail={}
+    psr=info.get('priceToSalesTrailing12Months',None)
+    if psr is None or psr<=0: s=5
+    elif psr<=2: s=15
+    elif psr<=4: s=12
+    elif psr<=8: s=9
+    elif psr<=15: s=5
+    elif psr<=25: s=2
+    else: s=0
+    detail['psr']=round(psr,1) if psr else None; detail['value_score']=s
+    return s,detail
+
+def score_tb_health(info):
+    """④ 재무 생존력 (20) — 부채비율 + 유동성 + 이익률 (망하지 않을 종목)"""
+    detail={}; score=0
+    dte=info.get('debtToEquity',None)
+    if dte is None: ds=4
+    elif dte<=30: ds=8
+    elif dte<=80: ds=6
+    elif dte<=150: ds=3
+    else: ds=0
+    score+=ds; detail['debt_to_equity']=round(dte,1) if dte is not None else None; detail['debt_score']=ds
+    cr=info.get('currentRatio',None)
+    if cr is None: cs=3
+    elif cr>=2.0: cs=7
+    elif cr>=1.5: cs=5
+    elif cr>=1.0: cs=3
+    else: cs=0
+    score+=cs; detail['current_ratio']=round(cr,2) if cr is not None else None; detail['liquidity_score']=cs
+    gm=info.get('grossMargins',0) or 0
+    if gm>=0.60: gs=5
+    elif gm>=0.40: gs=3
+    elif gm>=0.20: gs=1
+    else: gs=0
+    score+=gs; detail['gross_margin']=round(gm*100,1); detail['margin_score']=gs
     return score,detail
 
-def score_minervini(info, hist_daily):
-    score=0; detail={}
+def score_tb_early(hist_daily):
+    """⑤ 초기 상승 전환 (20) — 바닥 탈출 초기 우대, 신고가 막바지 회피"""
+    detail={}; score=0
     try:
-        close=hist_daily['Close']; current=float(close.iloc[-1]); ma150=ma200=None
-        if len(hist_daily)>=200:
-            ma150=float(close.rolling(150).mean().iloc[-1]); ma200=float(close.rolling(200).mean().iloc[-1])
-            detail['ma150']=round(ma150,2); detail['ma200']=round(ma200,2)
-            above_both=(current>ma150) and (current>ma200)
-            if above_both:
-                ratio=current/((ma150+ma200)/2)
-                if ratio>=1.15: cond1=8
-                elif ratio>=1.08: cond1=6
-                elif ratio>=1.02: cond1=4
-                else: cond1=2
-            else: cond1=0
-        else: cond1=0; detail['ma150']=0; detail['ma200']=0
-        score+=cond1; detail['above_ma_score']=cond1
-        if ma150 and ma200:
-            if ma150>ma200:
-                r=ma150/ma200
-                if r>=1.05: cond2=7
-                elif r>=1.02: cond2=5
-                elif r>=1.005: cond2=3
-                else: cond2=0
-            else: cond2=0
-        else: cond2=0
-        score+=cond2; detail['ma_cross_score']=cond2
-        if len(hist_daily)>=220:
-            ma200_1m=float(close.rolling(200).mean().iloc[-22])
-            if ma200 and ma200>ma200_1m:
-                sp=(ma200/ma200_1m-1)*100
-                if sp>=3.0: cond3=7
-                elif sp>=1.5: cond3=5
-                elif sp>=0.5: cond3=3
-                else: cond3=1
-            else: cond3=0
-        else: cond3=0
-        score+=cond3; detail['ma200_slope_score']=cond3
+        close=hist_daily['Close']; current=float(close.iloc[-1])
         if len(hist_daily)>=252:
-            low_52w=float(hist_daily['Low'].rolling(252).min().iloc[-1]); from_low=(current/low_52w-1)*100
-            detail['from_52w_low']=round(from_low,1)
-            if from_low>=100: cond4=8
-            elif from_low>=60: cond4=6
-            elif from_low>=30: cond4=4
-            elif from_low>=15: cond4=2
-            else: cond4=0
-        else: cond4=0; detail['from_52w_low']=0
-        score+=cond4; detail['from_low_score']=cond4
-    except: detail={'above_ma_score':0,'ma_cross_score':0,'ma200_slope_score':0,'from_low_score':0}
+            low=float(close.rolling(252).min().iloc[-1]); high=float(close.rolling(252).max().iloc[-1])
+            from_low=(current/low-1)*100 if low>0 else 0
+            from_high=(current/high-1)*100 if high>0 else -100
+            detail['from_52w_low']=round(from_low,1); detail['from_52w_high']=round(from_high,1)
+            if 15<=from_low<=80: base=10
+            elif 80<from_low<=150: base=6
+            elif 5<=from_low<15: base=5
+            elif from_low>150: base=2
+            else: base=0
+            if from_high>=-5: base=max(0,base-3)  # 신고가 막바지 페널티
+            score+=base; detail['early_base']=base
+        else:
+            detail['from_52w_low']=0; detail['from_52w_high']=0; detail['early_base']=0
+        if len(hist_daily)>=72:
+            ma50=float(close.rolling(50).mean().iloc[-1])
+            ma50_1m=float(close.rolling(50).mean().iloc[-22])
+            above=current>ma50; turning=ma50>ma50_1m
+            if above and turning: ts=10
+            elif above: ts=6
+            elif turning: ts=4
+            else: ts=0
+            score+=ts; detail['ma50_score']=ts
+        else: detail['ma50_score']=0
+    except:
+        detail={'from_52w_low':0,'from_52w_high':0,'early_base':0,'ma50_score':0}
     return score,detail
 
 def fetch_tenbagger_stock(ticker):
     try:
         stock=yf.Ticker(ticker); info=stock.info
-        hist_daily=stock.history(period="1y"); hist_weekly=stock.history(period="2y",interval="1wk")
+        hist_daily=stock.history(period="1y")
         if hist_daily.empty or len(hist_daily)<60: return None
         price_check=info.get('regularMarketPrice') or info.get('currentPrice') or info.get('previousClose')
         if not price_check: return None
-        lynch_score,lynch_detail=score_lynch(info,hist_daily)
-        oneil_score,oneil_detail=score_oneil(info,hist_daily,hist_weekly)
-        minervini_score,minervini_detail=score_minervini(info,hist_daily)
-        total=lynch_score+oneil_score+minervini_score
+        mcap=info.get('marketCap',0) or 0
+        if mcap>10e9: return None  # 100억$ 초과 = 텐배거 부적합 (대형주 제외)
+        g_s,g_d=score_tb_growth(info)
+        sz_s,sz_d=score_tb_size(info)
+        v_s,v_d=score_tb_value(info)
+        h_s,h_d=score_tb_health(info)
+        e_s,e_d=score_tb_early(hist_daily)
+        total=g_s+sz_s+v_s+h_s+e_s
         current_price=float(hist_daily['Close'].iloc[-1]); prev_price=float(hist_daily['Close'].iloc[-2])
         change_pct=(current_price/prev_price-1)*100
-        if total>=75: grade="🔥 최상위"
-        elif total>=60: grade="⭐ 유망"
-        elif total>=45: grade="👀 관심"
+        if total>=70: grade="🔥 최상위"
+        elif total>=55: grade="⭐ 유망"
+        elif total>=40: grade="👀 관심"
         else: grade="💤 미해당"
-        mcap=info.get('marketCap',0) or 0
         return {
             "ticker":ticker,"name":info.get('longName',ticker),"sector":info.get('sector','Unknown'),
-            "market_cap_b":round(mcap/1e9,1),"price":round(current_price,2),"change_pct":round(change_pct,2),
-            "lynch_score":lynch_score,"oneil_score":oneil_score,"minervini_score":minervini_score,
+            "market_cap_b":round(mcap/1e9,2),"price":round(current_price,2),"change_pct":round(change_pct,2),
+            "growth_score":g_s,"size_score":sz_s,"value_score":v_s,"health_score":h_s,"early_score":e_s,
             "total_score":total,"grade":grade,
-            "lynch_detail":lynch_detail,"oneil_detail":oneil_detail,"minervini_detail":minervini_detail,
+            "detail_json":{"growth":g_d,"size":sz_d,"value":v_d,"health":h_d,"early":e_d},
         }
     except: return None
 
@@ -2245,6 +2238,26 @@ TICKERS_TENBAGGER = list(dict.fromkeys([
     "RCAT","TNDM","ISRG","AVAV","PRCT","SWBI",
     "RH","TDY","NDSN",
 
+    # ── [2026 확장] 소형~중형 성장주 추가 풀 (시총 상한은 fetch에서 필터) ──
+    # SaaS / 소프트웨어
+    "BASE","FROG","AMPL","BLZE","BIGC","SEMR","INTA","KVYO","YEXT","PD",
+    "FSLY","DOMO","RPD","BAND","WK","ZUO","SPT","BRZE","AMPL","PCOR",
+    # 핀테크 / 디지털자산
+    "PAYO","OPFI","MARA","RIOT","CIFR","WULF","BTBT","CLSK","LMND","ML",
+    # 바이오테크 / 헬스케어
+    "NTLA","FATE","SANA","RCKT","SRPT","VERV","CGEM","NUVL","KURA","ARQT",
+    "MLYS","ABSI","DAWN","AKRO","ANAB","CTMX","TARS","RXRX","CRNX","INSM",
+    # 반도체 / 하드웨어
+    "AOSL","NVTS","COHU","UCTT","INDI","MXL","SLAB","SYNA","LASR","AMKR",
+    # 클린에너지 / 전력
+    "SHLS","NOVA","RUN","FLNC","AMPS","NXT","MAXN","ARRY","STEM",
+    # 소비재 / 브랜드
+    "PLNT","OLPX","WRBY","FIGS","SG","FIVN","PTLO","DNUT","BROS","CAVA",
+    # 산업 / 로봇 / 모빌리티
+    "SYM","OUST","MVIS","NVEE","PRCT","NNDM","BLNK","RKLB","ACHR",
+    # 우주 / 국방테크
+    "BKSY","VSAT","SIDU","ASTR","RDW","PL","SATL","KTOS",
+
 ]))
 
 # ══════════════════════════════════════════════════════════════
@@ -2293,7 +2306,7 @@ def send_screening_alert(market_results: dict, tenbagger_results: list):
         lines.append("")
 
     if tenbagger_results:
-        top3 = [r for r in tenbagger_results if r.get('total_score', 0) >= 75][:3]
+        top3 = [r for r in tenbagger_results if r.get('total_score', 0) >= 70][:3]
         if top3:
             lines.append("<b>🚀 텐배거 최상위</b>")
             for r in top3:
@@ -3084,7 +3097,7 @@ def get_tenbagger(request: Request):
     if DATABASE_URL:
         try:
             conn=get_conn(); cur=conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-            cur.execute("SELECT * FROM tenbagger_cache ORDER BY total_score DESC")
+            cur.execute("SELECT * FROM tenbagger_cache WHERE growth_score IS NOT NULL ORDER BY total_score DESC")
             rows=cur.fetchall(); cur.close(); conn.close()
             if rows:
                 results=[]
@@ -3093,20 +3106,20 @@ def get_tenbagger(request: Request):
                     if d.get("screened_at"): d["screened_at"]=d["screened_at"].strftime("%Y-%m-%d %H:%M")
                     results.append(d)
                 return {"updated_at":results[0].get("screened_at","–"),
-                        "total":len(results),"universe":f"나스닥 중소형 성장주 {len(TICKERS_TENBAGGER)}개",
+                        "total":len(results),"universe":f"미국 소형 성장주 {len(TICKERS_TENBAGGER)}개 (시총 100억$ 이하)",
                         "results":results,"from_cache":True}
         except: pass
     results=[]
-    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
         futures={executor.submit(fetch_tenbagger_stock,t):t for t in TICKERS_TENBAGGER}
-        for f in concurrent.futures.as_completed(futures,timeout=180):
+        for f in concurrent.futures.as_completed(futures,timeout=300):
             try:
                 r=f.result(timeout=20)
                 if r: results.append(r)
             except: continue
     results.sort(key=lambda x:x.get('total_score',0),reverse=True)
     return safe_json({"updated_at":datetime.now().strftime("%Y-%m-%d %H:%M"),
-            "total":len(results),"universe":f"나스닥 중소형 성장주 {len(TICKERS_TENBAGGER)}개",
+            "total":len(results),"universe":f"미국 소형 성장주 {len(TICKERS_TENBAGGER)}개 (시총 100억$ 이하)",
             "results":results,"from_cache":False})
 
 @app.get("/api/liquidity")
