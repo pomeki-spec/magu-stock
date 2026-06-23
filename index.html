@@ -5089,10 +5089,9 @@ function renderPortfolio() {
   pctEl.textContent = (pnlPct >= 0 ? '+' : '') + pnlPct.toFixed(2) + '%';
   pctEl.style.color = pnlPct >= 0 ? '#ef4444' : '#3b82f6';
 
-  // 종목별 비중 집계 (평가금액 기준, 재계산)
-  const totalStock = stockKrw;
+  // 종목별 비중 집계 — 전체 자산(주식+현금) 기준 (현금도 하나의 자산으로 취급)
   filtered.forEach(h => {
-    h.weight_pct = totalStock > 0 ? Math.round(h.current_value_krw / totalStock * 1000) / 10 : 0;
+    h.weight_pct = totalKrw > 0 ? Math.round(h.current_value_krw / totalKrw * 1000) / 10 : 0;
   });
 
   // 종목 테이블 - 미장(USD)/국장(KRW) 분리
@@ -5202,18 +5201,19 @@ function renderPortfolio() {
   }
   document.getElementById('pf-count').textContent = `${filtered.length}개 종목`;
 
-  // 원형 차트
-  renderPortfolioPies(filtered);
+  // 원형 차트 (현금도 하나의 자산으로 포함)
+  renderPortfolioPies(filtered, cashKrw, totalKrw);
 }
 
-function renderPortfolioPies(holdings) {
-  const totalValue = holdings.reduce((s,h) => s + h.current_value_krw, 0);
-  if(totalValue === 0 || holdings.length === 0) {
-    document.getElementById('pf-pie-ticker').innerHTML = '<div class="empty" style="width:100%;text-align:center;padding:20px;">종목 추가 후 표시됩니다</div>';
+function renderPortfolioPies(holdings, cashKrw=0, totalAll=0) {
+  const stockValue = holdings.reduce((s,h) => s + h.current_value_krw, 0);
+  const grandTotal = totalAll || (stockValue + cashKrw);
+  if(grandTotal === 0) {
+    document.getElementById('pf-pie-ticker').innerHTML = '<div class="empty" style="width:100%;text-align:center;padding:20px;">종목/현금 입력 후 표시됩니다</div>';
     return;
   }
 
-  // 종목별 (상위 10 + 기타)
+  // 종목별 (상위 10 + 기타) + 현금 — 전체 자산 기준 비중
   const sorted = [...holdings].sort((a,b) => b.current_value_krw - a.current_value_krw);
   const top10 = sorted.slice(0, 10);
   const rest = sorted.slice(10);
@@ -5223,7 +5223,8 @@ function renderPortfolioPies(holdings) {
     const displayName = h.currency === 'KRW' ? (h.name || h.ticker) : h.ticker;
     return {name: displayName, value: h.current_value_krw, pct: h.weight_pct};
   });
-  if(restSum > 0) tickerData.push({name: `기타 (${rest.length}개)`, value: restSum, pct: Math.round(restSum/totalValue*1000)/10});
+  if(restSum > 0) tickerData.push({name: `기타 (${rest.length}개)`, value: restSum, pct: Math.round(restSum/grandTotal*1000)/10});
+  if(cashKrw > 0) tickerData.push({name: '💵 현금', value: cashKrw, pct: Math.round(cashKrw/grandTotal*1000)/10});
 
   drawPie('pf-pie-ticker', tickerData);
 }
