@@ -1348,6 +1348,8 @@ def get_portfolio_weight(results):
 def fetch_single_stock(ticker, market):
     try:
         stock=yf.Ticker(ticker); info=stock.info
+        # ETF/펀드 제외 — 코스피 유니버스에 섞인 한국 상장 해외/배당 ETF가 주식 스크리너에 나오는 문제 방지
+        if (info.get('quoteType') or '').upper() in ('ETF','MUTUALFUND'): return None
         hist_daily=stock.history(period="1y"); hist_weekly=stock.history(period="2y",interval="1wk")
         if hist_daily.empty or len(hist_daily)<20: return None
         c_ema=score_ema_slope(hist_weekly)
@@ -1494,6 +1496,8 @@ def score_mt_52w(hist):
 def fetch_momentum_stock(ticker, market):
     try:
         stock = yf.Ticker(ticker); info = stock.info
+        # ETF/펀드 제외 (코스피 유니버스의 한국 상장 ETF 방지)
+        if (info.get('quoteType') or '').upper() in ('ETF','MUTUALFUND'): return None
         hist = stock.history(period="1y")
         if hist.empty or len(hist) < 20: return None
         rs = score_mt_rs(hist, market); ma = score_mt_ma(hist)
