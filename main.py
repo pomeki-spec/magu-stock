@@ -4554,12 +4554,22 @@ def get_milestones(request: Request):
         # 하이브리드 자동 달성: 미달성인데 현재자산이 단계 금액을 넘었으면 오늘(KST) 기록
         if current and current > 0:
             kst_today = datetime.now(pytz.timezone("Asia/Seoul")).date()
-            cur.execute("""
-                UPDATE growth_milestones
-                SET achieved_date = %s
-                WHERE achieved_date IS NULL AND amount <= %s
-            """, (kst_today, current))
-            conn.commit()
+            # 비정상 급증 가드 — 일시적 가격/환율 오류로 현재자산이 튀어 단계가 한꺼번에 오기록되는 것 방지
+            cur.execute("SELECT MAX(amount) FROM growth_milestones")
+            row = cur.fetchone(); max_amt = float(row[0]) if row and row[0] else 0
+            cur.execute("SELECT total_assets FROM portfolio_snapshots ORDER BY snapshot_date DESC LIMIT 1")
+            row = cur.fetchone(); prev_assets = float(row[0]) if row and row[0] else None
+            abnormal = (max_amt > 0 and current > max_amt * 1.5) or \
+                       (prev_assets and prev_assets > 0 and current > prev_assets * 3)
+            if abnormal:
+                logger.warning(f"마일스톤 자동달성 스킵 — 현재자산 비정상(now={current:.0f}, 직전스냅={prev_assets}, 최고목표={max_amt:.0f})")
+            else:
+                cur.execute("""
+                    UPDATE growth_milestones
+                    SET achieved_date = %s
+                    WHERE achieved_date IS NULL AND amount <= %s
+                """, (kst_today, current))
+                conn.commit()
         cur.execute("SELECT * FROM growth_milestones ORDER BY stage_order ASC")
         rows = [dict(r) for r in cur.fetchall()]
         for r in rows:
