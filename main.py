@@ -1352,6 +1352,9 @@ def fetch_single_stock(ticker, market):
         if (info.get('quoteType') or '').upper() in ('ETF','MUTUALFUND'): return None
         hist_daily=stock.history(period="1y"); hist_weekly=stock.history(period="2y",interval="1wk")
         if hist_daily.empty or len(hist_daily)<20: return None
+        # 결측(NaN) 보정 — 해외 서버 yfinance가 한국종목 종가에 NaN을 섞어 rolling(20일선/52주)이 0되는 문제 방지
+        hist_daily = hist_daily.ffill().bfill()
+        if not hist_weekly.empty: hist_weekly = hist_weekly.ffill().bfill()
         c_ema=score_ema_slope(hist_weekly)
         c_stoch=score_stochastic(hist_daily)//(2 if c_ema==0 else 1)
         c_break=score_breakout(hist_daily)//(2 if c_ema==0 else 1)
@@ -1500,6 +1503,7 @@ def fetch_momentum_stock(ticker, market):
         if (info.get('quoteType') or '').upper() in ('ETF','MUTUALFUND'): return None
         hist = stock.history(period="1y")
         if hist.empty or len(hist) < 20: return None
+        hist = hist.ffill().bfill()  # 결측(NaN) 보정 — 해외서버 한국종목 결측 대응
         rs = score_mt_rs(hist, market); ma = score_mt_ma(hist)
         vol = score_mt_vol(hist); h52 = score_mt_52w(hist)
         mtotal = rs + ma + vol + h52
@@ -2164,6 +2168,7 @@ def fetch_tenbagger_stock(ticker):
         stock=yf.Ticker(ticker); info=stock.info
         hist_daily=stock.history(period="1y")
         if hist_daily.empty or len(hist_daily)<60: return None
+        hist_daily = hist_daily.ffill().bfill()  # 결측(NaN) 보정
         price_check=info.get('regularMarketPrice') or info.get('currentPrice') or info.get('previousClose')
         if not price_check: return None
         mcap=info.get('marketCap',0) or 0
@@ -3125,6 +3130,27 @@ def get_tenbagger(request: Request):
     return safe_json({"updated_at":datetime.now().strftime("%Y-%m-%d %H:%M"),
             "total":len(results),"universe":f"미국 소형 성장주 {len(TICKERS_TENBAGGER)}개 (시총 100억$ 이하)",
             "results":results,"from_cache":False})
+
+@app.get("/api/debug/single")
+@limiter.limit("20/minute")
+def debug_single(request: Request, ticker: str, market: str = "kospi"):
+    """진단용 — 특정 종목의 실시간 계산 결과(ma20_pct 등) + 히스토리 결측 여부 확인"""
+    try:
+        stock = yf.Ticker(ticker)
+        h = stock.history(period="1y")
+        nan_close = int(h['Close'].isna().sum()) if not h.empty else -1
+        rows = len(h)
+        r = fetch_single_stock(ticker, market)
+        return safe_json({
+            "ticker": ticker, "rows": rows, "nan_close_count": nan_close,
+            "ma20_pct": (r or {}).get("ma20_pct"),
+            "from_52w_high": (r or {}).get("from_52w_high"),
+            "vol_ratio": (r or {}).get("vol_ratio"),
+            "price": (r or {}).get("price"),
+            "total_score": (r or {}).get("total_score"),
+        })
+    except Exception as e:
+        return {"error": str(e)}
 
 @app.get("/api/liquidity")
 @limiter.limit("10/minute")
