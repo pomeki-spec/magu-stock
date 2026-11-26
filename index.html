@@ -1746,6 +1746,18 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
         <b>기준선까지</b> = 현재가가 기준선 대비 몇 % (보유 중 +면 손절선 위 안전 / 대기 중 매수전환가에 근접할수록 매수 임박)
       </div>
     </div>
+
+    <!-- 오늘의 MIMO 신호 (스크리너 통과 종목 중 당일 전환) -->
+    <div class="card" style="margin-top:14px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:12px;">
+        <span class="section-title" style="margin-bottom:0;">📡 오늘의 MIMO 신호 <span style="font-size:11px;font-weight:400;color:var(--sub);">· 스크리너 통과(55점+) 종목 중 당일 전환</span></span>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span id="ms-updated" style="font-size:11px;color:var(--sub);">—</span>
+          <button class="seg-btn" onclick="mimoScreenNow(this)" style="padding:4px 12px;font-size:12px;">🔄 지금 스캔</button>
+        </div>
+      </div>
+      <div id="ms-body"><div class="empty" style="padding:20px;">새벽 배치 후 자동 표시 · 바로 보려면 '🔄 지금 스캔'</div></div>
+    </div>
   </div>
 
   <div id="page-rebalance" style="display:none;">
@@ -5847,6 +5859,51 @@ async function loadWatchlist() {
     renderWatchlist(data.watchlist);
     document.getElementById('wl-updated').textContent = '업데이트: ' + new Date().toLocaleTimeString('ko-KR');
   } catch(e) { tb.innerHTML = '<tr><td colspan="8" class="empty">❌ 서버 연결 실패</td></tr>'; }
+  loadMimoSignals();
+}
+
+async function loadMimoSignals() {
+  const body = document.getElementById('ms-body');
+  try {
+    const res = await fetch(`${API}/api/mimo/signals`);
+    const data = await res.json();
+    if(data.error) { body.innerHTML = `<div class="empty" style="padding:20px;">❌ ${data.error}</div>`; return; }
+    renderMimoSignals(data.signals || [], data.updated_at);
+  } catch(e) { body.innerHTML = '<div class="empty" style="padding:20px;">❌ 연결 실패</div>'; }
+}
+
+function renderMimoSignals(signals, updated) {
+  document.getElementById('ms-updated').textContent = updated ? ('기준: ' + updated) : '';
+  const body = document.getElementById('ms-body');
+  if(!signals.length) { body.innerHTML = '<div class="empty" style="padding:20px;">오늘 전환 신호가 없습니다</div>'; return; }
+  const isKR = (tk) => (tk||'').endsWith('.KS') || (tk||'').endsWith('.KQ');
+  const fmtP = (tk,v) => v==null ? '—' : (isKR(tk) ? '₩'+Math.round(v).toLocaleString() : '$'+v.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}));
+  const card = (s) => `<div style="border:1px solid var(--border);border-radius:8px;padding:10px 12px;display:flex;justify-content:space-between;align-items:center;gap:10px;">
+      <div><div style="font-weight:800;color:#1d4ed8;">${s.ticker}</div><div style="font-size:11px;color:var(--sub);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:150px;">${s.name||''}</div></div>
+      <div style="text-align:right;"><div style="font-weight:700;">${fmtP(s.ticker,s.price)}</div><div style="font-size:10px;color:var(--sub);">마구 ${s.total_score??'—'} · ${s.line_type||''} ${fmtP(s.ticker,s.line)}</div></div>
+    </div>`;
+  const buys = signals.filter(s=>s.signal==='Buy');
+  const sells = signals.filter(s=>s.signal==='Sell');
+  body.innerHTML = `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;" id="ms-grid">
+      <div>
+        <div style="font-size:13px;font-weight:800;color:#15803d;margin-bottom:8px;">🔵 매수 전환 (${buys.length})</div>
+        <div style="display:flex;flex-direction:column;gap:8px;">${buys.length?buys.map(card).join(''):'<div class="empty" style="padding:12px;">없음</div>'}</div>
+      </div>
+      <div>
+        <div style="font-size:13px;font-weight:800;color:#dc2626;margin-bottom:8px;">🔴 매도 전환 (${sells.length})</div>
+        <div style="display:flex;flex-direction:column;gap:8px;">${sells.length?sells.map(card).join(''):'<div class="empty" style="padding:12px;">없음</div>'}</div>
+      </div>
+    </div>`;
+}
+
+async function mimoScreenNow(btn) {
+  const orig = btn.textContent; btn.disabled = true; btn.textContent = '⏳ 스캔 중...';
+  document.getElementById('ms-body').innerHTML = '<div class="empty" style="padding:20px;"><div class="spinner" style="margin:0 auto 8px;"></div>스크리너 통과 종목 MIMO 스캔 중... 1~2분 소요</div>';
+  try {
+    await fetch(`${API}/api/mimo/screen_now`, {method:'POST'});
+    setTimeout(() => { loadMimoSignals(); btn.disabled = false; btn.textContent = orig; }, 90000);
+  } catch(e) { btn.disabled = false; btn.textContent = orig; alert('스캔 요청 실패'); }
 }
 
 function wlDelBtn(ticker) {

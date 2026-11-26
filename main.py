@@ -409,6 +409,20 @@ def init_db():
             added_at  TIMESTAMP DEFAULT NOW()
         );
 
+        -- 오늘의 MIMO 신호 (스크리너 통과 종목 중 당일 Buy/Sell 전환)
+        CREATE TABLE IF NOT EXISTS mimo_signals (
+            ticker      TEXT PRIMARY KEY,
+            name        TEXT,
+            market      TEXT,
+            signal      TEXT,       -- Buy / Sell
+            signal_date DATE,
+            price       FLOAT,
+            line        FLOAT,
+            line_type   TEXT,
+            total_score INT,
+            screened_at TIMESTAMP DEFAULT NOW()
+        );
+
         -- ──────────────────────────────────────────────
         -- 환율 캐시
         -- ──────────────────────────────────────────────
@@ -1790,6 +1804,7 @@ def run_us_screening_job():
         if i: _t.sleep(90)  # 나스닥 후 텀 — S&P500이 rate limit에 걸리지 않도록
         _screen_one_market(market, tickers)
     _run_tenbagger_job()
+    run_mimo_screening_job()  # 스크리너 통과 종목 중 당일 MIMO 전환 추출 (한국 01:00 + 미국 모두 캐시에 있는 시점)
     cleanup_old_data()
     logger.info(f"=== 미국 스크리닝 완료: {int((datetime.now()-start).total_seconds()//60)}분 ===")
     _send_screening_telegram()  # 이 시점엔 한국(01:00)도 완료되어 종합 알림 가능
@@ -3299,6 +3314,84 @@ def delete_watchlist(ticker: str, request: Request):
         return {"ok": True}
     except Exception as e:
         return {"ok": False, "error": str(e)}
+
+
+def run_mimo_screening_job(min_score=55):
+    """스크리너 통과 종목(마구 스코어 min_score+) 중 '오늘(최근 거래일) Buy/Sell 전환'한 것만 mimo_signals에 저장"""
+    if not DATABASE_URL: return
+    try:
+        conn = get_conn(); cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("""SELECT ticker,name,market,total_score FROM screening_cache
+                       WHERE total_score >= %s AND screened_at > NOW() - INTERVAL '30 hours'""", (min_score,))
+        cands = [dict(r) for r in cur.fetchall()]; cur.close(); conn.close()
+        logger.info(f"[MIMO] 후보 {len(cands)}개 (점수 {min_score}+)")
+
+        def one(c):
+            tk = c['ticker']
+            try:
+                h = yf.Ticker(tk).history(period="1y")
+                if h.empty or len(h) < 20: return None
+                h = h.ffill().bfill()
+                is_kr = tk.endswith('.KS') or tk.endswith('.KQ')
+                m = compute_mimo(h, 'KRW' if is_kr else 'USD')
+                if not m or not m.get('last_signal'): return None
+                last_bar = h.index[-1].strftime('%Y-%m-%d')
+                if m.get('last_signal_date') != last_bar: return None  # 당일 전환만
+                return {"ticker": tk, "name": c.get('name') or KR_NAMES.get(tk) or tk,
+                        "market": c.get('market'), "signal": m['last_signal'],
+                        "signal_date": m['last_signal_date'], "price": round(float(h['Close'].iloc[-1]), 2),
+                        "line": m.get('line'), "line_type": m.get('line_type'), "total_score": c.get('total_score')}
+            except Exception:
+                return None
+
+        sigs = []
+        if cands:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=10) as ex:
+                futs = {ex.submit(one, c): c for c in cands}
+                for f in concurrent.futures.as_completed(futs, timeout=600):
+                    try:
+                        r = f.result(timeout=25)
+                        if r: sigs.append(r)
+                    except Exception: pass
+
+        conn = get_conn(); cur = conn.cursor()
+        cur.execute("DELETE FROM mimo_signals")
+        for s in sigs:
+            cur.execute("""INSERT INTO mimo_signals (ticker,name,market,signal,signal_date,price,line,line_type,total_score,screened_at)
+                           VALUES (%(ticker)s,%(name)s,%(market)s,%(signal)s,%(signal_date)s,%(price)s,%(line)s,%(line_type)s,%(total_score)s,NOW())
+                           ON CONFLICT (ticker) DO UPDATE SET signal=EXCLUDED.signal, signal_date=EXCLUDED.signal_date,
+                             price=EXCLUDED.price, line=EXCLUDED.line, line_type=EXCLUDED.line_type,
+                             total_score=EXCLUDED.total_score, screened_at=NOW()""", s)
+        conn.commit(); cur.close(); conn.close()
+        logger.info(f"[MIMO] 당일 신호 {len(sigs)}개 저장")
+    except Exception as e:
+        logger.error(f"MIMO 스크리닝 오류: {e}")
+
+
+@app.get("/api/mimo/signals")
+@limiter.limit("30/minute")
+def get_mimo_signals(request: Request):
+    """오늘의 MIMO 신호 (스크리너 통과 종목 중 당일 Buy/Sell 전환)"""
+    if not DATABASE_URL: return {"error": "DATABASE_URL 없음"}
+    try:
+        conn = get_conn(); cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("SELECT * FROM mimo_signals ORDER BY signal ASC, total_score DESC")
+        rows = [dict(r) for r in cur.fetchall()]; cur.close(); conn.close()
+        for r in rows:
+            if r.get('signal_date'): r['signal_date'] = r['signal_date'].strftime('%Y-%m-%d')
+            if r.get('screened_at'): r['screened_at'] = r['screened_at'].strftime('%Y-%m-%d %H:%M')
+        return safe_json({"signals": rows, "updated_at": rows[0]['screened_at'] if rows else None})
+    except Exception as e:
+        logger.error(f"mimo signals GET 오류: {e}")
+        return {"error": str(e)}
+
+
+@app.post("/api/mimo/screen_now")
+@limiter.limit("2/minute")
+def mimo_screen_now(request: Request, background_tasks: BackgroundTasks):
+    """수동 트리거 — 지금 바로 MIMO 전체 스크리닝 (새벽 배치 안 기다리고 테스트용)"""
+    background_tasks.add_task(run_mimo_screening_job)
+    return {"message": "MIMO 스크리닝 시작 — 1~2분 후 새로고침하세요"}
 
 @app.get("/api/liquidity")
 @limiter.limit("10/minute")
