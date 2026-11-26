@@ -973,6 +973,10 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
       <span class="nav-icon">🚀</span>
       <div><div class="nav-label">텐배거</div></div>
     </div>
+    <div class="nav-item" id="nav-watchlist" onclick="showPage('watchlist')">
+      <span class="nav-icon">🎯</span>
+      <div><div class="nav-label">바이셀 모니터</div></div>
+    </div>
   </nav>
   <div class="sidebar-footer">
     <div class="idx-title">시장 지수</div>
@@ -1707,6 +1711,43 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
   </div>
 
   <!-- ───────── ⚖️ 리밸런싱 대시보드 ───────── -->
+  <!-- ───────── 바이셀 모니터 (MIMO 워치리스트) ───────── -->
+  <div id="page-watchlist" style="display:none;">
+    <div class="topbar">
+      <div>
+        <div class="page-title">🎯 바이셀 모니터</div>
+        <div class="update-row">MIMO 비대칭 슈퍼트렌드 — 매수 ST(10·3) 상승전환 / 매도 ST(10·KR2·US3) 이탈
+          <span class="tag-status" style="background:#eff6ff;color:#1d4ed8;" id="wl-updated">—</span></div>
+      </div>
+      <div class="topbar-right"><button class="run-btn" onclick="loadWatchlist()">🔄 새로고침</button></div>
+    </div>
+    <div class="card" style="margin-bottom:14px;">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+        <span style="font-size:13px;font-weight:700;color:var(--sub);white-space:nowrap;">관심종목 추가</span>
+        <input id="wl-new-ticker" type="text" placeholder="티커 (예: AAPL / 005930.KS)"
+          style="flex:1;min-width:180px;padding:9px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-weight:600;background:var(--card);color:var(--text);box-sizing:border-box;"
+          onkeydown="if(event.key==='Enter')addWatchlist()">
+        <button class="seg-btn" onclick="addWatchlist()" style="background:var(--blue);color:#fff;border-color:var(--blue);padding:9px 18px;">+ 추가</button>
+      </div>
+      <div style="font-size:11px;color:var(--sub);margin-top:8px;">💡 한국 종목은 <b>.KS</b>(코스피)/<b>.KQ</b>(코스닥)를 붙이세요 (예: 삼성전자 005930.KS). 매도 배수는 통화로 자동 — 원화 2 / 그 외 3.</div>
+    </div>
+    <div class="card">
+      <div class="table-wrap">
+        <table class="stbl">
+          <thead><tr>
+            <th>종목</th><th style="text-align:right;">현재가</th><th style="text-align:right;">등락률</th>
+            <th style="text-align:center;">상태</th><th>최근 신호</th><th style="text-align:right;">기준선</th><th style="text-align:right;">기준선까지</th><th></th>
+          </tr></thead>
+          <tbody id="wl-tbody"><tr><td colspan="8" class="empty">관심종목을 추가하세요</td></tr></tbody>
+        </table>
+      </div>
+      <div style="font-size:11px;color:var(--sub);margin-top:10px;line-height:1.7;">
+        🟢 <b>보유구간</b> = 매수 신호 후 (기준선 = 손절선) · ⚪ <b>대기구간</b> = 매도/관망 (기준선 = 매수 전환가)<br>
+        <b>기준선까지</b> = 현재가가 기준선 대비 몇 % (보유 중 +면 손절선 위 안전 / 대기 중 매수전환가에 근접할수록 매수 임박)
+      </div>
+    </div>
+  </div>
+
   <div id="page-rebalance" style="display:none;">
     <div class="topbar">
       <div>
@@ -2352,7 +2393,7 @@ function closeSidebar() {
 }
 
 function showPage(page) {
-  ['dashboard','classic','growth','modern','tenbagger','backtest','smartmoney','liquidity','momentum','rebalance','portfolio','calendar'].forEach(p => {
+  ['dashboard','classic','growth','modern','tenbagger','watchlist','backtest','smartmoney','liquidity','momentum','rebalance','portfolio','calendar'].forEach(p => {
     document.getElementById('page-'+p).style.display = p===page?'block':'none';
     const nav = document.getElementById('nav-'+p);
     if(nav) nav.classList.toggle('active', p===page);
@@ -2378,6 +2419,9 @@ function showPage(page) {
   }
   if(page === 'portfolio') {
     loadPortfolio();
+  }
+  if(page === 'watchlist') {
+    loadWatchlist();
   }
   if(page === 'calendar') {
     loadCalendar();
@@ -5788,6 +5832,83 @@ function filterTenbagger(type,btn) {
   else if(type==='관심') data=data.filter(r=>r.total_score>=40&&r.total_score<55);
   else if(type==='소형주') data=data.filter(r=>r.market_cap_b>0&&r.market_cap_b<=2);
   renderTenbaggerTable(data);
+}
+
+// ═══════════════════════════════════════════════════
+// 🎯 바이셀 모니터 (MIMO 워치리스트)
+// ═══════════════════════════════════════════════════
+async function loadWatchlist() {
+  const tb = document.getElementById('wl-tbody');
+  tb.innerHTML = '<tr><td colspan="8"><div class="loading"><div class="spinner"></div>MIMO 신호 계산 중...</div></td></tr>';
+  try {
+    const res = await fetch(`${API}/api/watchlist`);
+    const data = await res.json();
+    if(data.error || !data.watchlist) { tb.innerHTML = `<tr><td colspan="8" class="empty">❌ ${data.error||'불러오기 실패'}</td></tr>`; return; }
+    renderWatchlist(data.watchlist);
+    document.getElementById('wl-updated').textContent = '업데이트: ' + new Date().toLocaleTimeString('ko-KR');
+  } catch(e) { tb.innerHTML = '<tr><td colspan="8" class="empty">❌ 서버 연결 실패</td></tr>'; }
+}
+
+function wlDelBtn(ticker) {
+  return `<button onclick="deleteWatchlist('${ticker.replace(/'/g,'')}')" title="삭제" style="border:1px solid var(--border);background:#fff;border-radius:4px;cursor:pointer;font-size:11px;padding:3px 7px;color:#ef4444;">🗑</button>`;
+}
+
+function renderWatchlist(list) {
+  const tb = document.getElementById('wl-tbody');
+  if(!list.length) { tb.innerHTML = '<tr><td colspan="8" class="empty">관심종목을 추가하세요</td></tr>'; return; }
+  tb.innerHTML = list.map(s => {
+    const fmtP = (v) => v == null ? '—' : (s.currency === 'KRW' ? '₩'+Math.round(v).toLocaleString() : '$'+v.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}));
+    if(s.error) {
+      return `<tr><td><b>${s.ticker}</b><div style="font-size:11px;color:var(--sub);">${s.name||''}</div></td><td colspan="6" style="color:var(--sub);font-size:12px;">⚠️ ${s.error}</td><td style="text-align:center;">${wlDelBtn(s.ticker)}</td></tr>`;
+    }
+    const m = s.mimo || {};
+    const inPos = m.in_pos;
+    const statusBadge = inPos
+      ? `<span style="font-size:12px;font-weight:800;padding:3px 10px;border-radius:6px;background:#dcfce7;color:#15803d;">🟢 보유구간</span>`
+      : `<span style="font-size:12px;font-weight:800;padding:3px 10px;border-radius:6px;background:#f1f5f9;color:#64748b;">⚪ 대기구간</span>`;
+    const sigText = m.last_signal
+      ? `<span style="color:${m.last_signal==='Buy'?'#15803d':'#dc2626'};font-weight:700;">${m.last_signal==='Buy'?'🔵 매수':'🔴 매도'}</span> <span style="font-size:11px;color:var(--sub);">${m.last_signal_date||''}</span>`
+      : '—';
+    const chgClass = s.change_pct >= 0 ? 'up' : 'dn';
+    let gapTxt = '—', gapColor = 'var(--sub)';
+    if(m.line != null && s.price) {
+      const gap = (s.price/m.line - 1) * 100;
+      gapTxt = (gap>=0?'+':'') + gap.toFixed(1) + '%';
+      gapColor = inPos ? (gap>0?'#15803d':'#dc2626') : (gap<0?'#64748b':'#b45309');
+    }
+    const lineLabel = m.line != null ? `<div style="font-size:10px;color:var(--sub);">${m.line_type}</div>${fmtP(m.line)}` : '—';
+    return `<tr>
+      <td><div style="font-weight:800;color:#1d4ed8;">${s.ticker}</div><div style="font-size:11px;color:var(--sub);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:160px;">${s.name||''}</div></td>
+      <td style="text-align:right;"><strong>${fmtP(s.price)}</strong></td>
+      <td style="text-align:right;" class="${chgClass}">${s.change_pct>=0?'+':''}${s.change_pct}%</td>
+      <td style="text-align:center;">${statusBadge}</td>
+      <td>${sigText}</td>
+      <td style="text-align:right;">${lineLabel}</td>
+      <td style="text-align:right;color:${gapColor};font-weight:700;">${gapTxt}</td>
+      <td style="text-align:center;">${wlDelBtn(s.ticker)}</td>
+    </tr>`;
+  }).join('');
+}
+
+async function addWatchlist() {
+  const el = document.getElementById('wl-new-ticker');
+  const ticker = el.value.trim().toUpperCase();
+  if(!ticker) { el.focus(); return; }
+  el.disabled = true;
+  try {
+    const res = await fetch(`${API}/api/watchlist`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ticker})});
+    const d = await res.json();
+    if(d.ok) { el.value=''; loadWatchlist(); }
+    else alert('추가 실패: ' + (d.error||'?'));
+  } catch(e) { alert('서버 연결 실패'); }
+  el.disabled = false; el.focus();
+}
+
+async function deleteWatchlist(ticker) {
+  try {
+    await fetch(`${API}/api/watchlist/${encodeURIComponent(ticker)}`, {method:'DELETE'});
+    loadWatchlist();
+  } catch(e) { alert('삭제 실패'); }
 }
 
 // ── 💧 유동성 판단 ──

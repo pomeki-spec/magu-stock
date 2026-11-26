@@ -400,6 +400,16 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_price_cached_at ON price_cache(cached_at DESC);
 
         -- ──────────────────────────────────────────────
+        -- 관심종목 워치리스트 (MIMO 바이셀 모니터)
+        -- ──────────────────────────────────────────────
+        CREATE TABLE IF NOT EXISTS watchlist (
+            ticker    TEXT PRIMARY KEY,
+            name      TEXT,
+            sort_order INT DEFAULT 0,
+            added_at  TIMESTAMP DEFAULT NOW()
+        );
+
+        -- ──────────────────────────────────────────────
         -- 환율 캐시
         -- ──────────────────────────────────────────────
         CREATE TABLE IF NOT EXISTS fx_cache (
@@ -3151,6 +3161,144 @@ def debug_single(request: Request, ticker: str, market: str = "kospi"):
         })
     except Exception as e:
         return {"error": str(e)}
+
+
+# ══════════════════════════════════════════════════════════════
+# MIMO 바이셀 (비대칭 슈퍼트렌드) — 관심종목 워치리스트
+# ══════════════════════════════════════════════════════════════
+def compute_mimo(hist, currency):
+    """MIMO 비대칭 슈퍼트렌드 — 매수 ST(10,3) 상승전환 / 매도 ST(10, KR2·US3) 이탈.
+    반환: 현재 상태(보유/대기) + 최근 신호 + 기준선(손절선/매수전환가). (TradingView MIMO 동일 로직)"""
+    try:
+        high = hist['High'].values; low = hist['Low'].values; close = hist['Close'].values
+        n = len(close)
+        if n < 20: return None
+        src = (high + low) / 2
+        # ATR (Wilder RMA = Pine ta.atr)
+        tr = [0.0]*n
+        for i in range(n):
+            tr[i] = float(high[i]-low[i]) if i == 0 else float(max(high[i]-low[i], abs(high[i]-close[i-1]), abs(low[i]-close[i-1])))
+        period = 10; atr = [0.0]*n; atr[0] = tr[0]; a = 1.0/period
+        for i in range(1, n):
+            atr[i] = atr[i-1] + a*(tr[i]-atr[i-1])
+        def st(mult):
+            up = [0.0]*n; dn = [0.0]*n; t = [1]*n
+            for i in range(n):
+                upi = float(src[i]) - mult*atr[i]; dni = float(src[i]) + mult*atr[i]
+                if i == 0: up[i]=upi; dn[i]=dni; t[i]=1; continue
+                up1 = up[i-1]; up[i] = max(upi, up1) if close[i-1] > up1 else upi
+                dn1 = dn[i-1]; dn[i] = min(dni, dn1) if close[i-1] < dn1 else dni
+                pt = t[i-1]
+                t[i] = 1 if (pt == -1 and close[i] > dn1) else (-1 if (pt == 1 and close[i] < up1) else pt)
+            return up, dn, t
+        upB, dnB, trB = st(3.0)
+        sell_mult = 2.0 if currency == 'KRW' else 3.0
+        upS, dnS, trS = st(sell_mult)
+        in_pos = False; sig = None; si = None
+        for i in range(1, n):
+            buy = (not in_pos) and trB[i] == 1 and trB[i-1] == -1
+            sell = in_pos and (trS[i] == -1 or trB[i] == -1)
+            if buy: in_pos = True; sig = 'Buy'; si = i
+            elif sell: in_pos = False; sig = 'Sell'; si = i
+        if in_pos:
+            line = upS[-1]; line_type = '손절선'
+        else:
+            line = dnB[-1] if trB[-1] == -1 else None; line_type = '매수전환가'
+        sig_date = None
+        try:
+            if si is not None: sig_date = hist.index[si].strftime('%Y-%m-%d')
+        except Exception: pass
+        return {
+            "in_pos": bool(in_pos), "status": "보유구간" if in_pos else "대기구간",
+            "last_signal": sig, "last_signal_date": sig_date,
+            "line": round(float(line), 2) if line is not None else None,
+            "line_type": line_type, "sell_mult": sell_mult,
+        }
+    except Exception as e:
+        logger.warning(f"compute_mimo 오류: {e}")
+        return None
+
+
+@app.get("/api/watchlist")
+@limiter.limit("30/minute")
+def get_watchlist(request: Request):
+    """관심종목 + 각 종목 실시간 MIMO 바이셀 신호"""
+    if not DATABASE_URL: return {"error": "DATABASE_URL 없음"}
+    try:
+        conn = get_conn(); cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("SELECT * FROM watchlist ORDER BY sort_order ASC, added_at ASC")
+        rows = [dict(r) for r in cur.fetchall()]; cur.close(); conn.close()
+        tickers = [r['ticker'] for r in rows]
+        name_map = {r['ticker']: r['name'] for r in rows}
+
+        def one(tk):
+            try:
+                h = yf.Ticker(tk).history(period="1y")
+                nm = name_map.get(tk) or KR_NAMES.get(tk) or tk
+                if h.empty or len(h) < 20:
+                    return {"ticker": tk, "name": nm, "error": "데이터 부족"}
+                h = h.ffill().bfill()
+                cur_price = float(h['Close'].iloc[-1]); prev = float(h['Close'].iloc[-2])
+                chg = round((cur_price/prev-1)*100, 2) if prev else 0.0
+                is_kr = tk.endswith('.KS') or tk.endswith('.KQ')
+                m = compute_mimo(h, 'KRW' if is_kr else 'USD')
+                return {"ticker": tk, "name": nm, "currency": 'KRW' if is_kr else 'USD',
+                        "price": round(cur_price, 2), "change_pct": chg, "mimo": m}
+            except Exception as e:
+                return {"ticker": tk, "name": name_map.get(tk) or tk, "error": str(e)}
+
+        results = []
+        if tickers:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
+                futs = {ex.submit(one, t): t for t in tickers}
+                for f in concurrent.futures.as_completed(futs, timeout=90):
+                    try: results.append(f.result(timeout=25))
+                    except Exception: pass
+        order = {t: i for i, t in enumerate(tickers)}
+        results.sort(key=lambda x: order.get(x['ticker'], 999))
+        return safe_json({"watchlist": results})
+    except Exception as e:
+        logger.error(f"watchlist GET 오류: {e}")
+        return {"error": str(e)}
+
+
+@app.post("/api/watchlist")
+@limiter.limit("20/minute")
+async def add_watchlist(request: Request):
+    if not DATABASE_URL: return {"ok": False, "error": "DATABASE_URL 없음"}
+    try:
+        body = await request.json()
+        ticker = (body.get('ticker') or '').strip().upper()
+        if not ticker: return {"ok": False, "error": "ticker 필수"}
+        try:
+            info = yf.Ticker(ticker).info or {}
+            name = info.get('longName') or info.get('shortName') or KR_NAMES.get(ticker) or ticker
+            if not (info.get('regularMarketPrice') or info.get('currentPrice') or info.get('previousClose')):
+                h = yf.Ticker(ticker).history(period="5d")
+                if h.empty: return {"ok": False, "error": "유효하지 않은 티커"}
+        except Exception:
+            name = KR_NAMES.get(ticker) or ticker
+        conn = get_conn(); cur = conn.cursor()
+        cur.execute("""INSERT INTO watchlist (ticker,name) VALUES (%s,%s)
+                       ON CONFLICT (ticker) DO UPDATE SET name=EXCLUDED.name""", (ticker, name))
+        conn.commit(); cur.close(); conn.close()
+        return {"ok": True, "ticker": ticker, "name": name}
+    except Exception as e:
+        logger.error(f"watchlist POST 오류: {e}")
+        return {"ok": False, "error": str(e)}
+
+
+@app.delete("/api/watchlist/{ticker}")
+@limiter.limit("30/minute")
+def delete_watchlist(ticker: str, request: Request):
+    if not DATABASE_URL: return {"ok": False, "error": "DATABASE_URL 없음"}
+    try:
+        conn = get_conn(); cur = conn.cursor()
+        cur.execute("DELETE FROM watchlist WHERE ticker=%s", (ticker.upper(),))
+        conn.commit(); cur.close(); conn.close()
+        return {"ok": True}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
 
 @app.get("/api/liquidity")
 @limiter.limit("10/minute")
