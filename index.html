@@ -957,18 +957,6 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
       <span class="nav-icon">📌</span>
       <div><div class="nav-label">베스트픽 트래커</div></div>
     </div>
-    <div class="nav-item" id="nav-classic" onclick="showPage('classic')">
-      <span class="nav-icon">🔎</span>
-      <div><div class="nav-label">클래식 모델</div></div>
-    </div>
-    <div class="nav-item" id="nav-growth" onclick="showPage('growth')">
-      <span class="nav-icon">📈</span>
-      <div><div class="nav-label">성장 모델</div></div>
-    </div>
-    <div class="nav-item" id="nav-modern" onclick="showPage('modern')">
-      <span class="nav-icon">🤖</span>
-      <div><div class="nav-label">모던 모델</div></div>
-    </div>
     <div class="nav-item" id="nav-tenbagger" onclick="showPage('tenbagger')">
       <span class="nav-icon">🚀</span>
       <div><div class="nav-label">텐배거</div></div>
@@ -976,6 +964,10 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
     <div class="nav-item" id="nav-watchlist" onclick="showPage('watchlist')">
       <span class="nav-icon">🎯</span>
       <div><div class="nav-label">MIMO</div></div>
+    </div>
+    <div class="nav-item" id="nav-models" onclick="showPage('models')">
+      <span class="nav-icon">📖</span>
+      <div><div class="nav-label">모델 설명</div></div>
     </div>
   </nav>
   <div class="sidebar-footer">
@@ -1197,7 +1189,7 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
     </div>
 
     <div class="model-grid">
-      <div class="model-card" onclick="showPage('classic')">
+      <div class="model-card" onclick="showPage('models')">
         <div class="model-head">
           <div style="display:flex;align-items:center;gap:8px;"><span style="font-size:20px;">📉</span>
             <div><div class="model-title">클래식 모델</div><div class="model-sub-text">엘더 3중 스크린 (30점)</div></div></div>
@@ -1206,7 +1198,7 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
         <div id="classic-stocks"><div class="empty">스크리닝 실행 전</div></div>
         <button class="model-btn">자세히 보기 →</button>
       </div>
-      <div class="model-card" onclick="showPage('growth')">
+      <div class="model-card" onclick="showPage('models')">
         <div class="model-head">
           <div style="display:flex;align-items:center;gap:8px;"><span style="font-size:20px;">📈</span>
             <div><div class="model-title">성장 모델</div><div class="model-sub-text">퀀트 펀더멘털 (40점)</div></div></div>
@@ -1215,7 +1207,7 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
         <div id="growth-stocks"><div class="empty">스크리닝 실행 전</div></div>
         <button class="model-btn">자세히 보기 →</button>
       </div>
-      <div class="model-card" onclick="showPage('modern')">
+      <div class="model-card" onclick="showPage('models')">
         <div class="model-head">
           <div style="display:flex;align-items:center;gap:8px;"><span style="font-size:20px;">🤖</span>
             <div><div class="model-title">모던 모델</div><div class="model-sub-text">AI & 심리 (30점)</div></div></div>
@@ -1253,72 +1245,73 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
   </div>
 
   <!-- ───────── 클래식 모델 ───────── -->
-  <div id="page-classic" style="display:none;">
-    <div style="display:flex;align-items:center;gap:14px;margin-bottom:22px;">
-      <button class="back-btn" onclick="showPage('dashboard')">← 종합 현황</button>
-      <div><div class="page-title">🔎 클래식 모델</div><div style="font-size:12px;color:var(--sub);margin-top:4px;">알렉산더 엘더 3중 스크린 · 30점 만점</div></div>
-    </div>
-    <div class="cond-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px;">
-      <div class="cond-step" style="background:#eff6ff;border:1px solid #bfdbfe;">
-        <div style="font-size:13px;font-weight:700;color:#1d4ed8;margin-bottom:7px;">1단계 — 조류 파악 (10점)</div>
-        <div style="font-size:12px;color:#3b82f6;line-height:1.7;">주봉 26주 EMA 상승 중<br>시장의 큰 흐름 확인</div>
-      </div>
-      <div class="cond-step" style="background:#eff6ff;border:1px solid #bfdbfe;">
-        <div style="font-size:13px;font-weight:700;color:#1d4ed8;margin-bottom:7px;">2단계 — 파도 확인 (10점)</div>
-        <div style="font-size:12px;color:#3b82f6;line-height:1.7;">일봉 스토캐스틱 과매도 구간<br>상승 추세 속 눌림목 포착</div>
-      </div>
-      <div class="cond-step" style="background:#eff6ff;border:1px solid #bfdbfe;">
-        <div style="font-size:13px;font-weight:700;color:#1d4ed8;margin-bottom:7px;">3단계 — 진입 시점 (10점)</div>
-        <div style="font-size:12px;color:#3b82f6;line-height:1.7;">전일 고가 돌파 시도<br>추세 재개 확인</div>
+  <!-- ───────── 모델 설명 (스크리닝 점수 체계) ───────── -->
+  <div id="page-models" style="display:none;">
+    <div class="topbar">
+      <div>
+        <div class="page-title">📖 모델 설명</div>
+        <div class="update-row">마구 스코어 100점 = 🔎 클래식 30 + 📈 성장 40 + 🤖 모던 30 · 서로 다른 3가지 관점을 합산</div>
       </div>
     </div>
-    <div id="classic-page-content"><div class="empty" style="background:#fff;border-radius:12px;border:1px solid var(--border);padding:44px;">먼저 종합 현황에서 스크리닝을 실행해주세요</div></div>
-  </div>
 
-  <!-- ───────── 성장 모델 ───────── -->
-  <div id="page-growth" style="display:none;">
-    <div style="display:flex;align-items:center;gap:14px;margin-bottom:22px;">
-      <button class="back-btn" onclick="showPage('dashboard')">← 종합 현황</button>
-      <div><div class="page-title">📈 성장 모델</div><div style="font-size:12px;color:var(--sub);margin-top:4px;">퀀트 펀더멘털 성장주 스크린 · 40점 만점</div></div>
-    </div>
-    <div class="cond-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px;">
-      <div class="cond-step" style="background:#f0fdf4;border:1px solid #bbf7d0;">
-        <div style="font-size:13px;font-weight:700;color:#15803d;margin-bottom:7px;">1단계 — 퀄리티 필터 (15점)</div>
-        <div style="font-size:12px;color:#16a34a;line-height:1.7;">ROE &gt; 15%<br>부채비율 &lt; 100%</div>
-      </div>
-      <div class="cond-step" style="background:#f0fdf4;border:1px solid #bbf7d0;">
-        <div style="font-size:13px;font-weight:700;color:#15803d;margin-bottom:7px;">2단계 — 성장성 + 가치 (15점)</div>
-        <div style="font-size:12px;color:#16a34a;line-height:1.7;">EPS 성장률 &gt; 20% (3년)<br>PEG &lt; 1.2</div>
-      </div>
-      <div class="cond-step" style="background:#f0fdf4;border:1px solid #bbf7d0;">
-        <div style="font-size:13px;font-weight:700;color:#15803d;margin-bottom:7px;">3단계 — 모멘텀 (10점)</div>
-        <div style="font-size:12px;color:#16a34a;line-height:1.7;">주가 &gt; 200일 이동평균<br>RSI(14) &gt; 50</div>
+    <div class="card" style="margin-bottom:14px;border-left:4px solid #3b82f6;">
+      <div class="section-title">🔎 클래식 모델 <span style="font-size:11px;font-weight:400;color:var(--sub);">· 알렉산더 엘더 3중 스크린 · 30점 · 추세와 진입 타이밍</span></div>
+      <div class="cond-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:12px;">
+        <div class="cond-step" style="background:#eff6ff;border:1px solid #bfdbfe;">
+          <div style="font-size:13px;font-weight:700;color:#1d4ed8;margin-bottom:7px;">1단계 — 조류 파악 (10점)</div>
+          <div style="font-size:12px;color:#3b82f6;line-height:1.7;">주봉 26주 EMA 상승 중<br>시장의 큰 흐름 확인</div>
+        </div>
+        <div class="cond-step" style="background:#eff6ff;border:1px solid #bfdbfe;">
+          <div style="font-size:13px;font-weight:700;color:#1d4ed8;margin-bottom:7px;">2단계 — 파도 확인 (10점)</div>
+          <div style="font-size:12px;color:#3b82f6;line-height:1.7;">일봉 스토캐스틱 과매도 구간<br>상승 추세 속 눌림목 포착</div>
+        </div>
+        <div class="cond-step" style="background:#eff6ff;border:1px solid #bfdbfe;">
+          <div style="font-size:13px;font-weight:700;color:#1d4ed8;margin-bottom:7px;">3단계 — 진입 시점 (10점)</div>
+          <div style="font-size:12px;color:#3b82f6;line-height:1.7;">전일 고가 돌파 시도<br>추세 재개 확인</div>
+        </div>
       </div>
     </div>
-    <div id="growth-page-content"><div class="empty" style="background:#fff;border-radius:12px;border:1px solid var(--border);padding:44px;">먼저 종합 현황에서 스크리닝을 실행해주세요</div></div>
-  </div>
 
-  <!-- ───────── 모던 모델 ───────── -->
-  <div id="page-modern" style="display:none;">
-    <div style="display:flex;align-items:center;gap:14px;margin-bottom:22px;">
-      <button class="back-btn" onclick="showPage('dashboard')">← 종합 현황</button>
-      <div><div class="page-title">🤖 모던 모델</div><div style="font-size:12px;color:var(--sub);margin-top:4px;">AI & 심리 스크린 · 30점 만점</div></div>
-    </div>
-    <div class="cond-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px;">
-      <div class="cond-step" style="background:#fdf4ff;border:1px solid #e9d5ff;">
-        <div style="font-size:13px;font-weight:700;color:#7e22ce;margin-bottom:7px;">1단계 — 실적 상향 (10점)</div>
-        <div style="font-size:12px;color:#9333ea;line-height:1.7;">애널리스트 강력매수/매수<br>잭스 랭크 1~2 수준</div>
-      </div>
-      <div class="cond-step" style="background:#fdf4ff;border:1px solid #e9d5ff;">
-        <div style="font-size:13px;font-weight:700;color:#7e22ce;margin-bottom:7px;">2단계 — 상대적 강세 (10점)</div>
-        <div style="font-size:12px;color:#9333ea;line-height:1.7;">52주 수익률 &gt; 20%<br>S&P 500 대비 초과 성과</div>
-      </div>
-      <div class="cond-step" style="background:#fdf4ff;border:1px solid #e9d5ff;">
-        <div style="font-size:13px;font-weight:700;color:#7e22ce;margin-bottom:7px;">3단계 — 거래량 모멘텀 (10점)</div>
-        <div style="font-size:12px;color:#9333ea;line-height:1.7;">최근 거래량 &gt; 20일 평균<br>시장 관심도 확인</div>
+    <div class="card" style="margin-bottom:14px;border-left:4px solid #22c55e;">
+      <div class="section-title">📈 성장 모델 <span style="font-size:11px;font-weight:400;color:var(--sub);">· 퀀트 펀더멘털 성장주 스크린 · 40점 · 기업의 질</span></div>
+      <div class="cond-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:12px;">
+        <div class="cond-step" style="background:#f0fdf4;border:1px solid #bbf7d0;">
+          <div style="font-size:13px;font-weight:700;color:#15803d;margin-bottom:7px;">1단계 — 퀄리티 필터 (15점)</div>
+          <div style="font-size:12px;color:#16a34a;line-height:1.7;">ROE &gt; 15%<br>부채비율 &lt; 100%</div>
+        </div>
+        <div class="cond-step" style="background:#f0fdf4;border:1px solid #bbf7d0;">
+          <div style="font-size:13px;font-weight:700;color:#15803d;margin-bottom:7px;">2단계 — 성장성 + 가치 (15점)</div>
+          <div style="font-size:12px;color:#16a34a;line-height:1.7;">EPS 성장률 &gt; 20% (3년)<br>PEG &lt; 1.2</div>
+        </div>
+        <div class="cond-step" style="background:#f0fdf4;border:1px solid #bbf7d0;">
+          <div style="font-size:13px;font-weight:700;color:#15803d;margin-bottom:7px;">3단계 — 모멘텀 (10점)</div>
+          <div style="font-size:12px;color:#16a34a;line-height:1.7;">주가 &gt; 200일 이동평균<br>RSI(14) &gt; 50</div>
+        </div>
       </div>
     </div>
-    <div id="modern-page-content"><div class="empty" style="background:#fff;border-radius:12px;border:1px solid var(--border);padding:44px;">먼저 종합 현황에서 스크리닝을 실행해주세요</div></div>
+
+    <div class="card" style="margin-bottom:14px;border-left:4px solid #8b5cf6;">
+      <div class="section-title">🤖 모던 모델 <span style="font-size:11px;font-weight:400;color:var(--sub);">· AI & 심리 스크린 · 30점 · 시장 심리와 상대강도</span></div>
+      <div class="cond-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:12px;">
+        <div class="cond-step" style="background:#fdf4ff;border:1px solid #e9d5ff;">
+          <div style="font-size:13px;font-weight:700;color:#7e22ce;margin-bottom:7px;">1단계 — 실적 상향 (10점)</div>
+          <div style="font-size:12px;color:#9333ea;line-height:1.7;">애널리스트 강력매수/매수<br>잭스 랭크 1~2 수준</div>
+        </div>
+        <div class="cond-step" style="background:#fdf4ff;border:1px solid #e9d5ff;">
+          <div style="font-size:13px;font-weight:700;color:#7e22ce;margin-bottom:7px;">2단계 — 상대적 강세 (10점)</div>
+          <div style="font-size:12px;color:#9333ea;line-height:1.7;">52주 수익률 &gt; 20%<br>S&P 500 대비 초과 성과</div>
+        </div>
+        <div class="cond-step" style="background:#fdf4ff;border:1px solid #e9d5ff;">
+          <div style="font-size:13px;font-weight:700;color:#7e22ce;margin-bottom:7px;">3단계 — 거래량 모멘텀 (10점)</div>
+          <div style="font-size:12px;color:#9333ea;line-height:1.7;">최근 거래량 &gt; 20일 평균<br>시장 관심도 확인</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" style="font-size:12px;color:var(--sub);line-height:1.8;">
+      💡 세 모델의 점수는 <b>베스트픽(종합) 카드의 세부 점수</b>로 매일 확인할 수 있습니다. 이 페이지는 <b>각 점수가 어떻게 설계됐는지</b> 참고용입니다.<br>
+      🔎 <b>클래식</b>은 "지금 추세·타이밍이 맞는가", 📈 <b>성장</b>은 "기업의 질이 좋은가", 🤖 <b>모던</b>은 "시장이 주목하는가"를 봅니다.
+    </div>
   </div>
 
   <!-- ───────── 백테스트 (베스트픽 실적 추적) ───────── -->
@@ -2405,7 +2398,7 @@ function closeSidebar() {
 }
 
 function showPage(page) {
-  ['dashboard','classic','growth','modern','tenbagger','watchlist','backtest','smartmoney','liquidity','momentum','rebalance','portfolio','calendar'].forEach(p => {
+  ['dashboard','models','tenbagger','watchlist','backtest','smartmoney','liquidity','momentum','rebalance','portfolio','calendar'].forEach(p => {
     document.getElementById('page-'+p).style.display = p===page?'block':'none';
     const nav = document.getElementById('nav-'+p);
     if(nav) nav.classList.toggle('active', p===page);
@@ -2437,10 +2430,6 @@ function showPage(page) {
   }
   if(page === 'calendar') {
     loadCalendar();
-  }
-  if(['classic','growth','modern'].includes(page)) {
-    if(_lastResults && _lastResults.length>0) renderModelPage(page);
-    else document.getElementById(page+'-page-content').innerHTML='<div class="empty" style="background:#fff;border-radius:12px;border:1px solid var(--border);padding:44px;">먼저 종합 현황에서 🔄 스크리닝을 실행해주세요</div>';
   }
   window.scrollTo(0,0);
   // 모바일에서 페이지 전환 시 사이드바 닫기
