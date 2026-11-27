@@ -179,6 +179,12 @@ def init_db():
         ALTER TABLE screening_cache ADD COLUMN IF NOT EXISTS ma20_pct      FLOAT;
         ALTER TABLE screening_cache ADD COLUMN IF NOT EXISTS from_52w_high FLOAT;
         ALTER TABLE screening_cache ADD COLUMN IF NOT EXISTS vol_ratio     FLOAT;
+        -- MIMO 신호 (스크리닝 중 같은 데이터로 계산 → 재조회 없이 당일 전환 추출)
+        ALTER TABLE screening_cache ADD COLUMN IF NOT EXISTS mimo_signal      TEXT;
+        ALTER TABLE screening_cache ADD COLUMN IF NOT EXISTS mimo_signal_date DATE;
+        ALTER TABLE screening_cache ADD COLUMN IF NOT EXISTS mimo_line        FLOAT;
+        ALTER TABLE screening_cache ADD COLUMN IF NOT EXISTS mimo_line_type   TEXT;
+        ALTER TABLE screening_cache ADD COLUMN IF NOT EXISTS mimo_today       BOOLEAN;
         CREATE INDEX IF NOT EXISTS idx_sc_market ON screening_cache(market);
         CREATE INDEX IF NOT EXISTS idx_sc_score  ON screening_cache(total_score DESC);
 
@@ -1418,6 +1424,16 @@ def fetch_single_stock(ticker, market):
                 cur_vol=float(hist_daily['Volume'].iloc[-1])
                 if avg_vol>0: vol_ratio=round(cur_vol/avg_vol*100,0)
         except: pass
+        # MIMO 신호 — 스크리닝 중 같은 hist_daily로 계산 (yfinance 재조회 없음)
+        mimo_signal=None; mimo_sig_date=None; mimo_line=None; mimo_line_type=None; mimo_today=False
+        try:
+            _is_kr = ticker.endswith('.KS') or ticker.endswith('.KQ')
+            _mm = compute_mimo(hist_daily, 'KRW' if _is_kr else 'USD')
+            if _mm and _mm.get('last_signal'):
+                mimo_signal=_mm['last_signal']; mimo_sig_date=_mm.get('last_signal_date')
+                mimo_line=_mm.get('line'); mimo_line_type=_mm.get('line_type')
+                mimo_today = (mimo_sig_date == hist_daily.index[-1].strftime('%Y-%m-%d'))
+        except Exception: pass
         name=KR_NAMES.get(ticker) or info.get('longName',ticker); sector=info.get('sector') or 'Unknown'
         return {
             "ticker":ticker,"name":name,"sector":sector,"etf":SECTOR_TO_ETF.get(sector,""),
@@ -1431,6 +1447,8 @@ def fetch_single_stock(ticker, market):
             "g_roe":g_roe,"g_debt":g_debt,"g_eps":g_eps,"g_peg":g_peg,"g_ma200":g_ma200,"g_rsi":g_rsi,
             "m_anal":m_anal,"m_rs":m_rs,"m_obv":m_obv,
             "ma20_pct":ma20_pct,"from_52w_high":from_52w_high,"vol_ratio":vol_ratio,
+            "mimo_signal":mimo_signal,"mimo_signal_date":mimo_sig_date,"mimo_line":mimo_line,
+            "mimo_line_type":mimo_line_type,"mimo_today":mimo_today,
         }
     except: return None
 
@@ -1583,14 +1601,16 @@ def save_screening_to_db(results: list):
                      classic_score,growth_score,modern_score,total_score,
                      recommendation,weight,rsi,roe,peg,
                      c_ema,c_stoch,c_break,g_roe,g_debt,g_eps,g_peg,g_ma200,g_rsi,
-                     m_anal,m_rs,m_obv,ma20_pct,from_52w_high,vol_ratio,screened_at)
+                     m_anal,m_rs,m_obv,ma20_pct,from_52w_high,vol_ratio,
+                     mimo_signal,mimo_signal_date,mimo_line,mimo_line_type,mimo_today,screened_at)
                 VALUES
                     (%(ticker)s,%(market)s,%(name)s,%(sector)s,%(etf)s,%(price)s,%(change_pct)s,
                      %(classic_score)s,%(growth_score)s,%(modern_score)s,%(total_score)s,
                      %(recommendation)s,%(weight)s,%(rsi)s,%(roe)s,%(peg)s,
                      %(c_ema)s,%(c_stoch)s,%(c_break)s,%(g_roe)s,%(g_debt)s,%(g_eps)s,
                      %(g_peg)s,%(g_ma200)s,%(g_rsi)s,%(m_anal)s,%(m_rs)s,%(m_obv)s,
-                     %(ma20_pct)s,%(from_52w_high)s,%(vol_ratio)s,NOW())
+                     %(ma20_pct)s,%(from_52w_high)s,%(vol_ratio)s,
+                     %(mimo_signal)s,%(mimo_signal_date)s,%(mimo_line)s,%(mimo_line_type)s,%(mimo_today)s,NOW())
                 ON CONFLICT (ticker, market) DO UPDATE SET
                     name=EXCLUDED.name, sector=EXCLUDED.sector, etf=EXCLUDED.etf,
                     price=EXCLUDED.price, change_pct=EXCLUDED.change_pct,
@@ -1603,6 +1623,8 @@ def save_screening_to_db(results: list):
                     g_peg=EXCLUDED.g_peg, g_ma200=EXCLUDED.g_ma200, g_rsi=EXCLUDED.g_rsi,
                     m_anal=EXCLUDED.m_anal, m_rs=EXCLUDED.m_rs, m_obv=EXCLUDED.m_obv,
                     ma20_pct=EXCLUDED.ma20_pct, from_52w_high=EXCLUDED.from_52w_high, vol_ratio=EXCLUDED.vol_ratio,
+                    mimo_signal=EXCLUDED.mimo_signal, mimo_signal_date=EXCLUDED.mimo_signal_date,
+                    mimo_line=EXCLUDED.mimo_line, mimo_line_type=EXCLUDED.mimo_line_type, mimo_today=EXCLUDED.mimo_today,
                     screened_at=NOW()
             """, r)
         conn.commit(); cur.close(); conn.close()
@@ -3316,56 +3338,31 @@ def delete_watchlist(ticker: str, request: Request):
         return {"ok": False, "error": str(e)}
 
 
-def run_mimo_screening_job(min_score=55):
-    """스크리너 통과 종목(마구 스코어 min_score+) 중 '오늘(최근 거래일) Buy/Sell 전환'한 것만 mimo_signals에 저장"""
+def run_mimo_screening_job():
+    """전체 스크리닝 종목(screening_cache) 중 '오늘 MIMO 전환'한 것만 mimo_signals로 추출.
+    스크리닝 중 이미 MIMO를 계산해 저장했으므로 yfinance 재조회 없음 (점수 필터 없이 전체)."""
     if not DATABASE_URL: return
     try:
         conn = get_conn(); cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        cur.execute("""SELECT ticker,name,market,total_score FROM screening_cache
-                       WHERE total_score >= %s AND screened_at > NOW() - INTERVAL '30 hours'""", (min_score,))
-        cands = [dict(r) for r in cur.fetchall()]; cur.close(); conn.close()
-        logger.info(f"[MIMO] 후보 {len(cands)}개 (점수 {min_score}+)")
-
-        def one(c):
-            tk = c['ticker']
-            try:
-                h = yf.Ticker(tk).history(period="1y")
-                if h.empty or len(h) < 20: return None
-                h = h.ffill().bfill()
-                is_kr = tk.endswith('.KS') or tk.endswith('.KQ')
-                m = compute_mimo(h, 'KRW' if is_kr else 'USD')
-                if not m or not m.get('last_signal'): return None
-                last_bar = h.index[-1].strftime('%Y-%m-%d')
-                if m.get('last_signal_date') != last_bar: return None  # 당일 전환만
-                return {"ticker": tk, "name": c.get('name') or KR_NAMES.get(tk) or tk,
-                        "market": c.get('market'), "signal": m['last_signal'],
-                        "signal_date": m['last_signal_date'], "price": round(float(h['Close'].iloc[-1]), 2),
-                        "line": m.get('line'), "line_type": m.get('line_type'), "total_score": c.get('total_score')}
-            except Exception:
-                return None
-
-        sigs = []
-        if cands:
-            with concurrent.futures.ThreadPoolExecutor(max_workers=10) as ex:
-                futs = {ex.submit(one, c): c for c in cands}
-                for f in concurrent.futures.as_completed(futs, timeout=600):
-                    try:
-                        r = f.result(timeout=25)
-                        if r: sigs.append(r)
-                    except Exception: pass
+        cur.execute("""SELECT ticker,name,market,total_score,price,
+                              mimo_signal,mimo_signal_date,mimo_line,mimo_line_type
+                       FROM screening_cache
+                       WHERE mimo_today = TRUE AND screened_at > NOW() - INTERVAL '30 hours'
+                       ORDER BY mimo_signal ASC, total_score DESC NULLS LAST""")
+        rows = [dict(r) for r in cur.fetchall()]; cur.close(); conn.close()
 
         conn = get_conn(); cur = conn.cursor()
         cur.execute("DELETE FROM mimo_signals")
-        for s in sigs:
+        for r in rows:
             cur.execute("""INSERT INTO mimo_signals (ticker,name,market,signal,signal_date,price,line,line_type,total_score,screened_at)
-                           VALUES (%(ticker)s,%(name)s,%(market)s,%(signal)s,%(signal_date)s,%(price)s,%(line)s,%(line_type)s,%(total_score)s,NOW())
+                           VALUES (%(ticker)s,%(name)s,%(market)s,%(mimo_signal)s,%(mimo_signal_date)s,%(price)s,%(mimo_line)s,%(mimo_line_type)s,%(total_score)s,NOW())
                            ON CONFLICT (ticker) DO UPDATE SET signal=EXCLUDED.signal, signal_date=EXCLUDED.signal_date,
                              price=EXCLUDED.price, line=EXCLUDED.line, line_type=EXCLUDED.line_type,
-                             total_score=EXCLUDED.total_score, screened_at=NOW()""", s)
+                             total_score=EXCLUDED.total_score, screened_at=NOW()""", r)
         conn.commit(); cur.close(); conn.close()
-        logger.info(f"[MIMO] 당일 신호 {len(sigs)}개 저장")
+        logger.info(f"[MIMO] 당일 전환 {len(rows)}개 추출 (전체 스크리닝 종목 · 재조회 없음)")
     except Exception as e:
-        logger.error(f"MIMO 스크리닝 오류: {e}")
+        logger.error(f"MIMO 추출 오류: {e}")
 
 
 @app.get("/api/mimo/signals")

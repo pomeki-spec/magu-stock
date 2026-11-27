@@ -1750,7 +1750,7 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
     <!-- 오늘의 MIMO 신호 (스크리너 통과 종목 중 당일 전환) -->
     <div class="card" style="margin-top:14px;">
       <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:12px;">
-        <span class="section-title" style="margin-bottom:0;">📡 오늘의 MIMO 신호 <span style="font-size:11px;font-weight:400;color:var(--sub);">· 스크리너 통과(55점+) 종목 중 당일 전환</span></span>
+        <span class="section-title" style="margin-bottom:0;">📡 오늘의 MIMO 신호 <span style="font-size:11px;font-weight:400;color:var(--sub);">· 전체 스크리닝 종목 중 당일 전환</span></span>
         <div style="display:flex;align-items:center;gap:8px;">
           <span id="ms-updated" style="font-size:11px;color:var(--sub);">—</span>
           <button class="seg-btn" onclick="mimoScreenNow(this)" style="padding:4px 12px;font-size:12px;">🔄 지금 스캔</button>
@@ -5899,10 +5899,10 @@ function renderMimoSignals(signals, updated) {
 
 async function mimoScreenNow(btn) {
   const orig = btn.textContent; btn.disabled = true; btn.textContent = '⏳ 스캔 중...';
-  document.getElementById('ms-body').innerHTML = '<div class="empty" style="padding:20px;"><div class="spinner" style="margin:0 auto 8px;"></div>스크리너 통과 종목 MIMO 스캔 중... 1~2분 소요</div>';
+  document.getElementById('ms-body').innerHTML = '<div class="empty" style="padding:20px;"><div class="spinner" style="margin:0 auto 8px;"></div>최근 스크리닝 결과에서 MIMO 당일 전환 추출 중...</div>';
   try {
     await fetch(`${API}/api/mimo/screen_now`, {method:'POST'});
-    setTimeout(() => { loadMimoSignals(); btn.disabled = false; btn.textContent = orig; }, 90000);
+    setTimeout(() => { loadMimoSignals(); btn.disabled = false; btn.textContent = orig; }, 6000);
   } catch(e) { btn.disabled = false; btn.textContent = orig; alert('스캔 요청 실패'); }
 }
 
